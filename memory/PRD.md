@@ -189,5 +189,16 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - ✅ **11/11 pytest pass** (`tests/test_iteration12_dynamic_recs.py`).
 - ✅ **68/68 tests pass** in full regression across iter8–iter12.
 
+## Iteration 13 (2026-02-15) — Seatmap Waitlist
+- ✅ **Sold-out detection for seatmap events**: `GET /api/events/{id}` now returns `sold_out: true` when every non-aisle seat is locked (booked or held with non-expired hold). Aisles correctly excluded from capacity calc.
+- ✅ **Join waitlist** on seatmap events now succeeds (previously rejected with 400). Users specify `quantity`; seat preference deferred until offer time.
+- ✅ **Offer-next claims seats atomically**: `_create_waitlist_offer` for seatmap events picks the first N available seats and inserts each into `seat_reservations` with `status=held` + `source=waitlist`. Compound unique index on `(event_id, seat_id)` ensures atomic claim even under race conditions.
+- ✅ **Partial fulfillment**: if user asked for 3 but only 1 free, offer 1 seat (better than nothing).
+- ✅ **Expired offers free seats**: when a 15-min waitlist hold expires, its seat reservations are deleted, returning capacity to inventory + triggering the next person in the queue.
+- ✅ **Auto-trigger extended**: `/bookings/hold` flow also sweeps expired seat reservations and calls `try_offer_next_in_waitlist` for both event types.
+- ✅ **Frontend**: EventDetail now shows waitlist UI on sold-out seatmap events (previously hidden). Offer-ready panel lists the specific offered seats as chips before the "Claim my spot" button.
+- ✅ **8/8 pytest pass** (`tests/test_iteration13_seatmap_waitlist.py`).
+- ✅ **76/76 total tests pass** across iter8–iter13.
+
 ## Test Credentials
 See `/app/memory/test_credentials.md`

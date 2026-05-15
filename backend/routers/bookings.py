@@ -29,9 +29,12 @@ async def create_hold(payload: HoldIn, user: dict = Depends(get_current_user)):
         {"event_id": payload.event_id, "status": "pending", "hold_expires_at": {"$lt": now_iso}},
         {"$set": {"status": "expired"}},
     )
-    if expired.modified_count > 0 and not event.get("has_seatmap"):
+    # Also clean expired seatmap holds so seats free up immediately
+    expired_seats = await db.seat_reservations.delete_many(
+        {"event_id": payload.event_id, "status": "held", "expires_at": {"$lt": now_iso}},
+    )
+    if expired.modified_count > 0 or expired_seats.deleted_count > 0:
         # Capacity just opened up — try to offer the freed spot to next person in queue.
-        # Fire-and-forget; if it offers, good. If not, normal flow continues.
         try:
             await try_offer_next_in_waitlist(payload.event_id)
         except Exception:

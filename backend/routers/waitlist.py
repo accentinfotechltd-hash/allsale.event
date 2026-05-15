@@ -66,15 +66,53 @@ async def _tier_remaining(event: dict, tier_name: str) -> int:
     return max(0, tier.get("capacity", 0) - sold)
 
 
+def _all_seat_ids(event: dict) -> set[str]:
+    """All non-aisle seat IDs in a seatmap event."""
+    rows = event.get("seat_rows", 0)
+    cols = event.get("seat_cols", 0)
+    aisles = set(event.get("aisles") or [])
+    out = set()
+    for r in range(rows):
+        row_letter = chr(65 + r)
+        for c in range(1, cols + 1):
+            sid = f"{row_letter}-{c}"
+            if sid not in aisles:
+                out.add(sid)
+    return out
+
+
+async def _occupied_seat_ids(event: dict) -> set[str]:
+    """Seat IDs currently locked: booked, or held with non-expired hold."""
+    now_iso = utc_now().isoformat()
+    occupied = set()
+    async for r in db.seat_reservations.find(
+        {"event_id": event["event_id"], "status": "booked"},
+        {"_id": 0, "seat_id": 1},
+    ):
+        occupied.add(r["seat_id"])
+    async for r in db.seat_reservations.find(
+        {"event_id": event["event_id"], "status": "held", "expires_at": {"$gte": now_iso}},
+        {"_id": 0, "seat_id": 1},
+    ):
+        occupied.add(r["seat_id"])
+    return occupied
+
+
+async def _available_seat_ids(event: dict) -> list[str]:
+    all_ids = _all_seat_ids(event)
+    occupied = await _occupied_seat_ids(event)
+    free = sorted(all_ids - occupied)
+    return free
+
+
 async def is_sold_out(event: dict) -> bool:
-    """Tier-based: sold-out when no tier has any remaining capacity."""
+    """Tier-based or seatmap: sold-out when there's no available capacity at all."""
     if event.get("has_seatmap"):
-        # Seatmap waitlists not supported in V1
-        return False
+        return len(await _available_seat_ids(event)) == 0
     for t in event.get("tiers", []):
         if await _tier_remaining(event, t["name"]) > 0:
             return False
-    return True
+    return bool(event.get("tiers"))
 
 
 async def _find_offerable_tier(event: dict, preference: Optional[str] = None) -> Optional[dict]:
@@ -95,29 +133,70 @@ async def _find_offerable_tier(event: dict, preference: Optional[str] = None) ->
 
 
 async def _create_waitlist_offer(event: dict, entry: dict) -> Optional[str]:
-    """Reserve a pending booking + waitlist offer for the user. Returns booking_id or None."""
-    tier = await _find_offerable_tier(event, entry.get("tier_preference"))
-    if not tier:
-        return None
+    """Reserve a pending booking + waitlist offer for the user.
 
-    quantity = int(entry.get("quantity") or 1)
-    if quantity > await _tier_remaining(event, tier["name"]):
-        # Try with quantity=1 if their preferred quantity is too large
-        if 1 <= await _tier_remaining(event, tier["name"]):
-            quantity = 1
-        else:
-            return None
-
+    For tier-based events: pick an offerable tier and create a tier-quantity hold.
+    For seatmap events: claim the first N available seats (atomic via unique
+    compound index on (event_id, seat_id)). Returns booking_id or None.
+    """
     booking_id = f"bkg_{uuid.uuid4().hex[:12]}"
     expires = utc_now() + timedelta(minutes=OFFER_TTL_MIN)
-    amount = round(tier["price"] * quantity, 2)
+
+    if event.get("has_seatmap"):
+        quantity = int(entry.get("quantity") or 1)
+        # Try to claim the first `quantity` available seats atomically
+        claimed = []
+        attempts = 0
+        max_attempts = max(20, quantity * 4)
+        while len(claimed) < quantity and attempts < max_attempts:
+            attempts += 1
+            free = await _available_seat_ids(event)
+            # Skip any we've already tried
+            free = [s for s in free if s not in claimed]
+            if not free:
+                break
+            sid = free[0]
+            try:
+                await db.seat_reservations.insert_one({
+                    "event_id": event["event_id"], "seat_id": sid,
+                    "booking_id": booking_id, "user_id": entry["user_id"],
+                    "status": "held", "expires_at": expires.isoformat(),
+                    "created_at": utc_now().isoformat(),
+                    "source": "waitlist",
+                })
+                claimed.append(sid)
+            except DuplicateKeyError:
+                # Someone else just took it; loop to try the next.
+                continue
+
+        if not claimed:
+            return None
+        # Settle for partial fulfilment if necessary (e.g., they asked for 2,
+        # we could only get 1). Better partial offer than nothing.
+        amount = round(event.get("seat_price", 0.0) * len(claimed), 2)
+        tier_name = "Seat Selection"
+        seats = claimed
+        quantity = len(claimed)
+    else:
+        tier = await _find_offerable_tier(event, entry.get("tier_preference"))
+        if not tier:
+            return None
+        quantity = int(entry.get("quantity") or 1)
+        if quantity > await _tier_remaining(event, tier["name"]):
+            if 1 <= await _tier_remaining(event, tier["name"]):
+                quantity = 1
+            else:
+                return None
+        amount = round(tier["price"] * quantity, 2)
+        tier_name = tier["name"]
+        seats = []
 
     await db.bookings.insert_one({
         "booking_id": booking_id, "event_id": event["event_id"],
         "event_title": event["title"], "event_date": event.get("date"),
         "event_venue": event.get("venue"), "event_image": event.get("image_url"),
         "user_id": entry["user_id"], "user_email": entry["user_email"], "user_name": entry["user_name"],
-        "tier_name": tier["name"], "quantity": quantity, "seats": [],
+        "tier_name": tier_name, "quantity": quantity, "seats": seats,
         "amount": amount, "subtotal": amount,
         "discount_code": None, "discount_amount": 0,
         "currency": "usd", "status": "pending",
@@ -135,10 +214,10 @@ async def _create_waitlist_offer(event: dict, entry: dict) -> Optional[str]:
             "expires_at": expires.isoformat(),
             "booking_id": booking_id,
             "offer_token": offer_token,
+            "offered_seats": seats if event.get("has_seatmap") else None,
         }},
     )
 
-    # Fire email
     send_template_fireforget("waitlist_spot_opened", entry["user_email"], {
         "user_name": entry["user_name"],
         "event_id": event["event_id"],
@@ -154,11 +233,11 @@ async def try_offer_next_in_waitlist(event_id: str) -> Optional[dict]:
     Returns the updated entry if offered, else None. Cheap to call repeatedly.
     """
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
-    if not event or event.get("has_seatmap"):
+    if not event:
         return None
 
-    # First flush any expired offers back to "expired" so they don't block the head
     now_iso = utc_now().isoformat()
+    # Mark expired pending bookings + free their seats
     expired_cursor = db.waitlist_entries.find(
         {"event_id": event_id, "status": "offered", "expires_at": {"$lt": now_iso}},
         {"_id": 0},
@@ -168,12 +247,16 @@ async def try_offer_next_in_waitlist(event_id: str) -> Optional[dict]:
             {"waitlist_id": e["waitlist_id"]},
             {"$set": {"status": "expired"}},
         )
-        # Also expire the linked pending booking
         if e.get("booking_id"):
             await db.bookings.update_one(
                 {"booking_id": e["booking_id"], "status": "pending"},
                 {"$set": {"status": "expired"}},
             )
+            # Free seatmap reservations linked to this expired offer
+            if event.get("has_seatmap"):
+                await db.seat_reservations.delete_many(
+                    {"event_id": event_id, "booking_id": e["booking_id"], "status": "held"},
+                )
 
     # Find the next waiting entry (FIFO)
     head = await db.waitlist_entries.find_one(
@@ -202,8 +285,6 @@ async def join_waitlist(event_id: str, payload: JoinWaitlistIn, user: dict = Dep
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    if event.get("has_seatmap"):
-        raise HTTPException(status_code=400, detail="Seatmap events don't support waitlists yet")
     if not await is_sold_out(event):
         raise HTTPException(status_code=400, detail="Event still has tickets available")
 
@@ -299,8 +380,6 @@ async def organizer_offer_next(event_id: str, user: dict = Depends(get_current_u
         raise HTTPException(status_code=404, detail="Event not found")
     if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Not your event")
-    if event.get("has_seatmap"):
-        raise HTTPException(status_code=400, detail="Seatmap events don't support automatic waitlist offers")
 
     entry = await try_offer_next_in_waitlist(event_id)
     if not entry:

@@ -31,14 +31,13 @@ async def list_events(
         query["city"] = {"$regex": city, "$options": "i"}
     cursor = db.events.find(query, {"_id": 0}).sort("date", 1).limit(limit)
     items = [event_to_public(e) async for e in cursor]
-    # Annotate sold-out events with waitlist_count (cheap aggregate)
+    # Annotate events with waitlist_count (cheap aggregate)
     for e in items:
-        if not e.get("has_seatmap") and e.get("tiers"):
-            wcount = await db.waitlist_entries.count_documents(
-                {"event_id": e["event_id"], "status": "waiting"}
-            )
-            if wcount > 0:
-                e["waitlist_count"] = wcount
+        wcount = await db.waitlist_entries.count_documents(
+            {"event_id": e["event_id"], "status": "waiting"}
+        )
+        if wcount > 0:
+            e["waitlist_count"] = wcount
     return items
 
 
@@ -89,7 +88,13 @@ async def get_event(event_id: str):
             held_seats.append(r["seat_id"])
         e["booked_seats"] = booked_seats
         e["held_seats"] = held_seats
-        e["sold_out"] = False  # Seatmap events don't surface aggregate sold-out
+        # Sold-out = every non-aisle seat is locked
+        rows = e.get("seat_rows", 0)
+        cols = e.get("seat_cols", 0)
+        aisles = set(e.get("aisles") or [])
+        total_non_aisle = max(0, rows * cols - len(aisles))
+        locked = len({*booked_seats, *held_seats})
+        e["sold_out"] = total_non_aisle > 0 and locked >= total_non_aisle
     else:
         # For tier-based events, compute sold/remaining per tier and aggregate sold_out flag
         now_iso = utc_now().isoformat()

@@ -47,7 +47,10 @@ export default function EventDetail() {
     if (!user) { nav("/login"); return; }
     setJoiningWl(true);
     try {
-      await api.post(`/events/${eventId}/waitlist/join`, { tier_preference: tier || null, quantity: qty });
+      const payload = event.has_seatmap
+        ? { quantity: Math.max(1, selectedSeats.length || 1) }
+        : { tier_preference: tier || null, quantity: qty };
+      await api.post(`/events/${eventId}/waitlist/join`, payload);
       toast.success("You're on the waitlist — we'll email you the moment a spot opens.");
       await loadWaitlist();
     } catch (e) {
@@ -293,8 +296,8 @@ export default function EventDetail() {
             </button>
             <p className="text-xs mt-3 text-center" style={{ color: "var(--text-dim)" }}>You'll have 10 minutes to complete payment.</p>
 
-            {/* Waitlist section (tier-based, sold-out events) */}
-            {!event.has_seatmap && (event.sold_out || (myWaitlist && myWaitlist.length > 0)) && (
+            {/* Waitlist section (sold-out events) */}
+            {(event.sold_out || (myWaitlist && myWaitlist.length > 0)) && (
               <div className="mt-5 pt-5 border-t" style={{ borderColor: "var(--border)" }} data-testid="waitlist-section">
                 {myWaitlist && myWaitlist.find((e) => e.status === "offered") ? (
                   (() => {
@@ -305,6 +308,13 @@ export default function EventDetail() {
                           <Bell className="w-4 h-4" style={{ color: "var(--success)" }} />
                           <div className="font-medium" style={{ color: "var(--success)" }}>A spot just opened!</div>
                         </div>
+                        {offer.offered_seats && offer.offered_seats.length > 0 && (
+                          <div className="text-xs mb-2 flex flex-wrap gap-1.5">
+                            {offer.offered_seats.map((s) => (
+                              <span key={s} className="chip chip-accent" style={{ fontSize: "0.65rem" }}>{s}</span>
+                            ))}
+                          </div>
+                        )}
                         <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
                           Your 15-min hold is ticking. Claim now before it rolls to the next person.
                         </p>
