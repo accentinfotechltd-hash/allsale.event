@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import SeatMap from "@/components/SeatMap";
-import { Calendar, MapPin, User, ArrowRight, Plus, Minus } from "lucide-react";
+import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X } from "lucide-react";
 import { toast } from "sonner";
 
 export default function EventDetail() {
@@ -15,6 +15,9 @@ export default function EventDetail() {
   const [tier, setTier] = useState(null);
   const [qty, setQty] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  const [codeInput, setCodeInput] = useState("");
+  const [appliedCode, setAppliedCode] = useState(null); // {code, discount_amount, final_amount, kind, value}
+  const [validatingCode, setValidatingCode] = useState(false);
 
   const load = async () => {
     try {
@@ -36,13 +39,40 @@ export default function EventDetail() {
     return () => clearInterval(i);
   }, [event?.has_seatmap, eventId]);
 
+  // Clear applied code if the order changes (must be before any early return to obey rules of hooks)
+  useEffect(() => {
+    if (appliedCode) setAppliedCode(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tier, qty, selectedSeats.length]);
+
   if (!event) return <div className="text-center py-20" style={{ color: "var(--text-dim)" }}>Loading event...</div>;
 
   const date = new Date(event.date);
   const tierObj = event.tiers?.find((t) => t.name === tier);
-  const total = event.has_seatmap
+  const subtotal = event.has_seatmap
     ? selectedSeats.length * event.seat_price
     : (tierObj?.price || 0) * qty;
+  const total = appliedCode ? Math.max(0, subtotal - appliedCode.discount_amount) : subtotal;
+
+  const applyCode = async () => {
+    if (!codeInput.trim()) return;
+    if (subtotal <= 0) { toast.error("Pick tickets/seats first"); return; }
+    setValidatingCode(true);
+    try {
+      const { data } = await api.post("/discount-codes/validate", {
+        code: codeInput.trim(),
+        event_id: event.event_id,
+        tier_name: event.has_seatmap ? null : tier,
+        quantity: qty,
+        seat_count: selectedSeats.length,
+        subtotal,
+      });
+      setAppliedCode(data);
+      toast.success(`Code applied: -$${data.discount_amount}`);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e?.response?.data?.detail) || "Invalid code");
+    } finally { setValidatingCode(false); }
+  };
 
   const onToggleSeat = (id) => {
     setSelectedSeats((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
@@ -63,6 +93,7 @@ export default function EventDetail() {
       const payload = event.has_seatmap
         ? { event_id: event.event_id, seats: selectedSeats }
         : { event_id: event.event_id, tier_name: tier, quantity: qty };
+      if (appliedCode) payload.code = appliedCode.code;
       const { data } = await api.post("/bookings/hold", payload);
       nav(`/checkout/${data.booking_id}`);
     } catch (e) {
@@ -167,9 +198,52 @@ export default function EventDetail() {
               </div>
             )}
 
-            <div className="border-t pt-4 flex items-baseline justify-between" style={{ borderColor: "var(--border)" }}>
-              <span className="text-sm uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Total</span>
-              <span className="serif text-4xl" style={{ color: "var(--accent)" }} data-testid="total-price">${total.toFixed(2)}</span>
+            <div className="border-t pt-4 space-y-2" style={{ borderColor: "var(--border)" }}>
+              {/* Promo code input */}
+              {appliedCode ? (
+                <div className="flex items-center justify-between p-2.5 rounded-lg" style={{ background: "var(--accent-soft)", border: "1px solid var(--accent)" }} data-testid="applied-code">
+                  <div className="flex items-center gap-2">
+                    <Tag className="w-4 h-4" style={{ color: "var(--accent)" }} />
+                    <span className="font-mono text-sm" style={{ color: "var(--accent)" }}>{appliedCode.code}</span>
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>−${appliedCode.discount_amount}</span>
+                  </div>
+                  <button onClick={() => { setAppliedCode(null); setCodeInput(""); }} className="text-xs flex items-center gap-1" style={{ color: "var(--text-muted)" }} data-testid="remove-code-btn">
+                    <X className="w-3 h-3" /> Remove
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--text-dim)" }} />
+                    <input
+                      value={codeInput}
+                      onChange={(e) => setCodeInput(e.target.value.toUpperCase())}
+                      placeholder="Promo code"
+                      className="!pl-9 !py-2 text-sm"
+                      data-testid="promo-code-input"
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyCode(); } }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={applyCode}
+                    disabled={!codeInput.trim() || validatingCode || subtotal <= 0}
+                    className="btn-ghost !py-2 !px-4 text-sm"
+                    data-testid="apply-code-btn"
+                  >{validatingCode ? "..." : "Apply"}</button>
+                </div>
+              )}
+
+              {appliedCode && subtotal > 0 && (
+                <div className="flex justify-between text-sm pt-2" style={{ color: "var(--text-dim)" }}>
+                  <span>Subtotal</span>
+                  <span className="line-through">${subtotal.toFixed(2)}</span>
+                </div>
+              )}
+              <div className="flex items-baseline justify-between pt-1">
+                <span className="text-sm uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Total</span>
+                <span className="serif text-4xl" style={{ color: "var(--accent)" }} data-testid="total-price">${total.toFixed(2)}</span>
+              </div>
             </div>
 
             <button onClick={onBook} disabled={submitting || total <= 0} className="btn-primary w-full justify-center mt-5" data-testid="book-now-btn">

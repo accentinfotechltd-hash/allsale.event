@@ -9,6 +9,7 @@ from core import (
     db, get_current_user, utc_now, gen_qr_data_url, booking_to_public, HOLD_MINUTES,
 )
 from models import HoldIn
+from routers.discount_codes import _find_active_code, _check_code_usable, _apply_discount, _normalize_code
 
 router = APIRouter(tags=["bookings"])
 
@@ -90,13 +91,47 @@ async def create_hold(payload: HoldIn, user: dict = Depends(get_current_user)):
     if not event.get("has_seatmap"):
         await db.seat_holds.insert_one(hold_doc)
 
+    # Apply optional discount code
+    subtotal = amount
+    discount_code = None
+    discount_amount = 0.0
+    if payload.code:
+        code = _normalize_code(payload.code)
+        c = await _find_active_code(code, payload.event_id)
+        if not c:
+            raise HTTPException(status_code=404, detail="Discount code not found")
+        qty_for_check = len(seats) if seats else quantity
+        err = _check_code_usable(c, tier_name, qty_for_check)
+        if err:
+            raise HTTPException(status_code=400, detail=err)
+        discount_amount = _apply_discount(c["kind"], c["value"], subtotal)
+        amount = round(max(0, subtotal - discount_amount), 2)
+        discount_code = code
+        # Atomic uses_count++ guarded by max_uses
+        if c.get("max_uses") is not None:
+            result = await db.discount_codes.update_one(
+                {
+                    "code_id": c["code_id"],
+                    "$expr": {"$lt": [{"$add": ["$uses_count", qty_for_check]}, {"$add": ["$max_uses", 1]}]},
+                },
+                {"$inc": {"uses_count": qty_for_check}},
+            )
+            if result.modified_count == 0:
+                raise HTTPException(status_code=409, detail="Code usage limit reached")
+        else:
+            await db.discount_codes.update_one(
+                {"code_id": c["code_id"]}, {"$inc": {"uses_count": qty_for_check}}
+            )
+
     booking_doc = {
         "booking_id": booking_id, "event_id": payload.event_id,
         "event_title": event["title"], "event_date": event["date"],
         "event_venue": event["venue"], "event_image": event["image_url"],
         "user_id": user["user_id"], "user_email": user["email"], "user_name": user["name"],
         "tier_name": tier_name, "quantity": quantity, "seats": seats,
-        "amount": amount, "currency": "usd", "status": "pending",
+        "amount": amount, "subtotal": subtotal,
+        "discount_code": discount_code, "discount_amount": discount_amount,
+        "currency": "usd", "status": "pending",
         "hold_expires_at": expires.isoformat(), "created_at": utc_now().isoformat(),
     }
     await db.bookings.insert_one(booking_doc)

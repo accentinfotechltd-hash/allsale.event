@@ -57,7 +57,7 @@ export default function OrganizerEvent() {
   }
   if (!data) return <div className="text-center py-20" style={{ color: "var(--text-dim)" }}>Loading analytics...</div>;
 
-  const { event, totals, tiers, days, hours } = data;
+  const { event, totals, tiers, days, hours, codes } = data;
   const maxHourTickets = Math.max(...hours.map(h => h.tickets), 1);
 
   return (
@@ -138,6 +138,56 @@ export default function OrganizerEvent() {
             );
           })}
         </div>
+      </Panel>
+
+      {/* Revenue by source (discount-code attribution) */}
+      <Panel title="Revenue by source" sub="Direct vs promo-code attribution">
+        {!codes || codes.length === 0 ? (
+          <Empty>No paid bookings yet.</Empty>
+        ) : (
+          <div className="grid lg:grid-cols-[1fr_1fr] gap-6 items-start">
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={codes} layout="vertical" margin={{ left: 60, right: 20, top: 10, bottom: 10 }}>
+                  <XAxis type="number" stroke="#71717a" fontSize={11} />
+                  <YAxis type="category" dataKey="code" stroke="#71717a" fontSize={11} width={80} />
+                  <Tooltip contentStyle={{ background: "#17171b", border: "1px solid #26262c", borderRadius: 8 }} formatter={(v) => `$${v}`} />
+                  <Bar dataKey="revenue" radius={[0, 6, 6, 0]}>
+                    {codes.map((c, i) => <Cell key={i} fill={c.code === "Direct" ? "#71717a" : "#ff4f00"} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-xs uppercase tracking-widest" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}>
+                  <th className="text-left py-2">Source</th>
+                  <th className="text-right py-2">Tickets</th>
+                  <th className="text-right py-2">Revenue</th>
+                  <th className="text-right py-2">Discount given</th>
+                </tr>
+              </thead>
+              <tbody>
+                {codes.map((c) => (
+                  <tr key={c.code} className="border-b" style={{ borderColor: "var(--border)" }} data-testid={`code-row-${c.code}`}>
+                    <td className="py-3">
+                      {c.code === "Direct" ? (
+                        <span style={{ color: "var(--text-muted)" }}>Direct (no code)</span>
+                      ) : (
+                        <span className="font-mono" style={{ color: "var(--accent)" }}>{c.code}</span>
+                      )}
+                    </td>
+                    <td className="py-3 text-right">{c.tickets}</td>
+                    <td className="py-3 text-right">${c.revenue.toLocaleString()}</td>
+                    <td className="py-3 text-right" style={{ color: c.discount_given ? "var(--accent)" : "var(--text-dim)" }}>
+                      {c.discount_given ? `−$${c.discount_given}` : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Panel>
 
       {/* Tier table + capacity */}

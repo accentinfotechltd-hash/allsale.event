@@ -47,6 +47,7 @@ class HoldIn(BaseModel):
     tier_name: Optional[str] = None
     quantity: int = 1
     seats: Optional[List[str]] = None
+    code: Optional[str] = None  # optional discount code
 
 
 class CheckoutIn(BaseModel):

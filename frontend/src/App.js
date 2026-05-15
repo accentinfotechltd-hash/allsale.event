@@ -15,6 +15,7 @@ import Profile from "@/pages/Profile";
 import Organizer from "@/pages/Organizer";
 import OrganizerEvent from "@/pages/OrganizerEvent";
 import CreateEvent from "@/pages/CreateEvent";
+import DiscountCodes from "@/pages/DiscountCodes";
 import Admin from "@/pages/Admin";
 import AuthCallback from "@/pages/AuthCallback";
 
@@ -39,6 +40,7 @@ function AppRouter() {
         <Route path="/organizer" element={<Organizer />} />
         <Route path="/organizer/new" element={<CreateEvent />} />
         <Route path="/organizer/events/:eventId" element={<OrganizerEvent />} />
+        <Route path="/organizer/codes" element={<DiscountCodes />} />
         <Route path="/admin" element={<Admin />} />
       </Routes>
     </Layout>

@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 5 (Discount Code engine) full backend + frontend testing. 20 NEW pytest cases in test_iteration5.py all PASS. Combined 94/95 total (1 pre-existing iter3 stale-file failure, not iter5-related). Frontend: /organizer 'Discount codes' nav + /organizer/codes page (list, create-percent w/ max_uses, copy, deactivate) + EventDetail promo input + apply (subtotal strikethrough + discount badge + correct $9 off $45 = $36 total) + Drilldown 'Revenue by source' panel renders with Direct/AURA20/STAFF50 rows — ALL WORKING.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/bookings/hold (with code)", "issue": "Inconsistent status code for max_uses exhaustion. When the over-limit hold loses the race to the atomic update_one, it returns 409 (per spec). But when the pre-check `_check_code_usable` trips first (which happens reliably when prior holds have already completed), it returns 400 with detail 'Code usage limit reached'. Same business condition → two different status codes (400 vs 409). Concurrent test observed [200, 200, 400] when racing 3 holds on a max_uses=2 code (still proves enforcement). Recommend: raise 409 from both paths for consistency, or document the difference."},
+      {"endpoint": "GET /api/organizer/discount-codes", "issue": "Returns ALL codes (active + inactive). After deactivation codes remain in the list with active=false but with no filter param to hide them — over time the list grows unbounded. Consider adding ?active=true query support OR auto-collapsing inactive rows in the UI."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Login redirect", "issue": "Submitting /login as organizer redirects to / (home) rather than /organizer. User then has to click the 'Organizer' nav button. Not blocking (auth succeeds, cookie set, nav works), but unexpected for organizer accounts that previously routed straight to dashboard.", "selector": "form on /login", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/organizer/codes", "issues": ["Deactivated codes appear identical to active ones except for a small 'INACTIVE' badge — consider visually de-emphasizing (lower opacity / muted color) or moving them to a collapsed section. With my test runs the list already has ~10 INACTIVE rows above the active AURA20/STAFF50 which makes finding the active codes harder.", "Page lacks an empty-state when an organizer has no codes (not tested directly but list-render UI assumes there's at least one row)."]},
+      {"screen": "/organizer/events/:id (drilldown)", "issues": ["Recharts width(-1)/height(-1) warnings still emitted during first paint of the new 'Revenue by source' bar chart (carry-over from iter4 charts) — harmless but noisy."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration5.py",
+    "/app/test_reports/pytest/pytest_iter5.xml",
+    "/app/test_reports/pytest/pytest_iter5_full.xml"
+  ],
+  "action_items": [
+    "(Minor) Standardize max_uses rejection to 409 from the pre-check path in routers/discount_codes.py::_check_code_usable so both racing and sequential overflows return the same status.",
+    "(Minor) Filter or visually demote inactive codes on /organizer/codes — current list grows forever as tests/users deactivate codes.",
+    "(Low) Fix /login redirect for organizer role to land on /organizer instead of /.",
+    "(Low / carryover) Suppress Recharts width(-1) warnings on the new bar chart."
+  ],
+  "critical_code_review_comments": [
+    "routers/discount_codes.py — clean module, single responsibility, ~180 lines. CODE_RE allows 2-24 chars but the first char must be [A-Z0-9] (regex starts with [A-Z0-9][A-Z0-9_-]{1,23}) — matches spec.",
+    "routers/bookings.py atomic counter: the $expr filter `{$lt: [{$add:[$uses_count, qty]}, {$add:[$max_uses, 1]}]}` correctly enforces the cap AND is robust to multi-seat holds. Good.",
+    "However: in the atomic update path, if the update fails (over-cap) the seat_hold / seat_reservation rows already created earlier are NOT rolled back. The user gets a 409 but the seat is held for HOLD_MINUTES. This is consistent with the existing tier-capacity 409 path so not a regression, but worth a follow-up rollback for code-limit failures specifically.",
+    "discount_codes.list_codes runs N+1 aggregations (one per code). For an organizer with many codes this is slow — consider a single $group with $bucket on discount_code.",
+    "Validate endpoint computes discount on subtotal, but the hold path ALSO independently re-validates and re-computes — good (defense in depth, validate is purely advisory).",
+    "models.HoldIn.code is Optional[str] with no length cap — `_normalize_code` strips and uppercases but a pathologically long string would still be passed to the DB query (no input length validation). Add max_length=24 to the pydantic field."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration5.py (new — 20 cases: CRUD, validate, hold-with-code, concurrent max_uses, drilldown codes bucket)"
+  ],
+  "success_rate": {"backend": "98.9% (94/95 — the 1 failure is the pre-existing iter3 stale-file test, all 20 iter5 cases pass)", "frontend": "100% of tested iter5 flows"},
+  "test_credentials": "organizer@aura.events / organizer123, attendee@aura.events / attendee123, admin@aura.events / admin123 — all working",
+  "seed_data_creation": "Tests create+deactivate codes prefixed CC/DUP/DEL/OWN/FLAT/TEST/E2E on the organizer account. Soft-delete leaves them in the list (see minor issue above). No persistent state on bookings (test_hold_with_code_records_discount and test_hold_without_code_has_zero_discount create pending holds that will expire in HOLD_MINUTES).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "5 pytest files in /app/backend/tests/: test_aura_backend.py (30 iter1), test_iteration2.py (12), test_iteration3.py (13, 1 known-failing stale upload test), test_iteration4.py (20 drilldown+CSV+ETag), test_iteration5.py (20 discount codes). Run: pytest /app/backend/tests/ -v. BASE_URL is read from /app/frontend/.env if REACT_APP_BACKEND_URL env var isn't set (added a fallback loader in iter5 file). Concurrent max_uses test is timing-sensitive — accepts 409 OR 400 as the failure status. Frontend testids verified live: manage-codes-btn, new-code-btn, new-code-form, code-input, kind-select (native <select>), value-input, max-uses-input, create-code-submit, code-{CODE}, copy-{CODE}, deactivate-{CODE}, promo-code-input, apply-code-btn, applied-code, remove-code-btn, code-row-{CODE}.",
+  "rca of the issue": "No blocking issues. The 400 vs 409 inconsistency on max_uses overflow is a status-code-contract issue, not a correctness issue (the engine correctly blocks the 3rd hold). RCA: routers/discount_codes.py::_check_code_usable returns a generic 400 'Code usage limit reached' when remaining < qty, while routers/bookings.py's atomic update_one path raises 409 with the same message when the conditional update fails. Mitigation: change `_check_code_usable` to raise HTTPException(409) for the max_uses branch, or have create_hold catch the 400 from the pre-check and convert it (less clean)."
+}

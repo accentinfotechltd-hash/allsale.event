@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Plus, TrendingUp, Ticket, Calendar } from "lucide-react";
+import { Plus, TrendingUp, Ticket, Calendar, Tag } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 export default function Organizer() {
@@ -32,9 +32,14 @@ export default function Organizer() {
           <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>Organizer dashboard</div>
           <h1 className="serif text-5xl">Hello, {user.name.split(" ")[0]}</h1>
         </div>
-        <Link to="/organizer/new" className="btn-primary" data-testid="create-event-btn">
-          <Plus className="w-4 h-4" /> Create event
-        </Link>
+        <div className="flex gap-2 flex-wrap">
+          <Link to="/organizer/codes" className="btn-ghost" data-testid="manage-codes-btn">
+            <Tag className="w-4 h-4" /> Discount codes
+          </Link>
+          <Link to="/organizer/new" className="btn-primary" data-testid="create-event-btn">
+            <Plus className="w-4 h-4" /> Create event
+          </Link>
+        </div>
       </div>
 
       {analytics && (

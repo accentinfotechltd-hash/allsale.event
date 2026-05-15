@@ -95,6 +95,18 @@ async def event_drilldown(event_id: str, user: dict = Depends(get_current_user))
             by_hour[h] += b.get("quantity", 0)
     hours = [{"hour": h, "tickets": by_hour.get(h, 0)} for h in range(24)]
 
+    # by discount code (attribution) — "Direct" bucket for bookings without a code
+    by_code = defaultdict(lambda: {"tickets": 0, "revenue": 0.0, "discount_given": 0.0})
+    for b in bookings:
+        key = b.get("discount_code") or "Direct"
+        by_code[key]["tickets"] += b.get("quantity", 0)
+        by_code[key]["revenue"] += b.get("amount", 0)
+        by_code[key]["discount_given"] += b.get("discount_amount", 0)
+    codes = [
+        {"code": k, "tickets": v["tickets"], "revenue": round(v["revenue"], 2), "discount_given": round(v["discount_given"], 2)}
+        for k, v in sorted(by_code.items(), key=lambda kv: -kv[1]["revenue"])
+    ]
+
     # capacity / sell-through
     if event.get("has_seatmap"):
         total_capacity = max(0, event.get("seat_rows", 0) * event.get("seat_cols", 0) - len(event.get("aisles") or []))
@@ -124,6 +136,7 @@ async def event_drilldown(event_id: str, user: dict = Depends(get_current_user))
         "tiers": tiers,
         "days": days,
         "hours": hours,
+        "codes": codes,
     }
 
 
