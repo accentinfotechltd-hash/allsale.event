@@ -87,9 +87,9 @@ export default function Organizer() {
             ) : events.map((e) => {
               const perE = (analytics?.per_event || []).find((x) => x.event_id === e.event_id) || {};
               return (
-                <tr key={e.event_id} className="border-b" style={{ borderColor: "var(--border)" }} data-testid={`org-event-row-${e.event_id}`}>
+                <tr key={e.event_id} className="border-b hover:bg-[color:var(--bg-elev)] transition cursor-pointer" style={{ borderColor: "var(--border)" }} data-testid={`org-event-row-${e.event_id}`} onClick={() => window.location.assign(`/organizer/events/${e.event_id}`)}>
                   <td className="p-4">
-                    <Link to={`/events/${e.event_id}`} className="hover:text-[color:var(--accent)]">{e.title}</Link>
+                    <Link to={`/organizer/events/${e.event_id}`} className="hover:text-[color:var(--accent)]" onClick={(ev) => ev.stopPropagation()}>{e.title}</Link>
                     <div className="text-xs" style={{ color: "var(--text-dim)" }}>{e.venue} · {e.city}</div>
                   </td>
                   <td className="p-4" style={{ color: "var(--text-muted)" }}>{new Date(e.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</td>

@@ -13,6 +13,7 @@ import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
 import Profile from "@/pages/Profile";
 import Organizer from "@/pages/Organizer";
+import OrganizerEvent from "@/pages/OrganizerEvent";
 import CreateEvent from "@/pages/CreateEvent";
 import Admin from "@/pages/Admin";
 import AuthCallback from "@/pages/AuthCallback";
@@ -37,6 +38,7 @@ function AppRouter() {
         <Route path="/profile" element={<Profile />} />
         <Route path="/organizer" element={<Organizer />} />
         <Route path="/organizer/new" element={<CreateEvent />} />
+        <Route path="/organizer/events/:eventId" element={<OrganizerEvent />} />
         <Route path="/admin" element={<Admin />} />
       </Routes>
     </Layout>
