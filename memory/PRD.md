@@ -116,5 +116,20 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - ✅ Per-user activity counts (bookings_count, events_count) in the listing.
 - ✅ **22/22 new iter7 tests pass + 100% frontend E2E**. One pre-existing critical bug (JWT branch didn't check `active`) caught by tester and fixed during the run.
 
+## Iteration 7 (2026-02-15) — Movies category + Admin user management
+(captured above as iter6 block)
+
+## Iteration 8 (2026-02-15) — On-site QR check-in for organizers
+- ✅ **Door scanner page** `/organizer/events/:id/checkin` (`CheckIn.jsx`) using `html5-qrcode`:
+  live camera scanning with 1.5s throttle, manual booking-ID fallback, last-result card with Undo, Recent check-ins panel (auto-polled every 5s), stat cards (Bookings / Checked-in / No-shows / Attendance %).
+- ✅ **Backend APIs** (`routers/organizer.py`):
+  - `POST /api/organizer/checkin` — idempotent QR / booking-id scan; rejects wrong-event tickets, unpaid bookings, foreign organizers.
+  - `GET /api/organizer/events/{id}/checkin-stats` — totals + 20 most recent.
+  - `POST /api/organizer/events/{id}/checkin/{bid}/undo` — reverse a mistaken scan.
+  - `GET /api/organizer/events/{id}/attendance-report.csv` — full attendance CSV (ATTENDED / NO-SHOW sort).
+- ✅ Idempotent contract: single `utc_now().isoformat()` per request — DB and response timestamps match.
+- ✅ "Check-in" button added to organizer event drill-down (`OrganizerEvent.jsx`).
+- ✅ **16/16 pytest pass** in `tests/test_iteration8.py`. Frontend e2e all 7 flows pass (testing-agent iter8).
+
 ## Test Credentials
 See `/app/memory/test_credentials.md`

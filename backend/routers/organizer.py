@@ -236,16 +236,17 @@ async def checkin(payload: CheckinIn, user: dict = Depends(get_current_user)):
 
     already = bool(booking.get("checked_in"))
     if not already:
+        now_iso = utc_now().isoformat()
         await db.bookings.update_one(
             {"booking_id": booking_id},
             {"$set": {
                 "checked_in": True,
-                "checked_in_at": utc_now().isoformat(),
+                "checked_in_at": now_iso,
                 "checked_in_by": user["user_id"],
             }},
         )
         booking["checked_in"] = True
-        booking["checked_in_at"] = utc_now().isoformat()
+        booking["checked_in_at"] = now_iso
 
     return {
         "ok": True,
@@ -279,10 +280,10 @@ async def checkin_stats(event_id: str, user: dict = Depends(get_current_user)):
     async for b in db.bookings.find({"event_id": event_id, "status": "paid"}, {"_id": 0, "quantity": 1}):
         total_tickets += b.get("quantity", 0)
 
-    # Recent check-ins (last 20)
+    # Recent check-ins (last 20 paid bookings only)
     recent = []
     async for b in db.bookings.find(
-        {"event_id": event_id, "checked_in": True}, {"_id": 0}
+        {"event_id": event_id, "status": "paid", "checked_in": True}, {"_id": 0}
     ).sort("checked_in_at", -1).limit(20):
         recent.append({
             "booking_id": b["booking_id"],
