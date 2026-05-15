@@ -40,6 +40,12 @@ class EventIn(BaseModel):
     seat_price: float = 0.0
     aisles: List[str] = Field(default_factory=list)
     seat_map_image_url: Optional[str] = None
+    # Theatre-style enhancements (all optional; existing events unaffected)
+    seatmap_curved: bool = False  # render rows as curved arc
+    seatmap_sections: List[Dict[str, Any]] = Field(default_factory=list)
+    # List of {after_row: int (0-indexed, e.g. 4 means break after row E), label: str}
+    seatmap_backdrop_opacity: float = 0.2  # 0.0–1.0
+    seatmap_backdrop_offset_y: int = 0  # pixels, fine alignment
 
 
 class HoldIn(BaseModel):

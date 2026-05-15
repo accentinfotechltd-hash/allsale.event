@@ -200,5 +200,16 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - ✅ **8/8 pytest pass** (`tests/test_iteration13_seatmap_waitlist.py`).
 - ✅ **76/76 total tests pass** across iter8–iter13.
 
+## Iteration 14 (2026-02-15) — Theatre-style Seat Layout
+- ✅ **Curved rows**: optional `seatmap_curved` boolean — rows fan in a gentle parabolic arc (front rows minimal curve, back rows more pronounced) to mimic a real theatre's sightlines.
+- ✅ **Labeled section dividers**: `seatmap_sections: [{after_row, label}]` inserts an orange-pill labeled horizontal divider between rows (Mezzanine, Balcony, Loge, etc.). Multiple sections supported.
+- ✅ **Backdrop alignment controls**: organizer can tune `seatmap_backdrop_opacity` (0–100% slider) and `seatmap_backdrop_offset_y` (-100 to +100 px slider) so the uploaded reference image lines up exactly with the seat grid.
+- ✅ **SeatDesigner**: new mode toggle (Aisle / Section) so the organizer can switch between marking aisle gaps and inserting section dividers. Live preview of all changes.
+- ✅ **SeatMap (public)**: renders all the same enhancements for attendees — curved seats, section dividers, opacity-tuned backdrop.
+- ✅ **Backwards compatible**: existing events without the new fields render with safe defaults (flat rows, no sections, 20% backdrop). Legacy DB rows still load via `??` defaults in the React components.
+- ✅ **3/3 pytest pass** (`tests/test_iteration14_theatre_layout.py`) covering create with fields, create without (defaults), and legacy event compat.
+- ✅ **79/79 total tests pass** across iter8–iter14.
+- 📸 Visual: organizer Create Event now shows a real theatre arrangement (curved rows + Mezzanine/Balcony dividers); public EventDetail mirrors the same look.
+
 ## Test Credentials
 See `/app/memory/test_credentials.md`

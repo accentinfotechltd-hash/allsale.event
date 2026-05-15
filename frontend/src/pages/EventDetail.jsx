@@ -173,7 +173,11 @@ export default function EventDetail() {
                 held={event.held_seats || []}
                 selected={selectedSeats}
                 aisles={event.aisles || []}
+                sections={event.seatmap_sections || []}
+                curved={!!event.seatmap_curved}
                 backdropUrl={event.seat_map_image_url}
+                backdropOpacity={event.seatmap_backdrop_opacity ?? 0.2}
+                backdropOffsetY={event.seatmap_backdrop_offset_y ?? 0}
                 onToggle={onToggleSeat}
               />
             </div>
