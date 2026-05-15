@@ -34,7 +34,7 @@ export default function ImageUploader({ value, onUploaded, label = "Upload image
       <input
         ref={inputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp,image/gif"
+        accept="image/jpeg,image/png,image/webp"
         className="hidden"
         onChange={(e) => upload(e.target.files?.[0])}
         data-testid={`${testid}-input`}

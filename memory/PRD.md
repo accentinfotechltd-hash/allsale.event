@@ -42,6 +42,14 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - ✅ Demo seatmap events seeded with realistic aisles (Stand-Up Saturday: 1 center aisle = 16 cells; Hamilton: 2 aisles = 20 cells).
 - ✅ 42/42 backend tests passing (12 new in iter2: uploads, aisle reject, concurrent holds, etc.)
 
+## Iteration 3 (2026-02-15) — Object storage + polish
+- ✅ **Emergent object storage**: uploads now persisted to `https://integrations.emergentagent.com/objstore` under `aura-tickets/uploads/{user_id}/{uuid}.{ext}`. Survives container restart. Local-disk uploads removed.
+- ✅ `GET /api/files/{path:path}` — public read endpoint streams files from object storage with content-type + cache headers. Verified durability: previously uploaded files remain accessible.
+- ✅ DB-backed file metadata in `uploaded_files` (file_id, storage_path, content_type, size, user_id).
+- ✅ **shadcn Calendar + time picker** replaces native HTML datetime-local input on Create Event (`DateTimePicker.jsx`). Premium look matches the rest of the brand.
+- ✅ Tightened allow-list: removed `.gif` (only jpg/jpeg/png/webp).
+- ✅ 55/55 backend tests + 100% frontend E2E passing (13 new iter3 cases). Full organizer create-event flow verified end-to-end: login → upload cover → calendar pick → fill form → seat designer → submit → redirect to event detail → cover image served from object storage.
+
 ## Prioritized Backlog (deferred)
 - **P0**: Real email confirmations (SendGrid/Resend — needs API key from user)
 - **P1**: Stronger atomic seat reservation (unique compound index per (event_id, seat))
