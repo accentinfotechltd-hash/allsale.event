@@ -31,7 +31,16 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - ✅ Admin: list, approve, reject, feature (`/api/admin/*`)
 - ✅ Frontend pages: Landing, Events listing, Event detail (tiers + seat map), Checkout (countdown), Success, Profile (QR modal), Organizer dashboard, Create Event, Admin moderation, Login, Signup, AuthCallback
 - ✅ Seed: 3 users (admin, organizer, attendee) + 8 demo events across 8 categories
-- ✅ 29/30 backend tests passing; Stripe status endpoint hardened against transient errors
+- ✅ 29/30 backend tests passing in iter1; Stripe status endpoint hardened against transient errors
+
+## Iteration 2 (2026-02-15, same day) — Custom seat layouts + uploads
+- ✅ **File uploads**: `POST /api/uploads` (multipart) returns `{url, filename}`; served via `/api/uploads/{name}` static mount. Organizer/admin only, 5MB cap, image extensions whitelist.
+- ✅ **Cover photo upload from computer**: `ImageUploader` component in Create Event replaces URL field. Drag/click → preview → replace/clear.
+- ✅ **Seat designer**: `SeatDesigner` component lets organizer mark cells as aisles (non-rectangular venues like cinemas). Output is an `aisles: ["A-6", "B-6", ...]` array stored on the event.
+- ✅ **Venue floor-plan backdrop**: optional `seat_map_image_url` uploaded as a backdrop behind the seat grid (both in designer and attendee view) at low opacity.
+- ✅ **Atomic seat reservations**: dedicated `seat_reservations` collection with **unique compound index `(event_id, seat_id)`**. Inserts on hold; `DuplicateKeyError` → 409 with rollback. Marked `booked` on payment success.
+- ✅ Demo seatmap events seeded with realistic aisles (Stand-Up Saturday: 1 center aisle = 16 cells; Hamilton: 2 aisles = 20 cells).
+- ✅ 42/42 backend tests passing (12 new in iter2: uploads, aisle reject, concurrent holds, etc.)
 
 ## Prioritized Backlog (deferred)
 - **P0**: Real email confirmations (SendGrid/Resend — needs API key from user)
