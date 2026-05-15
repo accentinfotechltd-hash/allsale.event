@@ -66,6 +66,10 @@ async def on_startup():
     await db.users.create_index("user_id", unique=True)
     await db.events.create_index("event_id", unique=True)
     await db.bookings.create_index("booking_id", unique=True)
+    # Compound index for fast analytics aggregation (filters by event_id + status)
+    await db.bookings.create_index([("event_id", 1), ("status", 1)], name="event_status_idx")
+    # Index user_id for /me/bookings queries
+    await db.bookings.create_index("user_id")
     await db.seat_holds.create_index("booking_id")
     await db.seat_holds.create_index("expires_at")
     await db.payment_transactions.create_index("session_id", unique=True)
