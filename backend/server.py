@@ -26,7 +26,6 @@ import httpx
 import qrcode
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response, Query, UploadFile, File
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo.errors import DuplicateKeyError
@@ -36,6 +35,8 @@ from emergentintegrations.payments.stripe.checkout import (
     StripeCheckout,
     CheckoutSessionRequest,
 )
+
+from storage import init_storage, put_object, get_object, APP_NAME as STORAGE_APP_NAME
 
 # ----------------------------------------------------------------------------
 # Config & Logging
@@ -56,9 +57,12 @@ ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 HOLD_MINUTES = 10
 SESSION_DAYS = 7
 
-UPLOAD_DIR = ROOT_DIR / "uploads"
-ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
+MIME_TYPES = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".png": "image/png", ".webp": "image/webp",
+}
 
 # ----------------------------------------------------------------------------
 # Helpers
@@ -876,24 +880,60 @@ async def admin_feature(event_id: str, user: dict = Depends(get_current_user)):
 
 
 # ----------------------------------------------------------------------------
-# Uploads
+# Uploads (Emergent object storage — files survive container restart)
 # ----------------------------------------------------------------------------
 @api.post("/uploads")
 async def upload_image(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    """Upload an image (cover photo, seat-map backdrop). Returns public URL."""
+    """Upload an image to persistent object storage. Returns public URL."""
     await require_role(user, "organizer", "admin")
     ext = (os.path.splitext(file.filename or "")[1] or "").lower()
     if ext not in ALLOWED_IMAGE_EXTS:
-        raise HTTPException(status_code=400, detail="Only jpg, png, webp, gif allowed")
+        raise HTTPException(status_code=400, detail="Only jpg, png, webp allowed")
     contents = await file.read()
     if len(contents) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File too large (max 5MB)")
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    name = f"{uuid.uuid4().hex}{ext}"
-    path = UPLOAD_DIR / name
-    with open(path, "wb") as f:
-        f.write(contents)
-    return {"url": f"/api/uploads/{name}", "filename": name}
+
+    storage_path = f"{STORAGE_APP_NAME}/uploads/{user['user_id']}/{uuid.uuid4().hex}{ext}"
+    ctype = MIME_TYPES.get(ext, file.content_type or "application/octet-stream")
+    try:
+        result = put_object(storage_path, contents, ctype)
+    except Exception as e:
+        logger.error(f"Storage put failed: {e}")
+        raise HTTPException(status_code=502, detail="Upload failed (storage error)")
+
+    # Record reference in DB
+    await db.uploaded_files.insert_one(
+        {
+            "file_id": uuid.uuid4().hex,
+            "storage_path": result["path"],
+            "original_filename": file.filename,
+            "content_type": ctype,
+            "size": result.get("size", len(contents)),
+            "user_id": user["user_id"],
+            "created_at": utc_now().isoformat(),
+        }
+    )
+    # Public file URL — anyone can view (event covers are public by nature)
+    return {"url": f"/api/files/{result['path']}", "path": result["path"]}
+
+
+@api.get("/files/{path:path}")
+async def get_file(path: str):
+    """Public read endpoint — fetches from object storage and streams to client.
+    Event covers and venue floor plans are public assets, so no auth required."""
+    record = await db.uploaded_files.find_one({"storage_path": path}, {"_id": 0})
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    try:
+        data, ctype = get_object(path)
+    except Exception as e:
+        logger.error(f"Storage get failed for {path}: {e}")
+        raise HTTPException(status_code=404, detail="File not found")
+    return Response(
+        content=data,
+        media_type=record.get("content_type", ctype),
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 # ----------------------------------------------------------------------------
@@ -1119,8 +1159,8 @@ async def on_startup():
         [("event_id", 1), ("seat_id", 1)], unique=True, name="event_seat_unique"
     )
     await db.seat_reservations.create_index("booking_id")
-    # Ensure uploads dir exists
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    # Initialize persistent object storage
+    init_storage()
     await seed_demo()
     logger.info("AURA backend ready")
 
@@ -1132,10 +1172,6 @@ async def root():
 
 # Include router + CORS
 app.include_router(api)
-
-# Serve uploaded files under /api/uploads/*
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/api/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 app.add_middleware(
     CORSMiddleware,

@@ -1,0 +1,46 @@
+{
+  "summary": "Iteration 3 testing complete. Backend: 55/55 pytest cases passing (42 regression + 13 new iter3 covering Emergent object storage migration, public file serve, .gif rejection, durability of files across restart). Frontend: full E2E create-event-as-organizer flow PASSES (login -> /organizer/new -> upload cover (served via /api/files/...) -> shadcn Calendar opens & selects future date -> time set -> fill title/desc/venue/city -> submit -> redirect to /events/evt_0a33a7a87bd9 -> event detail page renders cover via /api/files/...). Admin can also access /organizer/new and upload. Sanity-uploaded image at 'aura-tickets/uploads/user_926930bed59d/53f96e5c58154a11805e4cf2e6b07caa.png' still retrievable (durability confirmed).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/files/{path}", "issue": "Backend correctly sets 'Cache-Control: public, max-age=86400' but the K8s/Cloudflare edge proxy rewrites it to 'no-store, no-cache, must-revalidate'. Browser-side caching of uploaded covers is therefore disabled. Infra-level, not a code bug — note for prod."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Create Event — ImageUploader", "issues": ["Hint text says 'JPG, PNG, WEBP — max 5MB' but the file <input accept> attribute still includes 'image/gif'. The backend now rejects .gif (iter3) so the user can pick a .gif via the OS dialog and only see the rejection at upload time. Update accept to 'image/jpeg,image/png,image/webp' for consistency."]},
+    {"screen": "Create Event — Date & Time", "issues": ["Time input rendered as 12-hour by default in some locales — UI shows '0 PM' / '07:0' instead of '20:30' after fill. Value stored correctly, but visual cue is confusing. Consider explicit step=60 and 24-hour display, or replace with a styled time picker."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_aura_backend.py",
+    "/app/backend/tests/test_iteration2.py",
+    "/app/backend/tests/test_iteration3.py",
+    "/app/test_reports/pytest/pytest_iter3.xml"
+  ],
+  "action_items": [
+    "(Optional/minor) ImageUploader.jsx: change accept to 'image/jpeg,image/png,image/webp' (drop image/gif) to match backend allow-list.",
+    "(Optional/minor) Investigate edge-proxy Cache-Control rewrite on /api/files/{path}; consider adding a stronger cache directive or an asset CDN for prod.",
+    "(Optional/cosmetic) Date & Time time-input: force 24h display for clarity."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~1188 lines — still recommend splitting into routers (uploads, events, bookings, admin) for maintainability.",
+    "storage.py uses module-global '_storage_key' with no thread-safety guards; under high concurrency the 403-retry could double re-init. Low priority but worth noting.",
+    "GET /api/files/{path:path} queries db.uploaded_files for every request — fine for now but if traffic grows, consider an LRU on (path -> content_type) or stream straight from storage with HEAD check.",
+    "ImageUploader accept attribute (image/gif) is now out-of-sync with backend allow-list — UX nit.",
+    "DateTimePicker stores 'YYYY-MM-DDTHH:MM' local string; CreateEvent then does new Date(form.date).toISOString() which converts to UTC. Across DST or non-NZ timezones this could shift the displayed date. Acceptable for MVP, flag for QA in multi-tz scenarios."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration2.py (updated assertion for new /api/files/ URL format — old assertion expected /api/uploads/)",
+    "/app/backend/tests/test_iteration3.py (new, 13 cases covering object-storage migration)"
+  ],
+  "success_rate": {"backend": "100% (55/55)", "frontend": "100% of tested flows"},
+  "test_credentials": "admin@aura.events/admin123, organizer@aura.events/organizer123, attendee@aura.events/attendee123 — all working",
+  "seed_data_creation": "No new seed needed. Test created one TEST_-prefixed event (id evt_0a33a7a87bd9) via the e2e flow; multiple TEST_iter3 covers uploaded to object storage at aura-tickets/uploads/user_926930bed59d/*.png|jpeg|webp. Sanity file from main agent still served.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Three pytest files in /app/backend/tests/: test_aura_backend.py (30 iter1 regression), test_iteration2.py (12 iter2 uploads+aisles+concurrency, NOTE: test_upload_organizer_success_and_serve now expects /api/files/ URL — updated by iter3 testing), test_iteration3.py (13 iter3 object-storage/durability). Total 55 cases. Run: pytest /app/backend/tests/ -v. Backend correctly returns {url: '/api/files/<path>', path: '<path>'} from POST /api/uploads. Frontend testids verified: cover-uploader-input, cover-uploader-replace, cover-uploader-clear, event-datetime-date-btn (opens shadcn Popover containing button[name='day']:not([disabled])), event-datetime-time, seatmap-toggle (checkbox), submit-event-btn. Locator gotcha: page.locator('label').filter(has_text='Venue') matches BOTH the Venue field AND the seatmap toggle label (which contains 'venues' as substring). Use get_by_text('Venue', exact=True) instead.",
+  "rca of the issue": "N/A — no unresolved issues. Iter3 migration to Emergent object storage works end-to-end. File durability verified via sanity image still retrievable + freshly-uploaded files round-trip through /api/files/{path}."
+}

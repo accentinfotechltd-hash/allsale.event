@@ -78,8 +78,9 @@ class TestUploads:
         r = requests.post(f"{API}/uploads", files=files, headers=_h(organizer_token), timeout=20)
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["url"].startswith("/api/uploads/")
-        assert body["filename"].endswith(".png")
+        # Iter3: object storage migration — url is /api/files/<storage_path>
+        assert body["url"].startswith("/api/files/"), body
+        assert body["path"].endswith(".png")
         # File served
         g = requests.get(f"{BASE_URL}{body['url']}", timeout=20)
         assert g.status_code == 200

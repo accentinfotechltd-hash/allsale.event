@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
 import ImageUploader from "@/components/ImageUploader";
 import SeatDesigner from "@/components/SeatDesigner";
+import DateTimePicker from "@/components/DateTimePicker";
 
 const CATEGORIES = [
   { id: "music", name: "Music" },
@@ -87,7 +88,7 @@ export default function CreateEvent() {
             </select>
           </Field>
           <Field label="Date & time">
-            <input required type="datetime-local" value={form.date} onChange={(e) => update("date", e.target.value)} data-testid="event-date-input" />
+            <DateTimePicker value={form.date} onChange={(v) => update("date", v)} testid="event-datetime" />
           </Field>
           <Field label="Venue">
             <input required value={form.venue} onChange={(e) => update("venue", e.target.value)} />
