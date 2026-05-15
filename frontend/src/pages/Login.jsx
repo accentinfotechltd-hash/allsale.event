@@ -20,7 +20,10 @@ export default function Login() {
       const { data } = await api.post("/auth/login", { email, password });
       if (data.token) localStorage.setItem("aura_token", data.token);
       setUser(data);
-      const target = loc.state?.from || "/";
+      const target = loc.state?.from
+        || (data.role === "organizer" ? "/organizer"
+        : data.role === "admin" ? "/admin"
+        : "/");
       nav(target);
     } catch (err) {
       toast.error(formatApiErrorDetail(err?.response?.data?.detail) || "Login failed");

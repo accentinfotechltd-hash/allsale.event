@@ -103,7 +103,7 @@ async def create_hold(payload: HoldIn, user: dict = Depends(get_current_user)):
         qty_for_check = len(seats) if seats else quantity
         err = _check_code_usable(c, tier_name, qty_for_check)
         if err:
-            raise HTTPException(status_code=400, detail=err)
+            raise HTTPException(status_code=err[0], detail=err[1])
         discount_amount = _apply_discount(c["kind"], c["value"], subtotal)
         amount = round(max(0, subtotal - discount_amount), 2)
         discount_code = code

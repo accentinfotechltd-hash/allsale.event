@@ -65,19 +65,36 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - ✅ Polish: loading state on dashboard table, default cache headers on file responses.
 - ✅ **74/75 backend pass, 100% frontend E2E** (1 stale iter3 test using a hard-coded storage path that no longer exists; not a regression).
 
+## Iteration 5 (2026-02-15) — Index optimization + CDN guide + Discount Code Engine
+- ✅ Added `bookings (event_id, status)` compound index + `bookings.user_id` index for analytics & profile queries.
+- ✅ `/app/memory/CDN_DEPLOYMENT.md` — Cloudflare / BunnyCDN / CloudFront step-by-step deployment guides.
+- ✅ **Discount code engine** (`routers/discount_codes.py`):
+  - Organizer CRUD `POST/GET/DELETE /api/organizer/discount-codes` (with `?active=true` filter)
+  - Public validate `POST /api/discount-codes/validate` — no consumption; computes discount
+  - Apply at hold `POST /api/bookings/hold` accepts optional `code`, stores `discount_code` + `discount_amount` + `subtotal`
+  - **Atomic uses_count enforcement** with `$expr` guard — concurrent overflows return 409 consistently
+  - Code rules: `[A-Z0-9_-]{2,24}`, percent (≤100) or flat, optional `max_uses`, `expires_at`, `restricted_tiers`
+- ✅ **Attribution analytics**: drilldown returns a `codes` bucket (Direct + each code with revenue/tickets/discount_given). Rendered as horizontal bar chart + attribution table on the drilldown page.
+- ✅ Frontend `/organizer/codes` (`DiscountCodes.jsx`) + EventDetail promo input with Apply + applied badge + strikethrough subtotal.
+- ✅ Login redirect by role (organizer → /organizer, admin → /admin, attendee → /).
+- ✅ **94/95 backend pass + 100% frontend E2E** (20 new iter5 cases). Status-code 409 consistency + max_length=24 added post-test.
+
 ## Prioritized Backlog (deferred)
 - **P0**: Real email confirmations (SendGrid/Resend — needs API key from user)
-- **P1**: Stronger atomic seat reservation (unique compound index per (event_id, seat))
 - **P1**: Refresh tokens / token expiry handling (current JWT is 7-day)
-- **P1**: Split server.py (~1070 lines) into routers (auth/events/bookings/payments/admin)
-- **P2**: Discount codes / promo engine
 - **P2**: Waitlists for sold-out events with auto-notify
 - **P2**: AI event recommendations ("Because you liked X…")
-- **P2**: On-site QR check-in app for organizers
+- **P2**: On-site QR check-in app for organizers (scan QR with phone camera at the door)
 - **P2**: Dynamic pricing (auto-bump as stock depletes / date approaches)
-- **P2**: Live seat updates via WebSockets/SignalR (currently 8-sec polling)
+- **P2**: Live seat updates via WebSockets (currently 8-sec polling)
 - **P2**: NFC/RFID festival entry, virtual event Zoom integration
+- **P2**: CDN for `/api/files/*` (guide ready in `CDN_DEPLOYMENT.md`)
 - **P3**: Marketing referral tracking, organizer payout system, KYC verification
+
+## Done (no longer in backlog)
+- ~~Split server.py into routers~~ (iter4)
+- ~~Atomic seat reservation via unique compound index~~ (iter2)
+- ~~Discount codes / promo engine~~ (iter5)
 
 ## Mocked / Open Items
 - Email confirmation sending: **MOCKED** (logged to console only)

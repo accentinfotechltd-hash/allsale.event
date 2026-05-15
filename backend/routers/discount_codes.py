@@ -65,8 +65,8 @@ async def _find_active_code(code: str, event_id: str, organizer_id: Optional[str
     )
 
 
-def _check_code_usable(c: dict, tier_name: Optional[str], quantity: int) -> Optional[str]:
-    """Return None if usable, or an error string."""
+def _check_code_usable(c: dict, tier_name: Optional[str], quantity: int) -> Optional[tuple[int, str]]:
+    """Return None if usable, or (status_code, error_message)."""
     if c.get("expires_at"):
         exp = c["expires_at"]
         if isinstance(exp, str):
@@ -74,14 +74,15 @@ def _check_code_usable(c: dict, tier_name: Optional[str], quantity: int) -> Opti
         if exp.tzinfo is None:
             exp = exp.replace(tzinfo=timezone.utc)
         if exp < utc_now():
-            return "Code has expired"
+            return (400, "Code has expired")
     if c.get("max_uses") is not None:
         remaining = c["max_uses"] - c.get("uses_count", 0)
         if remaining < quantity:
-            return "Code usage limit reached"
+            # 409 here matches the atomic-update path elsewhere — consistent contract
+            return (409, "Code usage limit reached")
     restricted = c.get("restricted_tiers") or []
     if restricted and tier_name and tier_name not in restricted:
-        return f"Code only applies to: {', '.join(restricted)}"
+        return (400, f"Code only applies to: {', '.join(restricted)}")
     return None
 
 
@@ -130,11 +131,14 @@ async def create_code(payload: DiscountCodeIn, user: dict = Depends(get_current_
 
 
 @router.get("/organizer/discount-codes")
-async def list_codes(user: dict = Depends(get_current_user)):
-    """List all of this organizer's codes with usage stats."""
+async def list_codes(active: Optional[bool] = None, user: dict = Depends(get_current_user)):
+    """List organizer's codes with usage stats. Pass ?active=true to filter out deactivated ones."""
     await require_role(user, "organizer", "admin")
+    query: dict = {"created_by": user["user_id"]}
+    if active is not None:
+        query["active"] = active
     items = []
-    async for c in db.discount_codes.find({"created_by": user["user_id"]}, {"_id": 0}).sort("created_at", -1):
+    async for c in db.discount_codes.find(query, {"_id": 0}).sort("created_at", -1):
         # Compute revenue attributed
         agg = await db.bookings.aggregate([
             {"$match": {"discount_code": c["code"], "status": "paid"}},
@@ -170,7 +174,7 @@ async def validate_code(payload: ValidateIn):
     qty = payload.seat_count if payload.seat_count > 0 else payload.quantity
     err = _check_code_usable(c, payload.tier_name, qty)
     if err:
-        raise HTTPException(status_code=400, detail=err)
+        raise HTTPException(status_code=err[0], detail=err[1])
     discount = _apply_discount(c["kind"], c["value"], payload.subtotal)
     return {
         "code": code,
