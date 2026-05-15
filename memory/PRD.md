@@ -100,5 +100,21 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - Email confirmation sending: **MOCKED** (logged to console only)
 - Stripe in test mode — full payment completion requires real browser interaction
 
+## Iteration 6 (2026-02-15) — Movies category + Admin user management
+- ✅ **Movies/Film category** added as the first category. Two cinema demo events seeded:
+  - `Dune: Part Three — IMAX Premiere` (Hoyts Sylvia Park, 9×14 seatmap with 2 aisles)
+  - `Studio Ghibli Retrospective — Spirited Away (35mm)` (Embassy Theatre, 7×12 with center aisle)
+- ✅ **Admin user management** — new "Users" tab on `/admin` with stats (total/by-role/suspended), search by name/email, filters by role/status, role change (inline select), suspend/unsuspend with session invalidation. Backend endpoints:
+  - `GET /api/admin/users` (with `?q=`, `?role=`, `?active=` filters)
+  - `GET /api/admin/users/stats`
+  - `POST /api/admin/users/{id}/role`, `/suspend`, `/unsuspend`
+- ✅ **Security guards**:
+  - Suspended users blocked from login (`403 Account suspended`)
+  - Active-flag check enforced in `get_current_user` for both JWT and Google-session paths (stale tokens rejected post-suspension)
+  - Cannot demote yourself
+  - Cannot demote the last remaining admin (count-based guard)
+- ✅ Per-user activity counts (bookings_count, events_count) in the listing.
+- ✅ **22/22 new iter7 tests pass + 100% frontend E2E**. One pre-existing critical bug (JWT branch didn't check `active`) caught by tester and fixed during the run.
+
 ## Test Credentials
 See `/app/memory/test_credentials.md`

@@ -189,7 +189,7 @@ function UsersTab({ currentUser }) {
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search by name or email..."
+            placeholder="Search by name or email — press Enter"
             className="pl-10"
             data-testid="admin-user-search"
           />

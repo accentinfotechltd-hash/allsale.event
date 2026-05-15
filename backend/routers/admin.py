@@ -95,6 +95,11 @@ async def admin_change_role(user_id: str, payload: RoleIn, user: dict = Depends(
     target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="User not found")
+    # Don't allow demoting the last remaining admin (avoids locking the system out)
+    if target.get("role") == "admin" and payload.role != "admin":
+        admin_count = await db.users.count_documents({"role": "admin"})
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="Cannot demote the last remaining admin")
     await db.users.update_one(
         {"user_id": user_id},
         {"$set": {"role": payload.role, "role_updated_at": utc_now().isoformat()}},
