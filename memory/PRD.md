@@ -43,12 +43,27 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - ✅ 42/42 backend tests passing (12 new in iter2: uploads, aisle reject, concurrent holds, etc.)
 
 ## Iteration 3 (2026-02-15) — Object storage + polish
-- ✅ **Emergent object storage**: uploads now persisted to `https://integrations.emergentagent.com/objstore` under `aura-tickets/uploads/{user_id}/{uuid}.{ext}`. Survives container restart. Local-disk uploads removed.
-- ✅ `GET /api/files/{path:path}` — public read endpoint streams files from object storage with content-type + cache headers. Verified durability: previously uploaded files remain accessible.
-- ✅ DB-backed file metadata in `uploaded_files` (file_id, storage_path, content_type, size, user_id).
-- ✅ **shadcn Calendar + time picker** replaces native HTML datetime-local input on Create Event (`DateTimePicker.jsx`). Premium look matches the rest of the brand.
+- ✅ **Emergent object storage**: uploads now persisted to `https://integrations.emergentagent.com/objstore` under `aura-tickets/uploads/{user_id}/{uuid}.{ext}`. Survives container restart.
+- ✅ `GET /api/files/{path:path}` — public read endpoint streams files from object storage with content-type + cache headers.
+- ✅ DB-backed file metadata in `uploaded_files` (file_id, storage_path, content_type, size, user_id, etag).
+- ✅ **shadcn Calendar + time picker** replaces native HTML datetime-local input on Create Event (`DateTimePicker.jsx`).
 - ✅ Tightened allow-list: removed `.gif` (only jpg/jpeg/png/webp).
-- ✅ 55/55 backend tests + 100% frontend E2E passing (13 new iter3 cases). Full organizer create-event flow verified end-to-end: login → upload cover → calendar pick → fill form → seat designer → submit → redirect to event detail → cover image served from object storage.
+- ✅ 55/55 backend tests + 100% frontend E2E passing.
+
+## Iteration 4 (2026-02-15) — Refactor + Drilldown + CSV + ETag
+- ✅ **Refactor**: `server.py` (1188 lines → 86 lines) split into modular package:
+  - `core.py` — shared db, env, helpers, auth deps
+  - `models.py` — Pydantic in/out models
+  - `seed.py` — demo data
+  - `storage.py` — object storage client (unchanged)
+  - `routers/{auth,events,bookings,payments,uploads,admin,organizer}.py` — endpoint groups (each <180 lines)
+- ✅ **Per-event drilldown** `GET /api/organizer/events/{event_id}/analytics`: event meta + totals (revenue, tickets_sold, capacity, **sell_through_pct**, bookings_count, unique_attendees) + tier breakdown + day series + hour-of-day (24 entries) + bookings_count.
+- ✅ **CSV export** `GET /api/organizer/events/{event_id}/attendees.csv` (text/csv with Content-Disposition).
+- ✅ **Frontend drilldown page** `/organizer/events/:eventId` — 4 KPI cards, "Revenue by tier" bar chart, "Revenue by day" line chart, hour-of-day bars, tier breakdown table, attendees table, "Export attendees (CSV)" button (authenticated fetch + blob download).
+- ✅ Organizer dashboard table rows are now clickable → drill into event analytics.
+- ✅ **ETag on `/api/files/{path}`** — browsers send `If-None-Match`, server replies `304 Not Modified` with empty body. Partial mitigation for K8s ingress stripping our `Cache-Control` header. ETag backfilled on first miss.
+- ✅ Polish: loading state on dashboard table, default cache headers on file responses.
+- ✅ **74/75 backend pass, 100% frontend E2E** (1 stale iter3 test using a hard-coded storage path that no longer exists; not a regression).
 
 ## Prioritized Backlog (deferred)
 - **P0**: Real email confirmations (SendGrid/Resend — needs API key from user)

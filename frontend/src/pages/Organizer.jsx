@@ -9,6 +9,7 @@ export default function Organizer() {
   const { user } = useAuth();
   const [events, setEvents] = useState([]);
   const [analytics, setAnalytics] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
@@ -16,7 +17,7 @@ export default function Organizer() {
         const [e, a] = await Promise.all([api.get("/organizer/events"), api.get("/organizer/analytics")]);
         setEvents(e.data);
         setAnalytics(a.data);
-      } catch { /* noop */ }
+      } catch { /* noop */ } finally { setLoading(false); }
     })();
   }, []);
 
@@ -82,7 +83,9 @@ export default function Organizer() {
             </tr>
           </thead>
           <tbody>
-            {events.length === 0 ? (
+            {loading ? (
+              <tr><td colSpan="5" className="p-8 text-center" style={{ color: "var(--text-dim)" }}>Loading your events...</td></tr>
+            ) : events.length === 0 ? (
               <tr><td colSpan="5" className="p-8 text-center" style={{ color: "var(--text-dim)" }}>No events yet. Create your first one!</td></tr>
             ) : events.map((e) => {
               const perE = (analytics?.per_event || []).find((x) => x.event_id === e.event_id) || {};

@@ -71,6 +71,10 @@ async def get_file(path: str, request: Request):
         raise HTTPException(status_code=404, detail="File not found")
     if not etag:
         etag = hashlib.md5(data).hexdigest()
+        # Backfill the etag so future requests can short-circuit at the 304 check
+        await db.uploaded_files.update_one(
+            {"storage_path": path}, {"$set": {"etag": etag}}
+        )
     headers = {
         "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
         "ETag": f'"{etag}"',
