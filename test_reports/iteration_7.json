@@ -1,0 +1,51 @@
+{
+  "summary": "Iteration 7 (Movies category + Admin user management) tested end-to-end. 22 new pytest cases in test_iteration7.py — all PASS after one fix applied to core.py (see RCA). Frontend Admin /admin Users tab fully working: list/filters/stats/role-change-inline/suspend-unsuspend/self-protection all green. Landing page Movies tile shown first; CreateEvent dropdown lists Movies first. Movies category exposes 2 cinema events with seatmap+aisles.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/auth/me (JWT bearer path)", "issue": "RESOLVED IN THIS RUN. Originally: core.get_current_user did NOT check user.active in the JWT branch (only in the Google session branch). Result: a JWT issued before suspension stayed valid even after the user was suspended — directly contradicts spec line 'get_current_user checks active (cookie + bearer paths)'. Fix applied: added `if user.get('active') is False: raise HTTPException(403, 'Account suspended')` before returning the user in the JWT branch. After fix, all 22 iter7 tests pass including the stale-JWT-rejection assertion.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "various iter4/iter5 stale tests", "issue": "test_iteration4.py and test_iteration5.py have 13 hard-coded references to old event_ids and seeded discount-code state that were reset when db.events was re-seeded for iter7. These are NOT iter7 regressions — flagged in the agent-to-agent note. Recommend re-baselining those fixtures or scoping them to dynamically discovered events."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/admin Users tab — search input", "issues": ["Search field requires user to press Enter to apply (wrapped in <form onSubmit={onSearch}>). There is no submit button or debounced auto-filter, and no placeholder hint to press Enter. New users may type and assume filtering is broken when nothing happens. Consider adding a small magnifier/submit button OR a debounced onChange-triggered fetch (useEffect dependency on q)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration7.py",
+    "/app/test_reports/pytest/pytest_iter7.xml",
+    "/app/test_reports/pytest/pytest_iter7_full.xml"
+  ],
+  "action_items": [
+    "(Already applied this run) Confirm core.py JWT-path active check is preserved on next commit; add to seed/migration notes.",
+    "(UX) Add a visible submit affordance OR debounced auto-filter on admin-user-search so typing applies the filter without requiring Enter.",
+    "(Cleanup, low) Re-baseline test_iteration4.py / test_iteration5.py to discover event_ids dynamically rather than hard-coding stale IDs that break after each re-seed.",
+    "(Cleanup, low) The test run creates ~10 TEST_ prefixed users on aura.example.com. They persist but are visually tagged 'TEST'. Add a teardown fixture to delete them, or filter them out of the admin Users tab."
+  ],
+  "critical_code_review_comments": [
+    "core.py:82-99 — Before fix, the JWT branch returned the user unconditionally. After fix it now mirrors the session branch's active check. Make sure require_role and any other dependency does NOT re-fetch the user and bypass this guard.",
+    "routers/admin.py:74 — Active-filter constructs `query['$and'] = query.get('$and', []) + [...]` which correctly composes with other filters. Good pattern.",
+    "routers/admin.py:79 — Always projects out _id and password_hash. ✓",
+    "routers/admin.py:79 — `.sort('created_at', -1).limit(500)` — fine for current scale (24 users) but at 1k+ users an admin search will silently truncate. Add pagination or warn at >500.",
+    "routers/admin.py:82-83 — Per-user N+1 count_documents (bookings + events). For 500 users this is 1000 round-trips. Consider $lookup or pre-aggregated counters when user-base grows.",
+    "routers/auth.py:50 — `if user.get('active') is False:` correctly treats missing field as active (matches list filter logic). ✓",
+    "routers/admin.py:108 — Self-suspend correctly 400. But there is no protection against last-admin demotion: an admin can change ANOTHER admin to attendee, potentially leaving the system with 0 admins. Recommend: count admins, refuse demotion if it would drop count to 0.",
+    "Admin.jsx UsersTab — useEffect dependency array `[roleFilter, statusFilter]` deliberately omits `q` (search is form-submit). This is intentional per onSearch handler but should be documented. Lint disable comment is in place.",
+    "Admin.jsx UsersTab — `window.confirm` used for suspend; consider replacing with shadcn AlertDialog for visual consistency. Low priority."
+  ],
+  "updated_files": [
+    "/app/backend/core.py (added active-check on JWT bearer/cookie path in get_current_user)",
+    "/app/backend/tests/test_iteration7.py (new — 22 cases covering movies category, admin user management, role change, suspend lifecycle including stale-JWT rejection, legacy-user backward compat)"
+  ],
+  "success_rate": {"backend": "100% (22/22 iter7) — total 103/117 across all suites; the 14 failures are stale-event-id references in iter4/iter5 from pre-existing re-seed, not iter7 regressions", "frontend": "100% of iter7 flows tested (admin tabs, search, role/status filters, role change, suspend/unsuspend, self-protection, landing tile, create-event categories)"},
+  "test_credentials": "admin@aura.events/admin123, organizer@aura.events/organizer123, attendee@aura.events/attendee123 — all working",
+  "seed_data_creation": "Tests register ~10 TEST_<uuid>@aura.example.com attendee/organizer accounts via /api/auth/register. Not cleaned up automatically. They are all visually tagged 'TEST role target', 'TEST bad role', 'TEST suspend lifecycle' in the admin Users tab.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iteration7.py is the canonical iter7 regression file. BASE_URL falls back to /app/frontend/.env. _register uses @aura.example.com (NOT @aura.test — that domain is blocked by email-validator as reserved). The Admin search input is a form (press Enter, not auto-debounce) — use page.press('[data-testid=admin-user-search]', 'Enter') in Playwright. Status filter option values are 'active'/'suspended' (NOT 'true'/'false'). The iter4/iter5 hard-coded event_id failures are NOT iter7 regressions and existed before iter7 started.",
+  "rca of the issue": "BUG: core.get_current_user did not enforce user.active=false on the JWT path, only on the Google session path. REPRO: (1) login attendee → get JWT token; (2) admin suspends that attendee → DB now has active=false; (3) old JWT still works on /api/auth/me (returns 200). FIX applied: insert active check after `find_one` in JWT branch (core.py:96-99). VERIFY: stale-JWT test in test_iteration7.py::TestSuspendLifecycle::test_suspend_blocks_login_and_old_token_then_unsuspend now asserts 403 and passes."
+}

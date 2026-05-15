@@ -47,6 +47,7 @@ async def featured_events():
 @router.get("/events/categories")
 async def event_categories():
     return [
+        {"id": "movies", "name": "Movies", "image": "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=800"},
         {"id": "music", "name": "Music", "image": "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=800"},
         {"id": "comedy", "name": "Comedy", "image": "https://images.unsplash.com/photo-1527224538127-2104bb71c51b?w=800"},
         {"id": "sports", "name": "Sports", "image": "https://images.unsplash.com/photo-1471295253337-3ceaaedca402?w=800"},

@@ -6,6 +6,27 @@ from core import db, hash_password, utc_now, ADMIN_EMAIL, ADMIN_PASSWORD, logger
 
 DEMO_EVENTS = [
     {
+        "title": "Dune: Part Three — IMAX Premiere",
+        "category": "movies", "city": "Auckland", "venue": "Hoyts Sylvia Park IMAX",
+        "description": "The epic finale of the Dune saga returns to the big screen in IMAX. Two-week exclusive run. Reserved seating with extra-wide premium recliners in rows G–H.",
+        "image_url": "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1200",
+        "banner_url": "https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?w=1920",
+        "has_seatmap": True, "seat_rows": 9, "seat_cols": 14, "seat_price": 24.0,
+        # Cinema layout: two aisles (left of col 4, right of col 11) + front row reserved
+        "aisles": [f"{r}-{c}" for r in "ABCDEFGHI" for c in (4, 11)],
+        "tiers": [], "featured": True,
+    },
+    {
+        "title": "Studio Ghibli Retrospective — Spirited Away (35mm)",
+        "category": "movies", "city": "Wellington", "venue": "The Embassy Theatre",
+        "description": "A one-night-only screening of Spirited Away on original 35mm film, introduced by a film historian. Q&A with the audience after the credits.",
+        "image_url": "https://images.unsplash.com/photo-1542204165-65bf26472b9b?w=1200",
+        "banner_url": "https://images.unsplash.com/photo-1542204165-65bf26472b9b?w=1920",
+        "has_seatmap": True, "seat_rows": 7, "seat_cols": 12, "seat_price": 18.0,
+        "aisles": [f"{r}-{c}" for r in "ABCDEFG" for c in (6, 7)],
+        "tiers": [], "featured": False,
+    },
+    {
         "title": "Midnight Echoes — Live in Concert",
         "category": "music", "city": "Auckland", "venue": "Spark Arena",
         "description": "An immersive sonic journey under neon lights. Featuring Midnight Echoes with full band, strings, and synths. Doors at 7pm. Limited VIP front-row available.",

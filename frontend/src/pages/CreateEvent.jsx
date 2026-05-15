@@ -8,6 +8,7 @@ import SeatDesigner from "@/components/SeatDesigner";
 import DateTimePicker from "@/components/DateTimePicker";
 
 const CATEGORIES = [
+  { id: "movies", name: "Movies" },
   { id: "music", name: "Music" },
   { id: "comedy", name: "Comedy" },
   { id: "sports", name: "Sports" },

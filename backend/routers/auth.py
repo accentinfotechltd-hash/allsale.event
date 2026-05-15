@@ -47,6 +47,8 @@ async def login(payload: LoginIn, response: Response):
     user = await db.users.find_one({"email": email})
     if not user or not user.get("password_hash") or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    if user.get("active") is False:
+        raise HTTPException(status_code=403, detail="Account suspended. Contact support.")
     token = create_access_token(user["user_id"], email)
     set_jwt_cookie(response, token)
     return {
