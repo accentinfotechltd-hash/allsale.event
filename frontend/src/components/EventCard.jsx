@@ -22,8 +22,17 @@ export default function EventCard({ event, index = 0 }) {
           className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
-        <div className="absolute top-3 left-3">
+        <div className="absolute top-3 left-3 flex flex-col gap-1.5 items-start">
           <span className="chip chip-accent" style={{ fontSize: "0.65rem" }}>{event.category}</span>
+          {event.waitlist_count > 0 && (
+            <span
+              data-testid={`waitlist-count-${event.event_id}`}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-medium backdrop-blur-md"
+              style={{ background: "rgba(255,79,0,0.92)", color: "#000" }}
+            >
+              {event.waitlist_count} waiting
+            </span>
+          )}
         </div>
         <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between">
           <div>

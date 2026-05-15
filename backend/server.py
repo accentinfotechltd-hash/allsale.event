@@ -32,6 +32,7 @@ from routers import organizer as organizer_router
 from routers import discount_codes as discount_codes_router
 from routers import payouts as payouts_router
 from routers import waitlist as waitlist_router
+from routers import recommendations as recommendations_router
 
 
 app = FastAPI(title="AURA Event Ticketing API", version="1.0")
@@ -48,6 +49,7 @@ api.include_router(organizer_router.router)
 api.include_router(discount_codes_router.router)
 api.include_router(payouts_router.router)
 api.include_router(waitlist_router.router)
+api.include_router(recommendations_router.router)
 
 
 @api.get("/")
@@ -104,6 +106,8 @@ async def on_startup():
     )
     await db.waitlist_entries.create_index([("event_id", 1), ("status", 1), ("requested_at", 1)])
     await db.waitlist_entries.create_index([("user_id", 1), ("status", 1)])
+    await db.recommendation_cache.create_index("user_id", unique=True)
+    await db.recommendation_cache.create_index([("expires_at", 1)])
     init_storage()
     await seed_demo()
     logger.info("AURA backend ready")

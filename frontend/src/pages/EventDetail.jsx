@@ -80,9 +80,10 @@ export default function EventDetail() {
 
   const date = new Date(event.date);
   const tierObj = event.tiers?.find((t) => t.name === tier);
+  const tierEffectivePrice = tierObj?.effective_price ?? tierObj?.price ?? 0;
   const subtotal = event.has_seatmap
     ? selectedSeats.length * event.seat_price
-    : (tierObj?.price || 0) * qty;
+    : tierEffectivePrice * qty;
   const total = appliedCode ? Math.max(0, subtotal - appliedCode.discount_amount) : subtotal;
 
   const applyCode = async () => {
@@ -201,7 +202,17 @@ export default function EventDetail() {
                           <div className="serif text-xl">{t.name}</div>
                           <div className="text-xs" style={{ color: "var(--text-dim)" }}>{t.capacity} seats total</div>
                         </div>
-                        <div className="serif text-2xl" style={{ color: "var(--accent)" }}>${t.price}</div>
+                        <div className="text-right">
+                          {t.surging && t.effective_price > t.price ? (
+                            <>
+                              <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--danger)" }}>High demand</div>
+                              <div className="serif text-2xl" style={{ color: "var(--accent)" }}>${t.effective_price}</div>
+                              <div className="text-xs line-through" style={{ color: "var(--text-dim)" }}>${t.price}</div>
+                            </>
+                          ) : (
+                            <div className="serif text-2xl" style={{ color: "var(--accent)" }}>${t.price}</div>
+                          )}
+                        </div>
                       </div>
                     </button>
                   ))}

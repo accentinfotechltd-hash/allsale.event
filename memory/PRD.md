@@ -168,5 +168,26 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - ✅ Added module-scoped cleanup fixtures to iter10 + iter11 tests so test artifacts don't contaminate other suites.
 - ✅ **All 57/57 tests pass** across iter8 (check-in) + iter9 (emails) + iter10 (payouts) + iter11 (waitlist).
 
+## Iteration 12 (2026-02-15) — AI Recommendations + Dynamic Pricing + Waitlist Count Badge
+- ✅ **AI Recommendations** (`routers/recommendations.py`):
+  - `GET /api/me/recommendations` returns 3–5 personalized event picks with a one-line "why" per pick.
+  - Uses Emergent LLM key with GPT-5.1 (Claude/Gemini swappable). Strict-JSON output parsing with code-fence stripping.
+  - Trending fallback for users with no booking history. Heuristic category-overlap fallback if LLM call fails.
+  - **1-hour per-user cache** via `recommendation_cache` collection (unique index on `user_id`).
+  - Landing page now has a "Picked for you" carousel above the featured grid (visible to logged-in users only).
+- ✅ **Dynamic Pricing**:
+  - `compute_tier_effective_price(event, tier, sold)` core helper — surges when remaining ≤ threshold%; multiplier clamped to [1.0, 3.0].
+  - Per-event config: `{enabled, surge_threshold_pct, surge_multiplier}` (default 30% / 1.2×).
+  - `PATCH /api/organizer/events/{id}/dynamic-pricing` to toggle/configure (organizer or admin only).
+  - `GET /api/events/{id}` now returns `surging` flag + per-tier `effective_price` and `surging` booleans.
+  - `POST /api/bookings/hold` uses the effective price at hold-time (snapshotted in the booking).
+  - EventDetail UI shows "HIGH DEMAND" pill + strikethrough base price + surged display price.
+  - OrganizerEvent has a "Demand pricing" panel with toggle + dual sliders (threshold, multiplier) + live preview.
+- ✅ **Waitlist count badge**:
+  - `GET /api/events` now annotates each tier-based event with `waitlist_count` when ≥ 1 person waiting.
+  - EventCard shows "X waiting" pill in the top-left corner (FOMO/social-proof signal on Browse).
+- ✅ **11/11 pytest pass** (`tests/test_iteration12_dynamic_recs.py`).
+- ✅ **68/68 tests pass** in full regression across iter8–iter12.
+
 ## Test Credentials
 See `/app/memory/test_credentials.md`

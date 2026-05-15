@@ -131,6 +131,8 @@ async def event_drilldown(event_id: str, user: dict = Depends(get_current_user))
             "date": event["date"],
             "category": event["category"],
             "image_url": event.get("image_url"),
+            "has_seatmap": event.get("has_seatmap", False),
+            "dynamic_pricing": event.get("dynamic_pricing") or {},
         },
         "totals": {
             "revenue": round(sum(b.get("amount", 0) for b in bookings), 2),

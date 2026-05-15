@@ -7,6 +7,7 @@ from pymongo.errors import DuplicateKeyError
 
 from core import (
     db, get_current_user, utc_now, gen_qr_data_url, booking_to_public, HOLD_MINUTES,
+    compute_tier_effective_price,
 )
 from models import HoldIn
 from routers.discount_codes import _find_active_code, _check_code_usable, _apply_discount, _normalize_code
@@ -95,7 +96,8 @@ async def create_hold(payload: HoldIn, user: dict = Depends(get_current_user)):
             held_qty += h.get("quantity", 0)
         if sold + held_qty + quantity > tier.get("capacity", 0):
             raise HTTPException(status_code=409, detail="Sold out for this tier")
-        amount = round(tier["price"] * quantity, 2)
+        unit_price, surging = compute_tier_effective_price(event, tier, sold)
+        amount = round(unit_price * quantity, 2)
         tier_name = payload.tier_name
         seats = []
 

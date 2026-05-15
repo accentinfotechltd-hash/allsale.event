@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send } from "lucide-react";
+import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send, Zap } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { toast } from "sonner";
 
@@ -258,6 +258,9 @@ export default function OrganizerEvent() {
 
       {/* Waitlist panel */}
       <WaitlistPanel eventId={eventId} />
+
+      {/* Dynamic pricing */}
+      <DynamicPricingPanel eventId={eventId} event={event} />
     </div>
   );
 }
@@ -385,3 +388,85 @@ function WaitlistPanel({ eventId }) {
     </Panel>
   );
 }
+
+function DynamicPricingPanel({ eventId, event }) {
+  // Initialize from event.dynamic_pricing if present
+  const dp = event.dynamic_pricing || {};
+  const [enabled, setEnabled] = useState(!!dp.enabled);
+  const [threshold, setThreshold] = useState(String(dp.surge_threshold_pct ?? 30));
+  const [multiplier, setMultiplier] = useState(String(dp.surge_multiplier ?? 1.2));
+  const [saving, setSaving] = useState(false);
+
+  if (event.has_seatmap) return null; // tier-based only for V1
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.patch(`/organizer/events/${eventId}/dynamic-pricing`, {
+        enabled,
+        surge_threshold_pct: parseFloat(threshold),
+        surge_multiplier: parseFloat(multiplier),
+      });
+      toast.success(enabled ? "Demand pricing turned on" : "Demand pricing turned off");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail?.[0]?.msg || "Failed to save");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Panel
+      title={
+        <span className="flex items-center gap-2">
+          <Zap className="w-5 h-5" style={{ color: "var(--accent)" }} />
+          Demand pricing
+          {enabled && <span className="px-2 py-0.5 rounded-full text-xs" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>Active</span>}
+        </span>
+      }
+      sub="Surge tier prices automatically when stock runs low."
+    >
+      <div className="flex flex-wrap items-center gap-4 mb-5">
+        <label className="inline-flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)}
+            data-testid="dyn-pricing-enabled"
+          />
+          <span className="text-sm">Enable surge pricing</span>
+        </label>
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-5 mb-5">
+        <div>
+          <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>
+            Surge when remaining ≤ ({threshold}%)
+          </label>
+          <input
+            type="range" min="5" max="80" step="5"
+            value={threshold} onChange={(e) => setThreshold(e.target.value)}
+            disabled={!enabled} className="w-full"
+            data-testid="dyn-threshold-slider"
+          />
+        </div>
+        <div>
+          <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>
+            Multiplier ({Number(multiplier).toFixed(2)}×)
+          </label>
+          <input
+            type="range" min="1.05" max="2" step="0.05"
+            value={multiplier} onChange={(e) => setMultiplier(e.target.value)}
+            disabled={!enabled} className="w-full"
+            data-testid="dyn-multiplier-slider"
+          />
+        </div>
+      </div>
+
+      <div className="rounded-xl p-4 mb-5 text-sm" style={{ background: "var(--bg-elev)", color: "var(--text-muted)" }}>
+        Example: a $50 tier becomes <strong style={{ color: "var(--accent)" }}>${(50 * parseFloat(multiplier || 1)).toFixed(2)}</strong> once {threshold}% (or fewer) seats remain.
+      </div>
+
+      <button onClick={save} disabled={saving} className="btn-primary" data-testid="save-dyn-pricing-btn">
+        {saving ? "Saving…" : "Save"}
+      </button>
+    </Panel>
+  );
+}
+

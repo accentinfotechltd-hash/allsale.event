@@ -3,8 +3,9 @@ import uuid
 from typing import Optional, Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 
-from core import db, get_current_user, require_role, utc_now, event_to_public
+from core import db, get_current_user, require_role, utc_now, event_to_public, compute_tier_effective_price
 from models import EventIn
 
 router = APIRouter(tags=["events"])
@@ -29,7 +30,16 @@ async def list_events(
     if city:
         query["city"] = {"$regex": city, "$options": "i"}
     cursor = db.events.find(query, {"_id": 0}).sort("date", 1).limit(limit)
-    return [event_to_public(e) async for e in cursor]
+    items = [event_to_public(e) async for e in cursor]
+    # Annotate sold-out events with waitlist_count (cheap aggregate)
+    for e in items:
+        if not e.get("has_seatmap") and e.get("tiers"):
+            wcount = await db.waitlist_entries.count_documents(
+                {"event_id": e["event_id"], "status": "waiting"}
+            )
+            if wcount > 0:
+                e["waitlist_count"] = wcount
+    return items
 
 
 @router.get("/events/featured")
@@ -85,6 +95,7 @@ async def get_event(event_id: str):
         now_iso = utc_now().isoformat()
         tier_status = []
         any_remaining = False
+        any_surging = False
         for t in e.get("tiers", []):
             sold = 0
             async for b in db.bookings.find(
@@ -97,9 +108,15 @@ async def get_event(event_id: str):
             remaining = max(0, t.get("capacity", 0) - sold)
             if remaining > 0:
                 any_remaining = True
-            tier_status.append({"name": t["name"], "sold": sold, "remaining": remaining})
+            eff_price, surging = compute_tier_effective_price(e, t, sold)
+            if surging:
+                any_surging = True
+                t["effective_price"] = eff_price
+                t["surging"] = True
+            tier_status.append({"name": t["name"], "sold": sold, "remaining": remaining, "effective_price": eff_price, "surging": surging})
         e["tier_status"] = tier_status
         e["sold_out"] = (not any_remaining) and bool(e.get("tiers"))
+        e["surging"] = any_surging
     return event_to_public(e)
 
 
@@ -132,3 +149,28 @@ async def create_event(payload: EventIn, user: dict = Depends(get_current_user))
     }
     await db.events.insert_one(doc)
     return event_to_public(doc)
+
+
+class DynamicPricingIn(BaseModel):
+    enabled: bool
+    surge_threshold_pct: float = Field(default=30.0, ge=5, le=90)
+    surge_multiplier: float = Field(default=1.2, ge=1.01, le=3.0)
+
+
+@router.patch("/organizer/events/{event_id}/dynamic-pricing")
+async def set_dynamic_pricing(event_id: str, payload: DynamicPricingIn, user: dict = Depends(get_current_user)):
+    await require_role(user, "organizer", "admin")
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not your event")
+    await db.events.update_one(
+        {"event_id": event_id},
+        {"$set": {"dynamic_pricing": {
+            "enabled": payload.enabled,
+            "surge_threshold_pct": payload.surge_threshold_pct,
+            "surge_multiplier": payload.surge_multiplier,
+        }}},
+    )
+    return {"ok": True, "dynamic_pricing": payload.model_dump()}

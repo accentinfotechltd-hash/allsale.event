@@ -2,11 +2,15 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import EventCard from "@/components/EventCard";
-import { ArrowRight, Search, Calendar, Zap, Award } from "lucide-react";
+import { useAuth } from "@/lib/auth";
+import { ArrowRight, Search, Calendar, Zap, Award, Sparkles } from "lucide-react";
 
 export default function Landing() {
+  const { user } = useAuth();
   const [featured, setFeatured] = useState([]);
   const [cats, setCats] = useState([]);
+  const [recs, setRecs] = useState([]);
+  const [recsLoading, setRecsLoading] = useState(false);
   const [q, setQ] = useState("");
   const nav = useNavigate();
 
@@ -22,6 +26,15 @@ export default function Landing() {
       } catch (e) { console.error(e); }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    setRecsLoading(true);
+    api.get("/me/recommendations")
+      .then(({ data }) => setRecs(data.items || []))
+      .catch(() => setRecs([]))
+      .finally(() => setRecsLoading(false));
+  }, [user?.user_id]);
 
   const hero = featured[0];
 
@@ -129,6 +142,41 @@ export default function Landing() {
           ))}
         </div>
       </section>
+
+      {/* AI RECOMMENDATIONS (logged in only) */}
+      {user && (recs.length > 0 || recsLoading) && (
+        <section className="max-w-7xl mx-auto px-6 pb-16" data-testid="ai-recs-section">
+          <div className="flex items-end justify-between mb-8">
+            <div>
+              <div className="text-xs uppercase tracking-[0.3em] mb-2 inline-flex items-center gap-2" style={{ color: "var(--accent)" }}>
+                <Sparkles className="w-3 h-3" /> Picked for you
+              </div>
+              <h2 className="serif text-4xl">Recommendations</h2>
+              <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
+                Personalized by your booking history.
+              </p>
+            </div>
+          </div>
+          {recsLoading ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="rounded-2xl aspect-[4/5] animate-pulse" style={{ background: "var(--bg-card)" }} />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+              {recs.map((r, i) => (
+                <div key={r.event.event_id} className="relative" data-testid={`rec-${r.event.event_id}`}>
+                  <EventCard event={r.event} index={i} />
+                  <div className="mt-2 px-1 text-xs italic leading-snug" style={{ color: "var(--text-muted)" }}>
+                    "{r.reason}"
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* FEATURED EVENTS */}
       <section className="max-w-7xl mx-auto px-6 pb-16">

@@ -74,6 +74,23 @@ def event_to_public(e: dict) -> dict:
     return e
 
 
+def compute_tier_effective_price(event: dict, tier: dict, sold: int) -> tuple[float, bool]:
+    """Apply dynamic pricing if enabled for this event.
+    Returns (price, surging). Surge fires when remaining ≤ threshold_pct of capacity.
+    """
+    cfg = (event.get("dynamic_pricing") or {}) if isinstance(event.get("dynamic_pricing"), dict) else {}
+    if not cfg.get("enabled"):
+        return float(tier.get("price", 0)), False
+    capacity = max(1, int(tier.get("capacity", 0)))
+    remaining_pct = max(0.0, (capacity - sold) / capacity * 100)
+    threshold = float(cfg.get("surge_threshold_pct", 30))  # surge when ≤30% left
+    if remaining_pct > threshold:
+        return float(tier.get("price", 0)), False
+    multiplier = float(cfg.get("surge_multiplier", 1.2))
+    multiplier = max(1.0, min(multiplier, 3.0))
+    return round(float(tier.get("price", 0)) * multiplier, 2), True
+
+
 def booking_to_public(b: dict) -> dict:
     b.pop("_id", None)
     return b
