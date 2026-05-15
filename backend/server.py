@@ -669,9 +669,18 @@ async def checkout_status(session_id: str, user: dict = Depends(get_current_user
         return {"status": tx["status"], "payment_status": tx["payment_status"], "booking_id": tx["booking_id"]}
 
     stripe = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
-    s = await stripe.get_checkout_status(session_id)
-    new_status = s.status
-    new_pay = s.payment_status
+    try:
+        s = await stripe.get_checkout_status(session_id)
+        new_status = s.status
+        new_pay = s.payment_status
+    except Exception as e:
+        # Stripe API transient errors or test-mode unknown session — return last-known DB state
+        logger.warning(f"Stripe get_checkout_status failed for {session_id}: {e}")
+        return {
+            "status": tx.get("status", "initiated"),
+            "payment_status": tx.get("payment_status", "pending"),
+            "booking_id": tx["booking_id"],
+        }
     await db.payment_transactions.update_one(
         {"session_id": session_id},
         {"$set": {"status": new_status, "payment_status": new_pay, "updated_at": utc_now().isoformat()}},

@@ -14,6 +14,12 @@ export function AuthProvider({ children }) {
       setLoading(false);
       return;
     }
+    // Skip /me call if no token to avoid noisy 401s for anonymous visitors
+    if (!localStorage.getItem("aura_token")) {
+      setLoading(false);
+      setUser(null);
+      return;
+    }
     try {
       const { data } = await api.get("/auth/me");
       setUser(data);
