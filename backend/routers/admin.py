@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from core import db, get_current_user, event_to_public, utc_now
+from emails import send_template_fireforget
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -24,7 +25,17 @@ async def admin_events(user: dict = Depends(get_current_user)):
 @router.post("/events/{event_id}/approve")
 async def admin_approve(event_id: str, user: dict = Depends(get_current_user)):
     _admin_only(user)
-    await db.events.update_one({"event_id": event_id}, {"$set": {"status": "approved"}})
+    result = await db.events.update_one({"event_id": event_id}, {"$set": {"status": "approved"}})
+    if result.modified_count:
+        event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+        if event:
+            organizer = await db.users.find_one({"user_id": event.get("organizer_id")}, {"_id": 0}) or {}
+            if organizer.get("email"):
+                send_template_fireforget("organizer_event_approved", organizer["email"], {
+                    "organizer_name": organizer.get("name", "organizer"),
+                    "event_id": event_id,
+                    "event_title": event.get("title", "Your event"),
+                }, db)
     return {"ok": True}
 
 
@@ -145,3 +156,31 @@ async def admin_user_stats(user: dict = Depends(get_current_user)):
         by_role[r] = await db.users.count_documents({"role": r})
     suspended = await db.users.count_documents({"active": False})
     return {"total": total, "by_role": by_role, "suspended": suspended}
+
+
+# ---------- Email logs (audit trail) ----------
+@router.get("/email-logs")
+async def admin_email_logs(
+    template: Optional[str] = None,
+    status: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 100,
+    user: dict = Depends(get_current_user),
+):
+    _admin_only(user)
+    query: dict = {}
+    if template:
+        query["template"] = template
+    if status in ("sent", "failed", "skipped"):
+        query["status"] = status
+    if q:
+        query["to"] = {"$regex": q, "$options": "i"}
+    items = []
+    async for log in db.email_logs.find(query, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500)):
+        items.append(log)
+
+    # Summary stats
+    sent = await db.email_logs.count_documents({"status": "sent"})
+    failed = await db.email_logs.count_documents({"status": "failed"})
+    skipped = await db.email_logs.count_documents({"status": "skipped"})
+    return {"items": items, "stats": {"sent": sent, "failed": failed, "skipped": skipped}}

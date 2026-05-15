@@ -9,8 +9,32 @@ from emergentintegrations.payments.stripe.checkout import (
 
 from core import db, get_current_user, utc_now, gen_qr_data_url, STRIPE_API_KEY, logger
 from models import CheckoutIn
+from emails import send_template_fireforget
 
 router = APIRouter(tags=["payments"])
+
+
+async def _send_booking_confirmation_email(booking_id: str) -> None:
+    """Fetch fresh booking + event and queue confirmation email (non-blocking)."""
+    booking = await db.bookings.find_one({"booking_id": booking_id}, {"_id": 0})
+    if not booking or not booking.get("user_email"):
+        return
+    event = await db.events.find_one({"event_id": booking["event_id"]}, {"_id": 0}) or {}
+    ctx = {
+        "user_name": booking.get("user_name", ""),
+        "user_email": booking["user_email"],
+        "booking_id": booking_id,
+        "event_id": booking["event_id"],
+        "event_title": booking.get("event_title") or event.get("title", ""),
+        "event_date": event.get("date", ""),
+        "venue": event.get("venue", ""),
+        "city": event.get("city", ""),
+        "seats": booking.get("seats") or [],
+        "tier_name": booking.get("tier_name", ""),
+        "quantity": booking.get("quantity", 1),
+        "amount": booking.get("amount", 0),
+    }
+    send_template_fireforget("booking_confirmation", booking["user_email"], ctx, db)
 
 
 @router.post("/checkout/session")
@@ -100,7 +124,8 @@ async def checkout_status(session_id: str, user: dict = Depends(get_current_user
                 {"booking_id": tx["booking_id"]},
                 {"$set": {"qr_code": gen_qr_data_url(qr_payload)}},
             )
-            logger.info(f"[EMAIL MOCKED] Booking confirmation sent to {tx['user_id']} for {tx['booking_id']}")
+            await _send_booking_confirmation_email(tx["booking_id"])
+            logger.info(f"[booking_paid] {tx['booking_id']} — confirmation email queued")
 
     return {"status": new_status, "payment_status": new_pay, "booking_id": tx["booking_id"]}
 
@@ -137,4 +162,5 @@ async def stripe_webhook(request: Request):
                     {"session_id": evt.session_id},
                     {"$set": {"payment_status": "paid", "status": "complete"}},
                 )
+                await _send_booking_confirmation_email(booking_id)
     return {"ok": True}

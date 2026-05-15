@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw } from "lucide-react";
+import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Admin() {
@@ -23,10 +23,13 @@ export default function Admin() {
         <div className="flex gap-1">
           <TabBtn id="events" current={tab} onClick={setTab} icon={<Calendar className="w-4 h-4" />} label="Events" />
           <TabBtn id="users" current={tab} onClick={setTab} icon={<Users className="w-4 h-4" />} label="Users" />
+          <TabBtn id="payouts" current={tab} onClick={setTab} icon={<Wallet className="w-4 h-4" />} label="Payouts" />
+          <TabBtn id="emails" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Emails" />
+          <TabBtn id="settings" current={tab} onClick={setTab} icon={<SettingsIcon className="w-4 h-4" />} label="Settings" />
         </div>
       </div>
 
-      {tab === "events" ? <EventsTab /> : <UsersTab currentUser={user} />}
+      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "emails" ? <EmailsTab /> : <SettingsTab />}
     </div>
   );
 }
@@ -318,3 +321,358 @@ function Stat({ label, value, icon, accent }) {
     </div>
   );
 }
+
+
+// ============================================================================
+// EMAILS TAB — audit trail of every transactional email
+// ============================================================================
+const TEMPLATE_LABELS = {
+  booking_confirmation: "Booking confirmed",
+  hold_expired: "Hold expired",
+  refund_issued: "Refund issued",
+  organizer_event_approved: "Event approved",
+  organizer_payout_issued: "Payout sent",
+  waitlist_spot_opened: "Waitlist spot opened",
+};
+
+function EmailsTab() {
+  const [data, setData] = useState({ items: [], stats: { sent: 0, failed: 0, skipped: 0 } });
+  const [template, setTemplate] = useState("");
+  const [status, setStatus] = useState("");
+  const [q, setQ] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const params = {};
+      if (template) params.template = template;
+      if (status) params.status = status;
+      if (q) params.q = q;
+      const { data } = await api.get("/admin/email-logs", { params });
+      setData(data);
+    } catch {
+      toast.error("Failed to load email logs");
+    } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [template, status]);
+
+  return (
+    <div data-testid="admin-emails-tab">
+      <div className="grid sm:grid-cols-3 gap-3 mb-6">
+        <Stat label="Sent" value={data.stats.sent} icon={<CheckCircle2 className="w-4 h-4" />} accent="var(--success)" />
+        <Stat label="Failed" value={data.stats.failed} icon={<AlertTriangle className="w-4 h-4" />} accent="var(--danger)" />
+        <Stat label="Skipped" value={data.stats.skipped} icon={<MinusCircle className="w-4 h-4" />} />
+      </div>
+
+      <div className="flex flex-wrap gap-3 mb-5">
+        <form onSubmit={(e) => { e.preventDefault(); load(); }} className="relative flex-1 min-w-[240px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--text-dim)" }} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by recipient email" className="pl-10 w-full" data-testid="email-search-input" />
+        </form>
+        <select value={template} onChange={(e) => setTemplate(e.target.value)} data-testid="email-template-filter">
+          <option value="">All templates</option>
+          {Object.entries(TEMPLATE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+        </select>
+        <select value={status} onChange={(e) => setStatus(e.target.value)} data-testid="email-status-filter">
+          <option value="">All statuses</option>
+          <option value="sent">Sent</option>
+          <option value="failed">Failed</option>
+          <option value="skipped">Skipped</option>
+        </select>
+      </div>
+
+      <div className="border rounded-2xl overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
+        {loading ? (
+          <div className="p-10 text-center" style={{ color: "var(--text-dim)" }}>Loading…</div>
+        ) : data.items.length === 0 ? (
+          <div className="p-10 text-center" style={{ color: "var(--text-dim)" }}>No emails match.</div>
+        ) : (
+          <table className="w-full text-sm" data-testid="email-logs-table">
+            <thead>
+              <tr style={{ background: "var(--bg)", color: "var(--text-muted)" }}>
+                <th className="text-left px-4 py-3 font-medium text-xs uppercase tracking-widest">When</th>
+                <th className="text-left px-4 py-3 font-medium text-xs uppercase tracking-widest">Template</th>
+                <th className="text-left px-4 py-3 font-medium text-xs uppercase tracking-widest">To</th>
+                <th className="text-left px-4 py-3 font-medium text-xs uppercase tracking-widest">Subject</th>
+                <th className="text-left px-4 py-3 font-medium text-xs uppercase tracking-widest">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.map((l) => (
+                <tr key={l.log_id} className="border-t" style={{ borderColor: "var(--border)" }} data-testid={`email-log-${l.log_id}`}>
+                  <td className="px-4 py-3" style={{ color: "var(--text-muted)" }}>{new Date(l.created_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</td>
+                  <td className="px-4 py-3">{TEMPLATE_LABELS[l.template] || l.template}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{l.to}</td>
+                  <td className="px-4 py-3" style={{ color: "var(--text-muted)" }}>{l.subject || "—"}</td>
+                  <td className="px-4 py-3">
+                    <StatusPill status={l.status} reason={l.reason} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatusPill({ status, reason }) {
+  const map = {
+    sent: { color: "var(--success)", bg: "rgba(52,211,153,0.12)", label: "Sent" },
+    failed: { color: "var(--danger)", bg: "rgba(239,68,68,0.12)", label: "Failed" },
+    skipped: { color: "var(--text-muted)", bg: "rgba(154,154,163,0.12)", label: "Skipped" },
+  }[status] || { color: "var(--text-muted)", bg: "rgba(154,154,163,0.12)", label: status };
+  return (
+    <span title={reason || ""} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium" style={{ color: map.color, background: map.bg }}>
+      {map.label}
+    </span>
+  );
+}
+
+// ============================================================================
+// PAYOUTS TAB
+// ============================================================================
+const PAYOUT_STATUS = {
+  requested: { label: "Requested", color: "var(--warn)", bg: "rgba(251,191,36,0.12)", icon: Clock },
+  paid: { label: "Paid", color: "var(--success)", bg: "rgba(52,211,153,0.12)", icon: CheckCircle2 },
+  rejected: { label: "Rejected", color: "var(--danger)", bg: "rgba(239,68,68,0.12)", icon: XCircle },
+};
+
+function fmoney(v) { return `$${Number(v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; }
+
+function PayoutsTab() {
+  const [data, setData] = useState({ items: [], totals: null });
+  const [status, setStatus] = useState("requested");
+  const [acting, setActing] = useState(null);
+
+  const load = async () => {
+    try {
+      const params = status ? { status } : {};
+      const { data } = await api.get("/admin/payouts", { params });
+      setData(data);
+    } catch { toast.error("Failed to load payouts"); }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [status]);
+
+  const markPaid = async (p) => {
+    const ref = window.prompt(`Wire reference for ${fmoney(p.net_amount)} to ${p.organizer_email}?\n(e.g., WIRE12345, leave blank for none)`);
+    if (ref === null) return;
+    setActing(p.payout_id);
+    try {
+      await api.post(`/admin/payouts/${p.payout_id}/mark-paid`, { reference: ref || null });
+      toast.success(`Marked ${p.payout_id} as paid — confirmation email queued`);
+      await load();
+    } catch (e) { toast.error("Failed to mark paid"); }
+    finally { setActing(null); }
+  };
+
+  const reject = async (p) => {
+    const reason = window.prompt(`Reject ${p.payout_id} (${fmoney(p.net_amount)})?\nReason:`);
+    if (!reason) return;
+    setActing(p.payout_id);
+    try {
+      await api.post(`/admin/payouts/${p.payout_id}/reject`, { reason });
+      toast.success(`Rejected — bookings rolled back to organizer's balance`);
+      await load();
+    } catch { toast.error("Failed to reject"); }
+    finally { setActing(null); }
+  };
+
+  return (
+    <div data-testid="admin-payouts-tab">
+      {data.totals && (
+        <div className="grid sm:grid-cols-3 gap-3 mb-6">
+          <Stat label="Pending" value={fmoney(data.totals.requested)} icon={<Clock className="w-4 h-4" />} accent="var(--warn)" />
+          <Stat label="Paid (lifetime)" value={fmoney(data.totals.paid)} icon={<CheckCircle2 className="w-4 h-4" />} accent="var(--success)" />
+          <Stat label="Rejected" value={fmoney(data.totals.rejected)} icon={<XCircle className="w-4 h-4" />} />
+        </div>
+      )}
+
+      <div className="flex gap-2 mb-5">
+        {["requested", "paid", "rejected", ""].map((s) => (
+          <button
+            key={s || "all"}
+            onClick={() => setStatus(s)}
+            className="px-4 py-2 rounded-full text-xs uppercase tracking-widest transition border"
+            style={{
+              background: status === s ? "var(--accent)" : "transparent",
+              color: status === s ? "#000" : "var(--text-muted)",
+              borderColor: status === s ? "var(--accent)" : "var(--border)",
+            }}
+            data-testid={`payout-filter-${s || "all"}`}
+          >
+            {s ? PAYOUT_STATUS[s]?.label : "All"}
+          </button>
+        ))}
+      </div>
+
+      <div className="border rounded-2xl overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
+        {data.items.length === 0 ? (
+          <div className="p-12 text-center" style={{ color: "var(--text-dim)" }}>No payouts match this filter.</div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr style={{ background: "var(--bg)", color: "var(--text-muted)" }}>
+                <th className="text-left px-4 py-3 text-xs uppercase tracking-widest font-medium">Reference</th>
+                <th className="text-left px-4 py-3 text-xs uppercase tracking-widest font-medium">Organizer</th>
+                <th className="text-left px-4 py-3 text-xs uppercase tracking-widest font-medium">Requested</th>
+                <th className="text-right px-4 py-3 text-xs uppercase tracking-widest font-medium">Gross</th>
+                <th className="text-right px-4 py-3 text-xs uppercase tracking-widest font-medium">Net</th>
+                <th className="text-right px-4 py-3 text-xs uppercase tracking-widest font-medium">Tickets</th>
+                <th className="text-left px-4 py-3 text-xs uppercase tracking-widest font-medium">Status</th>
+                <th className="text-right px-4 py-3 text-xs uppercase tracking-widest font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.items.map((p) => {
+                const meta = PAYOUT_STATUS[p.status] || { label: p.status, color: "var(--text-muted)", bg: "transparent", icon: Clock };
+                const Icon = meta.icon;
+                return (
+                  <tr key={p.payout_id} className="border-t" style={{ borderColor: "var(--border)" }} data-testid={`admin-payout-row-${p.payout_id}`}>
+                    <td className="px-4 py-4 font-mono text-xs">{p.payout_id}</td>
+                    <td className="px-4 py-4">
+                      <div className="font-medium">{p.organizer_name}</div>
+                      <div className="text-xs" style={{ color: "var(--text-dim)" }}>{p.organizer_email}</div>
+                    </td>
+                    <td className="px-4 py-4" style={{ color: "var(--text-muted)" }}>{p.requested_at ? new Date(p.requested_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                    <td className="px-4 py-4 text-right">{fmoney(p.gross)}</td>
+                    <td className="px-4 py-4 text-right font-semibold">{fmoney(p.net_amount)}</td>
+                    <td className="px-4 py-4 text-right">{p.tickets_count}</td>
+                    <td className="px-4 py-4">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium" style={{ color: meta.color, background: meta.bg }}>
+                        <Icon className="w-3.5 h-3.5" /> {meta.label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      {p.status === "requested" ? (
+                        <div className="flex gap-2 justify-end">
+                          <button
+                            onClick={() => markPaid(p)}
+                            disabled={acting === p.payout_id}
+                            className="btn-primary !py-1.5 !px-3 text-xs"
+                            data-testid={`mark-paid-${p.payout_id}`}
+                          >
+                            <BanknoteIcon className="w-3 h-3" /> Mark paid
+                          </button>
+                          <button
+                            onClick={() => reject(p)}
+                            disabled={acting === p.payout_id}
+                            className="btn-ghost !py-1.5 !px-3 text-xs"
+                            data-testid={`reject-${p.payout_id}`}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      ) : p.transfer_reference ? (
+                        <span className="text-xs font-mono" style={{ color: "var(--text-dim)" }}>{p.transfer_reference}</span>
+                      ) : p.rejection_reason ? (
+                        <span className="text-xs" style={{ color: "var(--text-dim)" }} title={p.rejection_reason}>{p.rejection_reason.slice(0, 30)}…</span>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// SETTINGS TAB
+// ============================================================================
+function SettingsTab() {
+  const [settings, setSettings] = useState(null);
+  const [percent, setPercent] = useState("8");
+  const [flat, setFlat] = useState("0.5");
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    try {
+      const { data } = await api.get("/admin/platform-settings");
+      setSettings(data);
+      setPercent(String(data.commission_percent));
+      setFlat(String(data.commission_flat_fee_per_ticket));
+    } catch { toast.error("Failed to load settings"); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const save = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const { data } = await api.put("/admin/platform-settings", {
+        commission_percent: parseFloat(percent),
+        commission_flat_fee_per_ticket: parseFloat(flat),
+      });
+      setSettings(data);
+      toast.success("Settings saved");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail?.[0]?.msg || "Save failed");
+    } finally { setSaving(false); }
+  };
+
+  if (!settings) return <div className="p-10 text-center" style={{ color: "var(--text-dim)" }}>Loading…</div>;
+
+  return (
+    <div data-testid="admin-settings-tab" className="max-w-2xl">
+      <div className="border rounded-2xl p-8" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
+        <h2 className="serif text-2xl mb-1">Commission & fees</h2>
+        <p className="text-sm mb-7" style={{ color: "var(--text-muted)" }}>
+          Applied to every organizer payout. Future bookings keep using the values current at request time (snapshotted).
+        </p>
+        <form onSubmit={save} className="space-y-6">
+          <div>
+            <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>
+              Platform commission (%)
+            </label>
+            <input
+              type="number" min="0" max="50" step="0.1"
+              value={percent} onChange={(e) => setPercent(e.target.value)}
+              className="w-full" data-testid="commission-percent-input"
+            />
+          </div>
+          <div>
+            <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>
+              Processing fee per ticket (USD)
+            </label>
+            <input
+              type="number" min="0" max="20" step="0.01"
+              value={flat} onChange={(e) => setFlat(e.target.value)}
+              className="w-full" data-testid="commission-flat-input"
+            />
+          </div>
+          <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
+            <div className="text-xs uppercase tracking-widest mb-3" style={{ color: "var(--text-dim)" }}>Preview · $1,000 gross / 50 tickets</div>
+            <div className="space-y-1 text-sm">
+              <Row label="Gross" value="$1,000.00" />
+              <Row label={`Commission (${percent}%)`} value={`− $${(1000 * parseFloat(percent || 0) / 100).toFixed(2)}`} accent="var(--danger)" />
+              <Row label={`Processing (50 × $${flat})`} value={`− $${(50 * parseFloat(flat || 0)).toFixed(2)}`} accent="var(--danger)" />
+              <Row label="Net to organizer" value={`$${(1000 - (1000 * parseFloat(percent || 0) / 100) - (50 * parseFloat(flat || 0))).toFixed(2)}`} accent="var(--success)" bold />
+            </div>
+          </div>
+          <button type="submit" disabled={saving} className="btn-primary" data-testid="save-settings-btn">
+            {saving ? "Saving…" : "Save settings"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value, accent, bold }) {
+  return (
+    <div className="flex justify-between">
+      <span style={{ color: "var(--text-muted)" }}>{label}</span>
+      <span style={{ color: accent || "var(--text)", fontWeight: bold ? 700 : 400 }}>{value}</span>
+    </div>
+  );
+}
+

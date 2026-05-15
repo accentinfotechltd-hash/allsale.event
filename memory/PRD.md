@@ -131,5 +131,23 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - ✅ "Check-in" button added to organizer event drill-down (`OrganizerEvent.jsx`).
 - ✅ **16/16 pytest pass** in `tests/test_iteration8.py`. Frontend e2e all 7 flows pass (testing-agent iter8).
 
+## Iteration 9 (2026-02-15) — Transactional Emails (Resend)
+- ✅ **Resend SDK** integrated (`emails.py`): single `send_template(name, to, ctx, db)` entry point, non-blocking (`asyncio.to_thread`), all sends logged to `email_logs` collection with status sent/failed/skipped.
+- ✅ **6 templates** with dark-theme + hot-coral inline HTML + plaintext fallback: `booking_confirmation`, `hold_expired`, `refund_issued`, `organizer_event_approved`, `organizer_payout_issued`, `waitlist_spot_opened`.
+- ✅ **Wired**: payment-success path (status poll + Stripe webhook) → `booking_confirmation`; admin event approval → `organizer_event_approved`.
+- ✅ **Admin Emails tab** (`/admin` → Emails): stats (sent/failed/skipped), recipient search, template/status filters, audit table.
+- ✅ `GET /api/admin/email-logs` (admin-only) with filters & summary stats.
+- ✅ **15/15 pytest pass** (`tests/test_iteration9_emails.py`).
+- ⚠️ **Resend test-mode**: sender is `onboarding@resend.dev`; emails only deliver to the account-verified email until a domain is verified at resend.com/domains.
+
+## Iteration 10 (2026-02-15) — Commission & Payouts
+- ✅ **Schema**: `platform_settings` singleton (commission %, flat per-ticket fee), `payouts` collection (`payout_id`, organizer_id, gross, commission, flat_fees, net_amount, bookings_count, tickets_count, booking_ids[], period_start/end, status), and `bookings.payout_id` lock field.
+- ✅ **Commission engine** (`routers/payouts.py`): % + fixed-per-ticket model, snapshotted on each payout request so future settings changes don't retroactively alter pending payouts.
+- ✅ **Organizer endpoints**: `GET /api/organizer/payouts/balance` (available net, lifetime paid, pending), `POST /api/organizer/payouts/request` (locks eligible bookings, atomic), `GET /api/organizer/payouts` (history).
+- ✅ **Admin endpoints**: `GET/PUT /api/admin/platform-settings`, `GET /api/admin/payouts` (totals + status filter), `POST /api/admin/payouts/{id}/mark-paid` (triggers `organizer_payout_issued` email), `POST /api/admin/payouts/{id}/reject` (rolls bookings back into balance).
+- ✅ **Frontend**: organizer `/organizer/payouts` (balance card with breakdown, request panel, history table), admin `/admin` → **Payouts** tab (status filters, mark-paid/reject actions, totals) + **Settings** tab (commission config with live preview).
+- ✅ Stripe-Connect-ready schema: payout amounts already snapshotted, organizer_id + currency already tracked, can swap manual mark-paid for Connect webhook later.
+- ✅ **13/13 pytest pass** (`tests/test_iteration10_payouts.py`).
+
 ## Test Credentials
 See `/app/memory/test_credentials.md`

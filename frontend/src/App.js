@@ -16,6 +16,7 @@ import Organizer from "@/pages/Organizer";
 import OrganizerEvent from "@/pages/OrganizerEvent";
 import CreateEvent from "@/pages/CreateEvent";
 import DiscountCodes from "@/pages/DiscountCodes";
+import OrganizerPayouts from "@/pages/OrganizerPayouts";
 import CheckIn from "@/pages/CheckIn";
 import Admin from "@/pages/Admin";
 import AuthCallback from "@/pages/AuthCallback";
@@ -43,6 +44,7 @@ function AppRouter() {
         <Route path="/organizer/events/:eventId" element={<OrganizerEvent />} />
         <Route path="/organizer/events/:eventId/checkin" element={<CheckIn />} />
         <Route path="/organizer/codes" element={<DiscountCodes />} />
+        <Route path="/organizer/payouts" element={<OrganizerPayouts />} />
         <Route path="/admin" element={<Admin />} />
       </Routes>
     </Layout>

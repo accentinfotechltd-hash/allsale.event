@@ -30,6 +30,7 @@ from routers import uploads as uploads_router
 from routers import admin as admin_router
 from routers import organizer as organizer_router
 from routers import discount_codes as discount_codes_router
+from routers import payouts as payouts_router
 
 
 app = FastAPI(title="AURA Event Ticketing API", version="1.0")
@@ -44,6 +45,7 @@ api.include_router(uploads_router.router)
 api.include_router(admin_router.router)
 api.include_router(organizer_router.router)
 api.include_router(discount_codes_router.router)
+api.include_router(payouts_router.router)
 
 
 @api.get("/")
@@ -84,6 +86,14 @@ async def on_startup():
     await db.uploaded_files.create_index("storage_path")
     await db.discount_codes.create_index([("created_by", 1), ("code", 1)], unique=True)
     await db.discount_codes.create_index("code")
+    await db.email_logs.create_index([("created_at", -1)])
+    await db.email_logs.create_index("status")
+    await db.email_logs.create_index("template")
+    await db.payouts.create_index("payout_id", unique=True)
+    await db.payouts.create_index([("organizer_id", 1), ("status", 1)])
+    await db.payouts.create_index("status")
+    await db.platform_settings.create_index("key", unique=True)
+    await db.bookings.create_index("payout_id")
     init_storage()
     await seed_demo()
     logger.info("AURA backend ready")
