@@ -24,10 +24,12 @@ import bcrypt
 import jwt as pyjwt
 import httpx
 import qrcode
-from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response, Query
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Request, Response, Query, UploadFile, File
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 
 from emergentintegrations.payments.stripe.checkout import (
@@ -53,6 +55,10 @@ ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 
 HOLD_MINUTES = 10
 SESSION_DAYS = 7
+
+UPLOAD_DIR = ROOT_DIR / "uploads"
+ALLOWED_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 
 # ----------------------------------------------------------------------------
 # Helpers
@@ -137,6 +143,8 @@ class EventIn(BaseModel):
     seat_rows: int = 0
     seat_cols: int = 0
     seat_price: float = 0.0
+    aisles: List[str] = Field(default_factory=list)  # seat ids that are NOT seats (gaps/aisles)
+    seat_map_image_url: Optional[str] = None  # optional venue floor-plan backdrop
 
 
 class HoldIn(BaseModel):
@@ -428,22 +436,21 @@ async def get_event(event_id: str):
         raise HTTPException(status_code=404, detail="Event not found")
     # Compute live seat status if seatmap
     if e.get("has_seatmap"):
-        now = utc_now()
-        held = await db.seat_holds.find(
-            {"event_id": event_id, "expires_at": {"$gte": now.isoformat()}},
-            {"_id": 0},
-        ).to_list(2000)
-        booked_seats = set()
-        async for b in db.bookings.find(
-            {"event_id": event_id, "status": {"$in": ["paid", "confirmed"]}},
-            {"_id": 0},
+        now_iso = utc_now().isoformat()
+        booked_seats = []
+        held_seats = []
+        async for r in db.seat_reservations.find(
+            {"event_id": event_id, "status": "booked"},
+            {"_id": 0, "seat_id": 1},
         ):
-            booked_seats.update(b.get("seats", []) or [])
-        held_seats = set()
-        for h in held:
-            held_seats.update(h.get("seats", []) or [])
-        e["booked_seats"] = list(booked_seats)
-        e["held_seats"] = list(held_seats)
+            booked_seats.append(r["seat_id"])
+        async for r in db.seat_reservations.find(
+            {"event_id": event_id, "status": "held", "expires_at": {"$gte": now_iso}},
+            {"_id": 0, "seat_id": 1},
+        ):
+            held_seats.append(r["seat_id"])
+        e["booked_seats"] = booked_seats
+        e["held_seats"] = held_seats
     return event_to_public(e)
 
 
@@ -468,6 +475,8 @@ async def create_event(payload: EventIn, user: dict = Depends(get_current_user))
         "seat_rows": payload.seat_rows,
         "seat_cols": payload.seat_cols,
         "seat_price": payload.seat_price,
+        "aisles": payload.aisles,
+        "seat_map_image_url": payload.seat_map_image_url,
         "status": "approved" if user.get("role") == "admin" else "pending",
         "featured": False,
         "created_at": utc_now().isoformat(),
@@ -492,25 +501,42 @@ async def create_hold(payload: HoldIn, user: dict = Depends(get_current_user)):
         seats = payload.seats or []
         if not seats:
             raise HTTPException(status_code=400, detail="No seats selected")
+        # Reject seats marked as aisle
+        aisles = set(event.get("aisles") or [])
+        bad = [s for s in seats if s in aisles]
+        if bad:
+            raise HTTPException(status_code=400, detail=f"Seats are aisles: {bad}")
 
-        # Check seat availability atomically
-        now = utc_now()
-        booked = set()
-        async for b in db.bookings.find(
-            {"event_id": payload.event_id, "status": {"$in": ["paid", "confirmed"]}},
-            {"_id": 0},
-        ):
-            booked.update(b.get("seats", []) or [])
-        held = []
-        async for h in db.seat_holds.find(
-            {"event_id": payload.event_id, "expires_at": {"$gte": now.isoformat()}},
-            {"_id": 0},
-        ):
-            held.extend(h.get("seats", []) or [])
-        held_set = set(held)
-        unavailable = [s for s in seats if s in booked or s in held_set]
-        if unavailable:
-            raise HTTPException(status_code=409, detail=f"Seats unavailable: {unavailable}")
+        # Sweep expired holds for this event before claiming
+        now_iso = utc_now().isoformat()
+        await db.seat_reservations.delete_many(
+            {"event_id": payload.event_id, "status": "held", "expires_at": {"$lt": now_iso}}
+        )
+
+        # Atomic claim — unique index on (event_id, seat_id) ensures no double booking.
+        # We insert each seat as held; if any fails, roll back the ones we already inserted.
+        claimed = []
+        try:
+            for sid in seats:
+                await db.seat_reservations.insert_one(
+                    {
+                        "event_id": payload.event_id,
+                        "seat_id": sid,
+                        "booking_id": booking_id,
+                        "user_id": user["user_id"],
+                        "status": "held",
+                        "expires_at": expires.isoformat(),
+                        "created_at": utc_now().isoformat(),
+                    }
+                )
+                claimed.append(sid)
+        except DuplicateKeyError:
+            # Roll back successful inserts
+            if claimed:
+                await db.seat_reservations.delete_many(
+                    {"event_id": payload.event_id, "seat_id": {"$in": claimed}, "booking_id": booking_id}
+                )
+            raise HTTPException(status_code=409, detail="One or more seats just got taken. Please pick others.")
 
         amount = round(event.get("seat_price", 0.0) * len(seats), 2)
         tier_name = "Seat Selection"
@@ -551,7 +577,10 @@ async def create_hold(payload: HoldIn, user: dict = Depends(get_current_user)):
         "expires_at": expires.isoformat(),
         "created_at": utc_now().isoformat(),
     }
-    await db.seat_holds.insert_one(hold_doc)
+    # seat_reservations already tracks per-seat holds for seatmap events;
+    # seat_holds is still used for tier-quantity capacity checks
+    if not event.get("has_seatmap"):
+        await db.seat_holds.insert_one(hold_doc)
 
     booking_doc = {
         "booking_id": booking_id,
@@ -693,8 +722,12 @@ async def checkout_status(session_id: str, user: dict = Depends(get_current_user
             {"$set": {"status": "paid", "paid_at": utc_now().isoformat()}},
         )
         if result.modified_count > 0:
-            # Remove hold
+            # Remove hold; mark seat reservations as booked
             await db.seat_holds.delete_many({"booking_id": tx["booking_id"]})
+            await db.seat_reservations.update_many(
+                {"booking_id": tx["booking_id"]},
+                {"$set": {"status": "booked", "expires_at": None}},
+            )
             # Generate QR
             qr_payload = f"AURA|{tx['booking_id']}"
             await db.bookings.update_one(
@@ -725,6 +758,10 @@ async def stripe_webhook(request: Request):
             )
             if result.modified_count > 0:
                 await db.seat_holds.delete_many({"booking_id": booking_id})
+                await db.seat_reservations.update_many(
+                    {"booking_id": booking_id},
+                    {"$set": {"status": "booked", "expires_at": None}},
+                )
                 qr_payload = f"AURA|{booking_id}"
                 await db.bookings.update_one(
                     {"booking_id": booking_id},
@@ -839,6 +876,27 @@ async def admin_feature(event_id: str, user: dict = Depends(get_current_user)):
 
 
 # ----------------------------------------------------------------------------
+# Uploads
+# ----------------------------------------------------------------------------
+@api.post("/uploads")
+async def upload_image(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    """Upload an image (cover photo, seat-map backdrop). Returns public URL."""
+    await require_role(user, "organizer", "admin")
+    ext = (os.path.splitext(file.filename or "")[1] or "").lower()
+    if ext not in ALLOWED_IMAGE_EXTS:
+        raise HTTPException(status_code=400, detail="Only jpg, png, webp, gif allowed")
+    contents = await file.read()
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 5MB)")
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    name = f"{uuid.uuid4().hex}{ext}"
+    path = UPLOAD_DIR / name
+    with open(path, "wb") as f:
+        f.write(contents)
+    return {"url": f"/api/uploads/{name}", "filename": name}
+
+
+# ----------------------------------------------------------------------------
 # Seed Demo Data
 # ----------------------------------------------------------------------------
 DEMO_EVENTS = [
@@ -869,6 +927,8 @@ DEMO_EVENTS = [
         "seat_rows": 8,
         "seat_cols": 12,
         "seat_price": 55.0,
+        # Center aisle between cols 6 and 7 → mark col-6 and col-7 for every row
+        "aisles": [f"{r}-{c}" for r in "ABCDEFGH" for c in (6, 7)],
         "tiers": [],
         "featured": True,
     },
@@ -899,6 +959,8 @@ DEMO_EVENTS = [
         "seat_rows": 10,
         "seat_cols": 14,
         "seat_price": 120.0,
+        # Two aisles in a theater layout
+        "aisles": [f"{r}-{c}" for r in "ABCDEFGHIJ" for c in (5, 10)],
         "tiers": [],
         "featured": False,
     },
@@ -1032,6 +1094,8 @@ async def seed_demo():
                 "seat_rows": e.get("seat_rows", 0),
                 "seat_cols": e.get("seat_cols", 0),
                 "seat_price": e.get("seat_price", 0.0),
+                "aisles": e.get("aisles", []),
+                "seat_map_image_url": e.get("seat_map_image_url"),
                 "status": "approved",
                 "featured": e.get("featured", False),
                 "created_at": utc_now().isoformat(),
@@ -1050,6 +1114,13 @@ async def on_startup():
     await db.seat_holds.create_index("expires_at")
     await db.payment_transactions.create_index("session_id", unique=True)
     await db.user_sessions.create_index("session_token", unique=True)
+    # CRITICAL: unique compound index for atomic seat reservation (no double-booking)
+    await db.seat_reservations.create_index(
+        [("event_id", 1), ("seat_id", 1)], unique=True, name="event_seat_unique"
+    )
+    await db.seat_reservations.create_index("booking_id")
+    # Ensure uploads dir exists
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     await seed_demo()
     logger.info("AURA backend ready")
 
@@ -1061,6 +1132,10 @@ async def root():
 
 # Include router + CORS
 app.include_router(api)
+
+# Serve uploaded files under /api/uploads/*
+UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/api/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 app.add_middleware(
     CORSMiddleware,

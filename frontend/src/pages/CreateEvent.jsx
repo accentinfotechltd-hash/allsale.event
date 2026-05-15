@@ -3,6 +3,8 @@ import { useNavigate } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
+import ImageUploader from "@/components/ImageUploader";
+import SeatDesigner from "@/components/SeatDesigner";
 
 const CATEGORIES = [
   { id: "music", name: "Music" },
@@ -30,6 +32,8 @@ export default function CreateEvent() {
     seat_rows: 6,
     seat_cols: 10,
     seat_price: 50.0,
+    aisles: [],
+    seat_map_image_url: "",
   });
   const [tiers, setTiers] = useState([{ name: "General", price: 50.0, capacity: 200 }]);
   const [submitting, setSubmitting] = useState(false);
@@ -38,6 +42,7 @@ export default function CreateEvent() {
 
   const onSubmit = async (e) => {
     e.preventDefault();
+    if (!form.image_url) { toast.error("Please upload a cover photo"); return; }
     setSubmitting(true);
     try {
       const payload = {
@@ -60,6 +65,15 @@ export default function CreateEvent() {
         <h1 className="serif text-5xl">Set the stage</h1>
       </div>
       <form onSubmit={onSubmit} className="space-y-6" data-testid="create-event-form">
+        <Field label="Cover photo">
+          <ImageUploader
+            value={form.image_url}
+            onUploaded={(url) => { update("image_url", url); if (!form.banner_url) update("banner_url", url); }}
+            label="Drop cover photo or click to upload"
+            aspect="16/9"
+            testid="cover-uploader"
+          />
+        </Field>
         <Field label="Title">
           <input required value={form.title} onChange={(e) => update("title", e.target.value)} data-testid="event-title-input" />
         </Field>
@@ -82,27 +96,44 @@ export default function CreateEvent() {
             <input required value={form.city} onChange={(e) => update("city", e.target.value)} />
           </Field>
         </div>
-        <Field label="Cover image URL">
-          <input required value={form.image_url} onChange={(e) => update("image_url", e.target.value)} placeholder="https://images.unsplash.com/..." />
-        </Field>
-        <Field label="Banner image URL (optional, wider)">
-          <input value={form.banner_url} onChange={(e) => update("banner_url", e.target.value)} />
-        </Field>
 
-        <div className="border rounded-xl p-5" style={{ borderColor: "var(--border)" }}>
+        <div className="border rounded-xl p-5 space-y-4" style={{ borderColor: "var(--border)" }}>
           <label className="flex items-center justify-between cursor-pointer">
             <div>
               <div className="font-medium">Interactive seat map</div>
-              <div className="text-xs" style={{ color: "var(--text-dim)" }}>Use this for theaters/venues with assigned seats.</div>
+              <div className="text-xs" style={{ color: "var(--text-dim)" }}>Use this for cinemas, theaters and assigned-seating venues.</div>
             </div>
             <input type="checkbox" className="!w-5 !h-5" checked={form.has_seatmap} onChange={(e) => update("has_seatmap", e.target.checked)} data-testid="seatmap-toggle" />
           </label>
+
           {form.has_seatmap && (
-            <div className="grid grid-cols-3 gap-3 mt-4">
-              <Field label="Rows"><input type="number" min={2} max={20} value={form.seat_rows} onChange={(e) => update("seat_rows", parseInt(e.target.value))} /></Field>
-              <Field label="Cols"><input type="number" min={4} max={26} value={form.seat_cols} onChange={(e) => update("seat_cols", parseInt(e.target.value))} /></Field>
-              <Field label="Price / seat"><input type="number" step="0.01" value={form.seat_price} onChange={(e) => update("seat_price", parseFloat(e.target.value))} /></Field>
-            </div>
+            <>
+              <div className="grid grid-cols-3 gap-3">
+                <Field label="Rows"><input type="number" min={2} max={26} value={form.seat_rows} onChange={(e) => update("seat_rows", parseInt(e.target.value) || 2)} /></Field>
+                <Field label="Cols"><input type="number" min={4} max={26} value={form.seat_cols} onChange={(e) => update("seat_cols", parseInt(e.target.value) || 4)} /></Field>
+                <Field label="Price / seat"><input type="number" step="0.01" value={form.seat_price} onChange={(e) => update("seat_price", parseFloat(e.target.value) || 0)} /></Field>
+              </div>
+
+              <Field label="Venue floor-plan (optional)">
+                <ImageUploader
+                  value={form.seat_map_image_url}
+                  onUploaded={(url) => update("seat_map_image_url", url)}
+                  label="Upload a backdrop showing your venue layout"
+                  aspect="16/7"
+                  testid="seatmap-uploader"
+                />
+              </Field>
+
+              <Field label="Draw the seat arrangement">
+                <SeatDesigner
+                  rows={form.seat_rows}
+                  cols={form.seat_cols}
+                  aisles={form.aisles}
+                  onChange={(a) => update("aisles", a)}
+                  backdropUrl={form.seat_map_image_url}
+                />
+              </Field>
+            </>
           )}
         </div>
 

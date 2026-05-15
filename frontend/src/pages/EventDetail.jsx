@@ -106,6 +106,8 @@ export default function EventDetail() {
                 booked={event.booked_seats || []}
                 held={event.held_seats || []}
                 selected={selectedSeats}
+                aisles={event.aisles || []}
+                backdropUrl={event.seat_map_image_url}
                 onToggle={onToggleSeat}
               />
             </div>
