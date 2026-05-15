@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 8 (On-site QR check-in) — backend + frontend e2e tested. 15/16 pytest cases PASS in new /app/backend/tests/test_iteration8.py. 1 backend bug (idempotency-timestamp mismatch) found and reported (NOT fixed — small business-logic decision for main agent). All 7 frontend flows pass: open-checkin-btn nav, 4 stat cards, start-scanner-btn toggle, manual entry success/already/error, recent panel, undo, CSV download.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/organizer/checkin",
+        "issue": "Idempotency contract leak: routers/organizer.py:243 calls utc_now() to write checked_in_at to DB, then line 248 calls utc_now() AGAIN to set booking['checked_in_at'] used in the response. The two timestamps differ by ~1ms. Result: the FIRST successful check-in response returns a checked_in_at that is microseconds LATER than what was actually stored. A second (idempotent) call then returns the DB value, so the two responses disagree on checked_in_at. Test_checkin_idempotent_second_call asserts equality and fails. FIX: compute `now_iso = utc_now().isoformat()` once and use the same variable for both the $set and the in-memory booking dict. Trivial one-line fix.",
+        "priority": "LOW"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/organizer/events/:id/checkin", "issues": ["The dashed 'Camera off' placeholder block remains visible UNDERNEATH the live <div id='qr-reader'> when scanner is on (qr-reader appears above with min-height 320 but the dashed block is only hidden when !scannerOn — actually verified: it is correctly hidden via {!scannerOn && ...}, so no overlap. NO bug). Minor: 'Undo' button uses window.confirm — inconsistent with rest of app that uses sonner toast / shadcn dialogs."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration8.py",
+    "/app/test_reports/pytest/pytest_iter8.xml"
+  ],
+  "action_items": [
+    "(LOW) Fix idempotency timestamp inconsistency in routers/organizer.py:240-248. Compute utc_now().isoformat() ONCE per check-in: `now_iso = utc_now().isoformat(); $set checked_in_at = now_iso; booking['checked_in_at'] = now_iso`. Avoids 1ms drift between DB and response.",
+    "(POLISH) Consider replacing window.confirm in CheckIn.jsx undoLast() with a shadcn AlertDialog for visual consistency (same comment as iter7 admin tab).",
+    "(NICE-TO-HAVE) Recent-check-ins panel does not auto-refresh visibly when an entry is undone — UI still shows the row until next 5-sec poll. Stats update faster because submitCheckin() calls loadStats() but undoLast also calls loadStats(), so this works correctly — verified."
+  ],
+  "critical_code_review_comments": [
+    "routers/organizer.py:243 vs :248 — two separate utc_now() calls produce two slightly different timestamps for the SAME check-in event. Storage value != response value. See idempotency bug above.",
+    "routers/organizer.py:235 — Pending booking returns 400 with f\"Ticket is {booking.get('status')}, not paid\". Frontend test exposes this message verbatim. Fine for organizers but consider sanitizing if other statuses (refunded/cancelled) are added later.",
+    "routers/organizer.py:286 — Recent uses .sort('checked_in_at', -1).limit(20) WITHOUT filtering by status='paid'. If a booking is somehow marked checked_in but later refunded it would still appear. Add status='paid' to the filter (already on count_documents lines 274-275 but NOT here).",
+    "CheckIn.jsx:100 — `booking_id: t.startsWith('bkg_') ? t : 'bkg_' + t` silently prepends 'bkg_' to anything that isn't already prefixed. A user typing a random number gets a 'bkg_<random>' booking_id sent to the backend, which then returns 404. Acceptable, but could surface clearer 'Enter full booking ID' UX hint.",
+    "CheckIn.jsx:107 — window.confirm in modern React app is jarring; use shadcn AlertDialog like the rest of the codebase.",
+    "CheckIn.jsx:119 — Manual `fetch` with Bearer header (because axios doesn't support file download via blob the same way) — duplication of auth logic with api.js. Consider extracting a `downloadAuthed(url, filename)` helper used by both CheckIn.jsx and OrganizerEvent.jsx.",
+    "routers/organizer.py:319-322 — Undo writes status to bookings without verifying the booking actually belonged to the event (update_one with event_id filter — OK, no-op if mismatch). But it returns `{ok: true}` even when nothing was updated. Consider returning a more informative response (modified_count) or 404 when booking not found.",
+    "routers/organizer.py:_parse_qr — Splits on '|' then checks parts[0]=='AURA'. Spec mentions 'AURA|<bid>|...' is fine, but a malformed payload like 'AURA||' (empty bid) currently returns booking_id='' which then triggers 'Invalid QR code' via the `if not booking_id` check. ✓ handled."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration8.py (new — 16 test cases covering core check-in, validation, authZ, stats, undo, CSV report)"
+  ],
+  "success_rate": {"backend": "94% (15/16 iter8) — 1 LOW-severity idempotency bug. All other iterations not re-run (iter7 was 22/22 last run).", "frontend": "100% (7/7 flows tested on /organizer/events/:id/checkin and OrganizerEvent drilldown)"},
+  "test_credentials": "admin@aura.events/admin123, organizer@aura.events/organizer123, attendee@aura.events/attendee123 — all working",
+  "seed_data_creation": "Test creates ~6 paid bookings on event evt_0b76589f3bda (Modernism Reframed) via /api/bookings/hold + direct mongo $set status=paid. Plus 1 'TEST other org' organizer registration. Not auto-cleaned. Numbers will accumulate across runs.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "test_iteration8.py uses pymongo directly (MongoClient(MONGO_URL)[DB_NAME]) to mark bookings paid because the app has no /pay endpoint in test mode. The check-in idempotency test compares checked_in_at across two responses — it currently FAILS by ~1ms due to dual utc_now() calls; fix is in routers/organizer.py:240-248. Frontend tests confirmed manual entry path; camera path is NOT testable in headless Playwright (no getUserMedia), only that the toggle button is visible. EVENT_ID evt_0b76589f3bda was the tier-based organizer-owned event picked at run time — IDs change on re-seed, so the test fixture uses /api/organizer/events to discover them dynamically.",
+  "rca of the issue": "BUG: First-call response of POST /api/organizer/checkin returns a checked_in_at that is microseconds AFTER what was stored in DB. REPRO: (1) Create a paid booking. (2) POST /api/organizer/checkin → response.booking.checked_in_at = T1. (3) Read DB → bookings.checked_in_at = T0 (< T1). (4) POST again → response.booking.checked_in_at = T0 (≠ T1). ROOT CAUSE: organizer.py:243 calls utc_now().isoformat() for the DB $set; line 248 calls utc_now().isoformat() AGAIN to set the in-memory booking dict. Two distinct timestamps. MITIGATION: compute once, use twice — `now_iso = utc_now().isoformat()` then use `now_iso` in both places. Estimated 1-line fix. NOT applied here because the test agent should not change business logic."
+}

@@ -1,4 +1,4 @@
-"""Organizer dashboard: events, analytics, drill-down, attendees, CSV export."""
+"""Organizer dashboard: events, analytics, drill-down, attendees, CSV export, check-in."""
 import csv
 import io
 from collections import defaultdict
@@ -6,10 +6,17 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from pydantic import BaseModel
 
-from core import db, get_current_user, require_role, event_to_public
+from core import db, get_current_user, require_role, event_to_public, utc_now
 
 router = APIRouter(prefix="/organizer", tags=["organizer"])
+
+
+class CheckinIn(BaseModel):
+    event_id: str
+    qr_payload: Optional[str] = None  # e.g. "AURA|bkg_xxxxxxx..."
+    booking_id: Optional[str] = None  # manual entry fallback
 
 
 @router.get("/events")
@@ -166,7 +173,7 @@ async def org_attendees_csv(event_id: str, user: dict = Depends(get_current_user
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["Booking ID", "Name", "Email", "Tier / Seats", "Qty", "Amount (USD)", "Paid At", "Booking Status"])
+    writer.writerow(["Booking ID", "Name", "Email", "Tier / Seats", "Qty", "Amount (USD)", "Paid At", "Booking Status", "Checked In", "Checked In At"])
     async for b in db.bookings.find({"event_id": event_id, "status": "paid"}, {"_id": 0}).sort("paid_at", 1):
         seats = ", ".join(b.get("seats") or []) if b.get("seats") else b.get("tier_name", "")
         writer.writerow([
@@ -178,12 +185,180 @@ async def org_attendees_csv(event_id: str, user: dict = Depends(get_current_user
             f"{b.get('amount', 0):.2f}",
             b.get("paid_at") or b.get("created_at", ""),
             b.get("status", ""),
+            "Yes" if b.get("checked_in") else "No",
+            b.get("checked_in_at", ""),
         ])
     csv_bytes = buf.getvalue().encode("utf-8")
     safe_title = "".join(c if c.isalnum() else "_" for c in event.get("title", "event"))[:50]
     filename = f"attendees_{safe_title}.csv"
     return Response(
         content=csv_bytes,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ----------------------------------------------------------------------------
+# Check-in: scan QR / manual entry, attendance report
+# ----------------------------------------------------------------------------
+def _parse_qr(qr: str) -> Optional[str]:
+    """QR payload format: 'AURA|<booking_id>' (with optional extra fields)."""
+    if not qr:
+        return None
+    parts = qr.strip().split("|")
+    if len(parts) >= 2 and parts[0] == "AURA":
+        return parts[1].strip()
+    return None
+
+
+@router.post("/checkin")
+async def checkin(payload: CheckinIn, user: dict = Depends(get_current_user)):
+    """Scan a QR code and mark the booking as checked in.
+    Idempotent: scanning a checked-in ticket returns the existing record (no error)."""
+    await require_role(user, "organizer", "admin")
+    event = await db.events.find_one({"event_id": payload.event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not your event")
+
+    booking_id = payload.booking_id or _parse_qr(payload.qr_payload or "")
+    if not booking_id:
+        raise HTTPException(status_code=400, detail="Invalid QR code")
+
+    booking = await db.bookings.find_one({"booking_id": booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    if booking["event_id"] != payload.event_id:
+        raise HTTPException(status_code=400, detail="This ticket is for a different event")
+    if booking.get("status") != "paid":
+        raise HTTPException(status_code=400, detail=f"Ticket is {booking.get('status')}, not paid")
+
+    already = bool(booking.get("checked_in"))
+    if not already:
+        await db.bookings.update_one(
+            {"booking_id": booking_id},
+            {"$set": {
+                "checked_in": True,
+                "checked_in_at": utc_now().isoformat(),
+                "checked_in_by": user["user_id"],
+            }},
+        )
+        booking["checked_in"] = True
+        booking["checked_in_at"] = utc_now().isoformat()
+
+    return {
+        "ok": True,
+        "already_checked_in": already,
+        "booking": {
+            "booking_id": booking["booking_id"],
+            "user_name": booking["user_name"],
+            "user_email": booking["user_email"],
+            "tier_name": booking.get("tier_name"),
+            "seats": booking.get("seats") or [],
+            "quantity": booking.get("quantity"),
+            "checked_in_at": booking["checked_in_at"],
+        },
+    }
+
+
+@router.get("/events/{event_id}/checkin-stats")
+async def checkin_stats(event_id: str, user: dict = Depends(get_current_user)):
+    await require_role(user, "organizer", "admin")
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    total_bookings = await db.bookings.count_documents({"event_id": event_id, "status": "paid"})
+    checked_in_count = await db.bookings.count_documents({"event_id": event_id, "status": "paid", "checked_in": True})
+
+    # Total tickets (sum of quantity)
+    total_tickets = 0
+    async for b in db.bookings.find({"event_id": event_id, "status": "paid"}, {"_id": 0, "quantity": 1}):
+        total_tickets += b.get("quantity", 0)
+
+    # Recent check-ins (last 20)
+    recent = []
+    async for b in db.bookings.find(
+        {"event_id": event_id, "checked_in": True}, {"_id": 0}
+    ).sort("checked_in_at", -1).limit(20):
+        recent.append({
+            "booking_id": b["booking_id"],
+            "user_name": b["user_name"],
+            "user_email": b["user_email"],
+            "seats": b.get("seats") or [],
+            "tier_name": b.get("tier_name"),
+            "quantity": b.get("quantity"),
+            "checked_in_at": b.get("checked_in_at"),
+        })
+
+    no_shows_count = total_bookings - checked_in_count
+    percent = round((checked_in_count / total_bookings) * 100, 1) if total_bookings else 0.0
+
+    return {
+        "total_bookings": total_bookings,
+        "checked_in_count": checked_in_count,
+        "no_shows_count": no_shows_count,
+        "total_tickets": total_tickets,
+        "percent": percent,
+        "recent": recent,
+    }
+
+
+@router.post("/events/{event_id}/checkin/{booking_id}/undo")
+async def undo_checkin(event_id: str, booking_id: str, user: dict = Depends(get_current_user)):
+    """Undo a check-in (organizer mistake fix)."""
+    await require_role(user, "organizer", "admin")
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    await db.bookings.update_one(
+        {"booking_id": booking_id, "event_id": event_id},
+        {"$set": {"checked_in": False}, "$unset": {"checked_in_at": "", "checked_in_by": ""}},
+    )
+    return {"ok": True}
+
+
+@router.get("/events/{event_id}/attendance-report.csv")
+async def attendance_report_csv(event_id: str, user: dict = Depends(get_current_user)):
+    """Full attendance report: every paid booking with checked-in status, sorted by status then name."""
+    await require_role(user, "organizer", "admin")
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    bookings = []
+    async for b in db.bookings.find({"event_id": event_id, "status": "paid"}, {"_id": 0}):
+        bookings.append(b)
+    # Sort: checked-in first, then not-checked-in; alphabetical within group
+    bookings.sort(key=lambda b: (0 if b.get("checked_in") else 1, b.get("user_name", "")))
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["Status", "Name", "Email", "Booking ID", "Tier / Seats", "Quantity", "Amount Paid", "Checked In At", "Discount Code"])
+    for b in bookings:
+        seats = ", ".join(b.get("seats") or []) if b.get("seats") else b.get("tier_name", "")
+        writer.writerow([
+            "ATTENDED" if b.get("checked_in") else "NO-SHOW",
+            b.get("user_name", ""),
+            b.get("user_email", ""),
+            b.get("booking_id", ""),
+            seats,
+            b.get("quantity", 0),
+            f"{b.get('amount', 0):.2f}",
+            b.get("checked_in_at", ""),
+            b.get("discount_code") or "",
+        ])
+    safe_title = "".join(c if c.isalnum() else "_" for c in event.get("title", "event"))[:50]
+    filename = f"attendance_{safe_title}.csv"
+    return Response(
+        content=buf.getvalue().encode("utf-8"),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

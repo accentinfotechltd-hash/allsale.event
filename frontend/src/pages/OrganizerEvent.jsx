@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent } from "lucide-react";
+import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { toast } from "sonner";
 
@@ -72,9 +72,14 @@ export default function OrganizerEvent() {
           <h1 className="serif text-5xl mb-1">{event.title}</h1>
           <p style={{ color: "var(--text-muted)" }}>{event.venue} · {event.city} · {new Date(event.date).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</p>
         </div>
-        <button onClick={downloadCsv} className="btn-primary" data-testid="download-csv-btn">
-          <Download className="w-4 h-4" /> Export attendees (CSV)
-        </button>
+        <div className="flex gap-2 flex-wrap">
+          <Link to={`/organizer/events/${eventId}/checkin`} className="btn-ghost" data-testid="open-checkin-btn">
+            <ScanLine className="w-4 h-4" /> Door check-in
+          </Link>
+          <button onClick={downloadCsv} className="btn-primary" data-testid="download-csv-btn">
+            <Download className="w-4 h-4" /> Export attendees (CSV)
+          </button>
+        </div>
       </div>
 
       {/* KPI grid */}
