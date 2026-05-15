@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import SeatMap from "@/components/SeatMap";
-import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X } from "lucide-react";
+import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 
 export default function EventDetail() {
@@ -18,6 +18,16 @@ export default function EventDetail() {
   const [codeInput, setCodeInput] = useState("");
   const [appliedCode, setAppliedCode] = useState(null); // {code, discount_amount, final_amount, kind, value}
   const [validatingCode, setValidatingCode] = useState(false);
+  const [myWaitlist, setMyWaitlist] = useState(null); // null=unknown, []=not on, [{...}]=on
+  const [joiningWl, setJoiningWl] = useState(false);
+
+  const loadWaitlist = async () => {
+    if (!user) { setMyWaitlist([]); return; }
+    try {
+      const { data } = await api.get(`/events/${eventId}/waitlist/me`);
+      setMyWaitlist(data);
+    } catch { setMyWaitlist([]); }
+  };
 
   const load = async () => {
     try {
@@ -31,6 +41,27 @@ export default function EventDetail() {
   };
 
   useEffect(() => { load(); }, [eventId]);
+  useEffect(() => { loadWaitlist(); /* eslint-disable-next-line */ }, [eventId, user?.user_id]);
+
+  const joinWaitlist = async () => {
+    if (!user) { nav("/login"); return; }
+    setJoiningWl(true);
+    try {
+      await api.post(`/events/${eventId}/waitlist/join`, { tier_preference: tier || null, quantity: qty });
+      toast.success("You're on the waitlist — we'll email you the moment a spot opens.");
+      await loadWaitlist();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e?.response?.data?.detail) || "Could not join waitlist");
+    } finally { setJoiningWl(false); }
+  };
+
+  const leaveWaitlist = async () => {
+    try {
+      await api.delete(`/events/${eventId}/waitlist/me`);
+      toast.success("Left the waitlist");
+      await loadWaitlist();
+    } catch { toast.error("Could not leave"); }
+  };
 
   useEffect(() => {
     // Poll seat status every 8s for live updates
@@ -246,10 +277,66 @@ export default function EventDetail() {
               </div>
             </div>
 
-            <button onClick={onBook} disabled={submitting || total <= 0} className="btn-primary w-full justify-center mt-5" data-testid="book-now-btn">
-              {submitting ? "Holding seats..." : "Book now"} <ArrowRight className="w-4 h-4" />
+            <button onClick={onBook} disabled={submitting || total <= 0 || event.sold_out} className="btn-primary w-full justify-center mt-5" data-testid="book-now-btn">
+              {submitting ? "Holding seats..." : event.sold_out ? "Sold out" : "Book now"} <ArrowRight className="w-4 h-4" />
             </button>
             <p className="text-xs mt-3 text-center" style={{ color: "var(--text-dim)" }}>You'll have 10 minutes to complete payment.</p>
+
+            {/* Waitlist section (tier-based, sold-out events) */}
+            {!event.has_seatmap && (event.sold_out || (myWaitlist && myWaitlist.length > 0)) && (
+              <div className="mt-5 pt-5 border-t" style={{ borderColor: "var(--border)" }} data-testid="waitlist-section">
+                {myWaitlist && myWaitlist.find((e) => e.status === "offered") ? (
+                  (() => {
+                    const offer = myWaitlist.find((e) => e.status === "offered");
+                    return (
+                      <div className="rounded-xl p-4" style={{ background: "rgba(52,211,153,0.08)", border: "1px solid var(--success)" }} data-testid="waitlist-offer-ready">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Bell className="w-4 h-4" style={{ color: "var(--success)" }} />
+                          <div className="font-medium" style={{ color: "var(--success)" }}>A spot just opened!</div>
+                        </div>
+                        <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+                          Your 15-min hold is ticking. Claim now before it rolls to the next person.
+                        </p>
+                        <button
+                          onClick={() => nav(`/checkout/${offer.booking_id}`)}
+                          className="btn-primary w-full justify-center"
+                          data-testid="claim-waitlist-btn"
+                        >
+                          <ExternalLink className="w-4 h-4" /> Claim my spot
+                        </button>
+                      </div>
+                    );
+                  })()
+                ) : myWaitlist && myWaitlist.find((e) => e.status === "waiting") ? (
+                  (() => {
+                    const w = myWaitlist.find((e) => e.status === "waiting");
+                    return (
+                      <div className="rounded-xl p-4" style={{ background: "var(--accent-soft)", border: "1px solid var(--accent)" }} data-testid="waitlist-waiting">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Clock className="w-4 h-4" style={{ color: "var(--accent)" }} />
+                          <div className="font-medium">You're on the waitlist</div>
+                        </div>
+                        <div className="text-sm mb-3" style={{ color: "var(--text-muted)" }}>
+                          Position #{w.position} — we'll email you the moment a spot opens.
+                        </div>
+                        <button onClick={leaveWaitlist} className="btn-ghost text-xs" data-testid="leave-waitlist-btn">
+                          <BellOff className="w-3 h-3" /> Leave waitlist
+                        </button>
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <button
+                    onClick={joinWaitlist}
+                    disabled={joiningWl}
+                    className="btn-ghost w-full justify-center"
+                    data-testid="join-waitlist-btn"
+                  >
+                    <Bell className="w-4 h-4" /> {joiningWl ? "Joining…" : "Notify me when a spot opens"}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </aside>
       </div>

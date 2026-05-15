@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine } from "lucide-react";
+import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { toast } from "sonner";
 
@@ -255,6 +255,9 @@ export default function OrganizerEvent() {
           </div>
         )}
       </Panel>
+
+      {/* Waitlist panel */}
+      <WaitlistPanel eventId={eventId} />
     </div>
   );
 }
@@ -286,4 +289,99 @@ function Panel({ title, sub, children }) {
 
 function Empty({ children }) {
   return <div className="text-center py-12 text-sm" style={{ color: "var(--text-dim)" }}>{children}</div>;
+}
+
+const WL_STATUS = {
+  waiting: { label: "Waiting", color: "var(--accent)", bg: "var(--accent-soft)" },
+  offered: { label: "Offered", color: "var(--success)", bg: "rgba(52,211,153,0.12)" },
+  claimed: { label: "Claimed", color: "var(--success)", bg: "rgba(52,211,153,0.12)" },
+  expired: { label: "Expired", color: "var(--text-muted)", bg: "rgba(154,154,163,0.12)" },
+  cancelled: { label: "Cancelled", color: "var(--text-muted)", bg: "rgba(154,154,163,0.12)" },
+};
+
+function WaitlistPanel({ eventId }) {
+  const [wl, setWl] = useState(null);
+  const [offering, setOffering] = useState(false);
+
+  const load = async () => {
+    try {
+      const { data } = await api.get(`/organizer/events/${eventId}/waitlist`);
+      setWl(data);
+    } catch { /* event may not have waitlist enabled */ }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [eventId]);
+
+  const offerNext = async () => {
+    setOffering(true);
+    try {
+      const { data } = await api.post(`/organizer/events/${eventId}/waitlist/offer-next`);
+      toast.success(`Offered to ${data.user_name} (${data.user_email})`);
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "No one to offer / no capacity");
+    } finally { setOffering(false); }
+  };
+
+  if (!wl) return null;
+
+  return (
+    <Panel
+      title={
+        <span className="flex items-center gap-2">
+          <Bell className="w-5 h-5" style={{ color: "var(--accent)" }} />
+          Waitlist
+          {wl.sold_out && <span className="px-2 py-0.5 rounded-full text-xs" style={{ background: "rgba(239,68,68,0.12)", color: "var(--danger)" }}>Sold out</span>}
+        </span>
+      }
+      sub={`${wl.counts.waiting} waiting · ${wl.counts.offered} offered · ${wl.counts.claimed} claimed`}
+    >
+      <div className="flex items-center justify-between mb-4">
+        <div className="text-sm" style={{ color: "var(--text-muted)" }}>
+          {wl.counts.waiting > 0
+            ? "Click Offer next to release the next held capacity to the head of the queue."
+            : "No one waiting yet — the join button appears for attendees once the event is sold out."}
+        </div>
+        <button onClick={offerNext} disabled={offering || wl.counts.waiting === 0} className="btn-primary" data-testid="offer-next-btn">
+          <Send className="w-4 h-4" /> {offering ? "Offering…" : "Offer next"}
+        </button>
+      </div>
+
+      {wl.items.length === 0 ? (
+        <Empty>No waitlist entries yet.</Empty>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm" data-testid="organizer-waitlist-table">
+            <thead>
+              <tr className="border-b" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
+                <th className="text-left py-3 text-xs uppercase tracking-widest font-medium">Name</th>
+                <th className="text-left py-3 text-xs uppercase tracking-widest font-medium">Email</th>
+                <th className="text-left py-3 text-xs uppercase tracking-widest font-medium">Tier pref · Qty</th>
+                <th className="text-left py-3 text-xs uppercase tracking-widest font-medium">Joined</th>
+                <th className="text-left py-3 text-xs uppercase tracking-widest font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {wl.items.map((e) => {
+                const meta = WL_STATUS[e.status] || { label: e.status, color: "var(--text-muted)", bg: "transparent" };
+                return (
+                  <tr key={e.waitlist_id} className="border-b" style={{ borderColor: "var(--border)" }} data-testid={`waitlist-row-${e.waitlist_id}`}>
+                    <td className="py-3">{e.user_name}</td>
+                    <td className="py-3" style={{ color: "var(--text-muted)" }}>{e.user_email}</td>
+                    <td className="py-3" style={{ color: "var(--text-muted)" }}>{e.tier_preference || "Any"} · {e.quantity}</td>
+                    <td className="py-3" style={{ color: "var(--text-muted)" }}>{new Date(e.requested_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</td>
+                    <td className="py-3">
+                      <span className="inline-flex px-2 py-0.5 rounded-full text-xs" style={{ color: meta.color, background: meta.bg }}>
+                        {meta.label}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
 }

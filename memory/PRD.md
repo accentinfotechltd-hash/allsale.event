@@ -149,5 +149,24 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - ✅ Stripe-Connect-ready schema: payout amounts already snapshotted, organizer_id + currency already tracked, can swap manual mark-paid for Connect webhook later.
 - ✅ **13/13 pytest pass** (`tests/test_iteration10_payouts.py`).
 
+## Iteration 11 (2026-02-15) — Waitlist for sold-out events
+- ✅ **Sold-out detection** baked into `GET /api/events/{id}` — returns `sold_out: bool` + per-tier `tier_status: [{name, sold, remaining}]` for tier-based events.
+- ✅ **Schema**: `waitlist_entries` collection with partial unique index `(event_id, user_id, status="waiting")` preventing duplicate joins.
+- ✅ **User endpoints** (`routers/waitlist.py`):
+  - `POST /api/events/{id}/waitlist/join` — gated on sold-out + non-seatmap
+  - `GET /api/events/{id}/waitlist/me` — returns active entries with computed `position` (FIFO)
+  - `DELETE /api/events/{id}/waitlist/me` — cancel
+  - `GET /api/me/waitlist` — all my active entries across events
+- ✅ **Organizer endpoints**:
+  - `GET /api/organizer/events/{id}/waitlist` — list + counts + sold_out flag
+  - `POST /api/organizer/events/{id}/waitlist/offer-next` — atomically creates a 15-min pending booking for head, marks entry `offered`, fires `waitlist_spot_opened` email
+- ✅ **Auto-trigger**: when a hold expires during another user's `bookings/hold` call, the expired-pending sweep also fires `try_offer_next_in_waitlist(event_id)` — capacity flows to the waitlist automatically.
+- ✅ **Frontend**:
+  - EventDetail: "Sold out" button + waitlist bell ("Notify me when a spot opens"), shows queue position when waiting, shows green "Claim my spot" button (linking to `/checkout/{booking_id}`) when offered.
+  - OrganizerEvent: new Waitlist panel with counts, "Offer next" button, full table of entries with status pills.
+- ✅ **13/13 pytest pass** (`tests/test_iteration11_waitlist.py`) — sold-out detection, join/leave/duplicate-guard/seatmap-reject/position, offer-next FIFO + email log + status transition.
+- ✅ Added module-scoped cleanup fixtures to iter10 + iter11 tests so test artifacts don't contaminate other suites.
+- ✅ **All 57/57 tests pass** across iter8 (check-in) + iter9 (emails) + iter10 (payouts) + iter11 (waitlist).
+
 ## Test Credentials
 See `/app/memory/test_credentials.md`

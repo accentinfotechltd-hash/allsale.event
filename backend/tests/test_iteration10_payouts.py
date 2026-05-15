@@ -34,6 +34,34 @@ from routers.payouts import _compute_commission  # noqa: E402
 API = os.environ.get("EXTERNAL_API_URL") or "http://localhost:8001"
 
 
+# Cleanup test users + payouts created during this module so they don't
+# pile up in the seeded DB.
+@pytest.fixture(scope="module", autouse=True)
+def _cleanup_after_module():
+    yield
+    async def _clean():
+        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
+        db = client[os.environ["DB_NAME"]]
+        ids = [e["event_id"] async for e in db.events.find(
+            {"event_id": {"$regex": "^evt_test_"}},
+            {"_id": 0, "event_id": 1},
+        )]
+        if ids:
+            await db.events.delete_many({"event_id": {"$in": ids}})
+            await db.bookings.delete_many({"event_id": {"$in": ids}})
+            await db.payouts.delete_many({"organizer_id": {"$regex": "^user_"}, "event_id": {"$in": ids}})
+        user_ids = [u["user_id"] async for u in db.users.find(
+            {"email": {"$regex": "^org_[^@]+@example.com"}},
+            {"_id": 0, "user_id": 1},
+        )]
+        if user_ids:
+            await db.users.delete_many({"user_id": {"$in": user_ids}})
+            await db.payouts.delete_many({"organizer_id": {"$in": user_ids}})
+        client.close()
+    try: asyncio.run(_clean())
+    except Exception: pass
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

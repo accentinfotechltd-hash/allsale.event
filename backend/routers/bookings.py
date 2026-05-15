@@ -10,6 +10,7 @@ from core import (
 )
 from models import HoldIn
 from routers.discount_codes import _find_active_code, _check_code_usable, _apply_discount, _normalize_code
+from routers.waitlist import try_offer_next_in_waitlist
 
 router = APIRouter(tags=["bookings"])
 
@@ -19,6 +20,21 @@ async def create_hold(payload: HoldIn, user: dict = Depends(get_current_user)):
     event = await db.events.find_one({"event_id": payload.event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
+
+    # Mark any newly-expired pending holds as expired (so freed capacity flows
+    # back to inventory and to waitlist offers).
+    now_iso = utc_now().isoformat()
+    expired = await db.bookings.update_many(
+        {"event_id": payload.event_id, "status": "pending", "hold_expires_at": {"$lt": now_iso}},
+        {"$set": {"status": "expired"}},
+    )
+    if expired.modified_count > 0 and not event.get("has_seatmap"):
+        # Capacity just opened up — try to offer the freed spot to next person in queue.
+        # Fire-and-forget; if it offers, good. If not, normal flow continues.
+        try:
+            await try_offer_next_in_waitlist(payload.event_id)
+        except Exception:
+            pass
 
     expires = utc_now() + timedelta(minutes=HOLD_MINUTES)
     booking_id = f"bkg_{uuid.uuid4().hex[:12]}"

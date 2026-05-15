@@ -79,6 +79,27 @@ async def get_event(event_id: str):
             held_seats.append(r["seat_id"])
         e["booked_seats"] = booked_seats
         e["held_seats"] = held_seats
+        e["sold_out"] = False  # Seatmap events don't surface aggregate sold-out
+    else:
+        # For tier-based events, compute sold/remaining per tier and aggregate sold_out flag
+        now_iso = utc_now().isoformat()
+        tier_status = []
+        any_remaining = False
+        for t in e.get("tiers", []):
+            sold = 0
+            async for b in db.bookings.find(
+                {"event_id": event_id, "tier_name": t["name"], "status": {"$in": ["paid", "confirmed", "pending"]}},
+                {"_id": 0, "quantity": 1, "hold_expires_at": 1, "status": 1},
+            ):
+                if b.get("status") == "pending" and (b.get("hold_expires_at") or "") < now_iso:
+                    continue
+                sold += b.get("quantity", 0)
+            remaining = max(0, t.get("capacity", 0) - sold)
+            if remaining > 0:
+                any_remaining = True
+            tier_status.append({"name": t["name"], "sold": sold, "remaining": remaining})
+        e["tier_status"] = tier_status
+        e["sold_out"] = (not any_remaining) and bool(e.get("tiers"))
     return event_to_public(e)
 
 
