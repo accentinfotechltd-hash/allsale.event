@@ -38,8 +38,10 @@ export default function CreateEvent() {
     seat_map_image_url: "",
     seatmap_curved: false,
     seatmap_sections: [],
-    seatmap_backdrop_opacity: 0.2,
+    seatmap_backdrop_opacity: 0.4,
     seatmap_backdrop_offset_y: 0,
+    seatmap_backdrop_offset_x: 0,
+    seatmap_backdrop_scale: 1,
   });
   const [tiers, setTiers] = useState([{ name: "General", price: 50.0, capacity: 200 }]);
   const [submitting, setSubmitting] = useState(false);
@@ -140,6 +142,8 @@ export default function CreateEvent() {
                   backdropUrl={form.seat_map_image_url}
                   backdropOpacity={form.seatmap_backdrop_opacity}
                   backdropOffsetY={form.seatmap_backdrop_offset_y}
+                  backdropOffsetX={form.seatmap_backdrop_offset_x}
+                  backdropScale={form.seatmap_backdrop_scale}
                   onChange={(next) => setForm((f) => ({
                     ...f,
                     aisles: next.aisles,
@@ -147,6 +151,8 @@ export default function CreateEvent() {
                     seatmap_curved: next.curved,
                     seatmap_backdrop_opacity: next.backdrop_opacity,
                     seatmap_backdrop_offset_y: next.backdrop_offset_y,
+                    seatmap_backdrop_offset_x: next.backdrop_offset_x,
+                    seatmap_backdrop_scale: next.backdrop_scale,
                   }))}
                 />
               </Field>

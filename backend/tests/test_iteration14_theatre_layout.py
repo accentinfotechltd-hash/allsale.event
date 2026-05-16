@@ -126,8 +126,10 @@ def test_create_event_without_theatre_fields_uses_defaults():
     body = requests.get(f"{API}/api/events/{new_eid}", timeout=10).json()
     assert body["seatmap_curved"] is False
     assert body["seatmap_sections"] == []
-    assert body["seatmap_backdrop_opacity"] == 0.2
+    assert body["seatmap_backdrop_opacity"] == 0.4
     assert body["seatmap_backdrop_offset_y"] == 0
+    assert body["seatmap_backdrop_offset_x"] == 0
+    assert body["seatmap_backdrop_scale"] == 1.0
 
 
 def test_legacy_event_without_fields_returns_defaults():

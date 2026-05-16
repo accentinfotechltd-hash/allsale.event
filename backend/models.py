@@ -44,8 +44,10 @@ class EventIn(BaseModel):
     seatmap_curved: bool = False  # render rows as curved arc
     seatmap_sections: List[Dict[str, Any]] = Field(default_factory=list)
     # List of {after_row: int (0-indexed, e.g. 4 means break after row E), label: str}
-    seatmap_backdrop_opacity: float = 0.2  # 0.0–1.0
-    seatmap_backdrop_offset_y: int = 0  # pixels, fine alignment
+    seatmap_backdrop_opacity: float = 0.4  # 0.0–1.0
+    seatmap_backdrop_offset_y: int = 0
+    seatmap_backdrop_offset_x: int = 0
+    seatmap_backdrop_scale: float = 1.0  # 0.4–2.5
 
 
 class HoldIn(BaseModel):

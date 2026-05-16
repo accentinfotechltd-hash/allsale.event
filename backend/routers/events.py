@@ -152,6 +152,8 @@ async def create_event(payload: EventIn, user: dict = Depends(get_current_user))
         "seatmap_sections": payload.seatmap_sections,
         "seatmap_backdrop_opacity": payload.seatmap_backdrop_opacity,
         "seatmap_backdrop_offset_y": payload.seatmap_backdrop_offset_y,
+        "seatmap_backdrop_offset_x": payload.seatmap_backdrop_offset_x,
+        "seatmap_backdrop_scale": payload.seatmap_backdrop_scale,
         "status": "approved" if user.get("role") == "admin" else "pending",
         "featured": False,
         "created_at": utc_now().isoformat(),

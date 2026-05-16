@@ -176,8 +176,10 @@ export default function EventDetail() {
                 sections={event.seatmap_sections || []}
                 curved={!!event.seatmap_curved}
                 backdropUrl={event.seat_map_image_url}
-                backdropOpacity={event.seatmap_backdrop_opacity ?? 0.2}
+                backdropOpacity={event.seatmap_backdrop_opacity ?? 0.4}
                 backdropOffsetY={event.seatmap_backdrop_offset_y ?? 0}
+                backdropOffsetX={event.seatmap_backdrop_offset_x ?? 0}
+                backdropScale={event.seatmap_backdrop_scale ?? 1}
                 onToggle={onToggleSeat}
               />
             </div>

@@ -21,8 +21,10 @@ export default function SeatMap({
   sections = [],
   curved = false,
   backdropUrl = null,
-  backdropOpacity = 0.2,
+  backdropOpacity = 0.4,
   backdropOffsetY = 0,
+  backdropOffsetX = 0,
+  backdropScale = 1,
   onToggle,
 }) {
   const aisleSet = new Set(aisles || []);
@@ -40,10 +42,14 @@ export default function SeatMap({
     <div className="space-y-4 relative">
       {backdropUrl && (
         <div
-          className="absolute inset-0 -m-2 pointer-events-none rounded-xl overflow-hidden"
-          style={{ opacity: backdropOpacity, transform: `translateY(${backdropOffsetY}px)` }}
+          className="absolute inset-0 pointer-events-none rounded-xl overflow-hidden"
+          style={{
+            opacity: backdropOpacity,
+            transform: `translate(${backdropOffsetX}px, ${backdropOffsetY}px) scale(${backdropScale})`,
+            transformOrigin: "center center",
+          }}
         >
-          <img src={backdropUrl} alt="" className="w-full h-full object-cover" />
+          <img src={backdropUrl} alt="" className="w-full h-full" style={{ objectFit: "contain" }} />
         </div>
       )}
 
