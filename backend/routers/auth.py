@@ -117,3 +117,22 @@ async def google_session(payload: GoogleSessionIn, response: Response):
     })
     set_session_cookie(response, session_token)
     return {"user_id": user_id, "email": email, "name": name, "picture": picture, "role": role}
+
+
+@router.post("/become-organizer")
+async def become_organizer(user: dict = Depends(get_current_user)):
+    """Upgrade an attendee to organizer in one click.
+
+    Idempotent — calling repeatedly is safe. Admins stay admin (role unchanged).
+    Returns the refreshed user dict so the frontend can update local state.
+    """
+    if user.get("role") == "admin":
+        return {**{k: v for k, v in user.items() if k != "password_hash"}, "upgraded": False}
+    if user.get("role") == "organizer":
+        return {**{k: v for k, v in user.items() if k != "password_hash"}, "upgraded": False}
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"role": "organizer", "upgraded_at": utc_now().isoformat()}},
+    )
+    refreshed = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "password_hash": 0})
+    return {**refreshed, "upgraded": True}

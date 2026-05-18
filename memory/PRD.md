@@ -216,5 +216,18 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - ✅ **3/3 pytest pass** (`tests/test_iteration14_theatre_layout.py`), **79/79 total** across iter8–iter14.
 - 📸 Visual: cinema-style 11-col × 6-row event with uploaded floor-plan now renders correctly — image visible behind seat grid, organizers tune scale/offset to align seats with image.
 
+## Iteration 15 (2026-02-15) — Attendee → Organizer self-serve upgrade flow
+- ✅ **Security gap closed**: previously, any signed-in attendee could navigate to `/organizer/new` and only got blocked on submit. Now all `/organizer/*` routes are gated by a `RequireOrganizer` route guard:
+  - Not signed in → redirected to `/login?redirect=...`
+  - Signed in but role !== organizer/admin → redirected to `/become-organizer?redirect=...`
+- ✅ **`/become-organizer` upgrade page** (`BecomeOrganizer.jsx`) — friendly Eventbrite-style onboarding screen: 4 perk cards, commission disclosure (8% + $0.50/ticket), ToS checkbox, one-click "Become an organizer" CTA.
+- ✅ **`POST /api/auth/become-organizer`** — idempotent role-flip endpoint:
+  - Attendees → role updates to "organizer" + `upgraded_at` timestamp, returns `upgraded=True`
+  - Organizers → no-op, returns `upgraded=False`
+  - Admins → role unchanged (never downgrade), returns `upgraded=False`
+- ✅ **Navbar**: attendees see a new "Host an event" link (with Sparkles icon). Footer "Sell Tickets" link goes to `/become-organizer` for attendees, `/organizer` for organizers, `/signup` for anon users.
+- ✅ **6/6 pytest pass** (`tests/test_iteration15_become_organizer.py`): auth required, attendee-flip, organizer idempotent, admin protected, before/after upgrade event-creation gates.
+- ✅ **85/85 total tests pass** across iter8–iter15.
+
 ## Test Credentials
 See `/app/memory/test_credentials.md`

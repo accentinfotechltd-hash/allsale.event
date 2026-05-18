@@ -20,6 +20,8 @@ import OrganizerPayouts from "@/pages/OrganizerPayouts";
 import CheckIn from "@/pages/CheckIn";
 import Admin from "@/pages/Admin";
 import AuthCallback from "@/pages/AuthCallback";
+import BecomeOrganizer from "@/pages/BecomeOrganizer";
+import RequireOrganizer from "@/components/RequireOrganizer";
 
 function AppRouter() {
   const location = useLocation();
@@ -39,12 +41,13 @@ function AppRouter() {
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/profile" element={<Profile />} />
-        <Route path="/organizer" element={<Organizer />} />
-        <Route path="/organizer/new" element={<CreateEvent />} />
-        <Route path="/organizer/events/:eventId" element={<OrganizerEvent />} />
-        <Route path="/organizer/events/:eventId/checkin" element={<CheckIn />} />
-        <Route path="/organizer/codes" element={<DiscountCodes />} />
-        <Route path="/organizer/payouts" element={<OrganizerPayouts />} />
+        <Route path="/become-organizer" element={<BecomeOrganizer />} />
+        <Route path="/organizer" element={<RequireOrganizer><Organizer /></RequireOrganizer>} />
+        <Route path="/organizer/new" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
+        <Route path="/organizer/events/:eventId" element={<RequireOrganizer><OrganizerEvent /></RequireOrganizer>} />
+        <Route path="/organizer/events/:eventId/checkin" element={<RequireOrganizer><CheckIn /></RequireOrganizer>} />
+        <Route path="/organizer/codes" element={<RequireOrganizer><DiscountCodes /></RequireOrganizer>} />
+        <Route path="/organizer/payouts" element={<RequireOrganizer><OrganizerPayouts /></RequireOrganizer>} />
         <Route path="/admin" element={<Admin />} />
       </Routes>
     </Layout>

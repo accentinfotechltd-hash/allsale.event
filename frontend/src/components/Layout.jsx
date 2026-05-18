@@ -1,6 +1,6 @@
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
-import { Search, User, LogOut, Calendar, ShieldCheck, LayoutDashboard, Ticket } from "lucide-react";
+import { Search, User, LogOut, Calendar, ShieldCheck, LayoutDashboard, Ticket, Sparkles } from "lucide-react";
 import { useState } from "react";
 
 export default function Layout({ children }) {
@@ -55,6 +55,11 @@ export default function Layout({ children }) {
                     <LayoutDashboard className="w-4 h-4" /> Organizer
                   </Link>
                 )}
+                {user.role === "attendee" && (
+                  <Link to="/become-organizer" className="px-3 py-2 text-sm hidden sm:inline-flex items-center gap-1.5" style={{ color: "var(--text-muted)" }} data-testid="nav-host-link">
+                    <Sparkles className="w-4 h-4" /> Host an event
+                  </Link>
+                )}
                 {user.role === "admin" && (
                   <Link to="/admin" className="px-3 py-2 text-sm hidden sm:inline-flex items-center gap-1.5" style={{ color: "var(--text-muted)" }} data-testid="nav-admin-link">
                     <ShieldCheck className="w-4 h-4" /> Admin
@@ -97,8 +102,8 @@ export default function Layout({ children }) {
           <div>
             <div className="text-xs uppercase tracking-widest mb-3" style={{ color: "var(--text-dim)" }}>For Organizers</div>
             <ul className="space-y-2 text-sm">
-              <li><Link to="/signup" style={{ color: "var(--text-muted)" }}>Sell Tickets</Link></li>
-              <li><Link to="/organizer" style={{ color: "var(--text-muted)" }}>Dashboard</Link></li>
+              <li><Link to={user ? (user.role === "attendee" ? "/become-organizer" : "/organizer") : "/signup"} style={{ color: "var(--text-muted)" }}>Sell Tickets</Link></li>
+              <li><Link to={user && user.role !== "attendee" ? "/organizer" : "/become-organizer"} style={{ color: "var(--text-muted)" }}>Dashboard</Link></li>
             </ul>
           </div>
           <div>
