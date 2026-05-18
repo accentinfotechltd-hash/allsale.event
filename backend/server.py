@@ -33,6 +33,7 @@ from routers import discount_codes as discount_codes_router
 from routers import payouts as payouts_router
 from routers import waitlist as waitlist_router
 from routers import recommendations as recommendations_router
+from routers import ws_seats as ws_seats_router
 
 
 app = FastAPI(title="AURA Event Ticketing API", version="1.0")
@@ -50,6 +51,7 @@ api.include_router(discount_codes_router.router)
 api.include_router(payouts_router.router)
 api.include_router(waitlist_router.router)
 api.include_router(recommendations_router.router)
+api.include_router(ws_seats_router.router)
 
 
 @api.get("/")

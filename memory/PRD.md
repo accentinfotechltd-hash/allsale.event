@@ -229,5 +229,28 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - ✅ **6/6 pytest pass** (`tests/test_iteration15_become_organizer.py`): auth required, attendee-flip, organizer idempotent, admin protected, before/after upgrade event-creation gates.
 - ✅ **85/85 total tests pass** across iter8–iter15.
 
+## Iteration 16 (2026-02-15) — Live WebSocket seat updates + seat-section pricing
+- ✅ **Phase B complete — WebSocket seat updates** (`routers/ws_seats.py`):
+  - Single-process `EventHub` pub/sub keyed by `event_id`.
+  - WS endpoint `wss://<host>/api/ws/events/{event_id}` accepts connections, sends initial snapshot, broadcasts deltas (`seat`/`tier`/`snapshot` message types).
+  - Server-side 25s heartbeat ping keeps proxy connections alive.
+  - Broadcasts wired into `routers/bookings.py` (on hold creation) and `routers/payments.py` (on payment success). Held → Booked deltas emit per-seat events for seatmap events; tier-count refreshes for tier-based events.
+- ✅ **Frontend `useEventLiveUpdates` hook** (`lib/useEventLiveUpdates.js`):
+  - WebSocket with exponential-backoff reconnect (1s → 30s cap, resets on connect).
+  - Applies `onSnapshot` / `onSeat` / `onTier` deltas to local state without network round-trips.
+  - Replaces the old 8-second polling on EventDetail (kept a 60s safety-net refresh for missed deltas).
+  - Live indicator dot on the EventDetail booking sidebar when connected.
+- ✅ **Seat-section pricing**:
+  - `core.seat_section_for_row(event, row_idx)` + `seat_price_for(event, seat_id)` helpers.
+  - Sections in `seatmap_sections[]` now accept an optional `price` field. Front zone falls back to base `seat_price`.
+  - `POST /api/bookings/hold` uses per-seat pricing — different zones can charge different amounts.
+  - Frontend `EventDetail` mirrors the logic for the subtotal preview before submit.
+- ✅ **7/7 pytest pass** (`tests/test_iteration16_websocket_pricing.py`): section-row mapping, price fallback, invalid seat IDs, WS snapshot delivery, unknown-event WS resilience.
+- ✅ **92/92 total tests pass** across iter8–iter16.
+
+### Not shipped this iteration (intentional)
+- 🟢 **CreateEvent UI** for entering per-section prices — backend persists/reads them fine, organizers can set via API or future UI tweak.
+- 🟢 **Demand sparkline + Sales velocity widget** — deferred; both depend on a small `event_views` aggregation we haven't seeded yet.
+
 ## Test Credentials
 See `/app/memory/test_credentials.md`

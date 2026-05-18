@@ -7,11 +7,12 @@ from pymongo.errors import DuplicateKeyError
 
 from core import (
     db, get_current_user, utc_now, gen_qr_data_url, booking_to_public, HOLD_MINUTES,
-    compute_tier_effective_price,
+    compute_tier_effective_price, seat_price_for,
 )
 from models import HoldIn
 from routers.discount_codes import _find_active_code, _check_code_usable, _apply_discount, _normalize_code
 from routers.waitlist import try_offer_next_in_waitlist
+from routers.ws_seats import notify_seats, notify_tier_refresh
 
 router = APIRouter(tags=["bookings"])
 
@@ -75,7 +76,7 @@ async def create_hold(payload: HoldIn, user: dict = Depends(get_current_user)):
                 )
             raise HTTPException(status_code=409, detail="One or more seats just got taken. Please pick others.")
 
-        amount = round(event.get("seat_price", 0.0) * len(seats), 2)
+        amount = round(sum(seat_price_for(event, s) for s in seats), 2)
         tier_name = "Seat Selection"
         quantity = len(seats)
     else:
@@ -156,6 +157,12 @@ async def create_hold(payload: HoldIn, user: dict = Depends(get_current_user)):
         "hold_expires_at": expires.isoformat(), "created_at": utc_now().isoformat(),
     }
     await db.bookings.insert_one(booking_doc)
+
+    # Live broadcast: tell anyone watching the seatmap/tier counts changed
+    if seats:
+        await notify_seats(payload.event_id, [{"seat_id": s, "status": "held"} for s in seats])
+    else:
+        await notify_tier_refresh(payload.event_id)
 
     return booking_to_public(booking_doc)
 

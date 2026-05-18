@@ -5,6 +5,7 @@ import base64
 import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from typing import Optional
 
 import bcrypt
 import jwt as pyjwt
@@ -72,6 +73,49 @@ def gen_qr_data_url(payload: str) -> str:
 def event_to_public(e: dict) -> dict:
     e.pop("_id", None)
     return e
+
+
+def seat_section_for_row(event: dict, row_idx: int) -> Optional[dict]:
+    """Return the section dict (with optional `price`) that contains a given row.
+
+    `seatmap_sections` is sorted by `after_row`. A row belongs to the FIRST
+    section whose `after_row` >= row_idx. If no section matches, the seat is
+    in the "front" zone (rows above any section); pricing falls back to the
+    event-level `seat_price`.
+    """
+    sections = event.get("seatmap_sections") or []
+    if not sections:
+        return None
+    # Sort defensively in case organizer entered them out of order
+    sorted_secs = sorted(sections, key=lambda s: s.get("after_row", 0))
+    # Front zone: rows 0..first.after_row inclusive
+    # Section 1: rows first.after_row+1..second.after_row inclusive
+    boundaries = [-1] + [s.get("after_row", 0) for s in sorted_secs] + [10**6]
+    for idx in range(1, len(boundaries)):
+        if boundaries[idx - 1] < row_idx <= boundaries[idx]:
+            # idx 1 → front zone (no section)
+            if idx - 1 == 0:
+                return None
+            return sorted_secs[idx - 2]
+    return None
+
+
+def seat_price_for(event: dict, seat_id: str) -> float:
+    """Return per-seat price. If a section has a custom `price`, use it; else
+    fall back to the event-level `seat_price`. Format: "A-5" → row letter A (0).
+    """
+    try:
+        row_letter = seat_id.split("-", 1)[0]
+        row_idx = ord(row_letter.upper()) - ord("A")
+    except Exception:
+        return float(event.get("seat_price", 0))
+    section = seat_section_for_row(event, row_idx)
+    if section and section.get("price") is not None:
+        try:
+            return float(section["price"])
+        except (TypeError, ValueError):
+            pass
+    return float(event.get("seat_price", 0))
 
 
 def compute_tier_effective_price(event: dict, tier: dict, sold: int) -> tuple[float, bool]:

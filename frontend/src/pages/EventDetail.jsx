@@ -3,7 +3,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import SeatMap from "@/components/SeatMap";
-import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink } from "lucide-react";
+import useEventLiveUpdates from "@/lib/useEventLiveUpdates";
+import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi } from "lucide-react";
 import { toast } from "sonner";
 
 export default function EventDetail() {
@@ -67,11 +68,58 @@ export default function EventDetail() {
   };
 
   useEffect(() => {
-    // Poll seat status every 8s for live updates
-    if (!event?.has_seatmap) return;
-    const i = setInterval(load, 8000);
+    // Background safety net: refresh full event every 60s in case WS misses a delta.
+    if (!event) return;
+    const i = setInterval(load, 60000);
     return () => clearInterval(i);
-  }, [event?.has_seatmap, eventId]);
+  }, [event?.event_id, eventId]);
+
+  // Live WebSocket: applies deltas in real time (no 8s lag).
+  const { connected: liveConnected } = useEventLiveUpdates(eventId, {
+    onSnapshot: (snap) => {
+      setEvent((prev) => prev ? {
+        ...prev,
+        booked_seats: snap.booked || prev.booked_seats,
+        held_seats: snap.held || prev.held_seats,
+        sold_out: typeof snap.sold_out === "boolean" ? snap.sold_out : prev.sold_out,
+        tier_status: snap.tier_status?.length ? snap.tier_status : prev.tier_status,
+        surging: typeof snap.surging === "boolean" ? snap.surging : prev.surging,
+        tiers: snap.tier_status?.length
+          ? prev.tiers.map((t) => {
+              const ts = snap.tier_status.find((s) => s.name === t.name);
+              return ts ? { ...t, effective_price: ts.effective_price, surging: ts.surging } : t;
+            })
+          : prev.tiers,
+      } : prev);
+    },
+    onSeat: ({ seat_id, status }) => {
+      setEvent((prev) => {
+        if (!prev) return prev;
+        const booked = new Set(prev.booked_seats || []);
+        const held = new Set(prev.held_seats || []);
+        if (status === "booked") { booked.add(seat_id); held.delete(seat_id); }
+        else if (status === "held") { held.add(seat_id); booked.delete(seat_id); }
+        else if (status === "free") { booked.delete(seat_id); held.delete(seat_id); }
+        return { ...prev, booked_seats: Array.from(booked), held_seats: Array.from(held) };
+      });
+      // Toast if someone else grabbed a seat we had selected (rare but possible)
+      setSelectedSeats((sel) => {
+        if (status !== "free" && sel.includes(seat_id) && !selectedSeats.includes(seat_id)) return sel;
+        return sel;
+      });
+    },
+    onTier: ({ tier_status, sold_out, surging }) => {
+      setEvent((prev) => prev ? {
+        ...prev,
+        sold_out, surging,
+        tier_status,
+        tiers: prev.tiers.map((t) => {
+          const ts = tier_status.find((s) => s.name === t.name);
+          return ts ? { ...t, effective_price: ts.effective_price, surging: ts.surging } : t;
+        }),
+      } : prev);
+    },
+  });
 
   // Clear applied code if the order changes (must be before any early return to obey rules of hooks)
   useEffect(() => {
@@ -84,8 +132,25 @@ export default function EventDetail() {
   const date = new Date(event.date);
   const tierObj = event.tiers?.find((t) => t.name === tier);
   const tierEffectivePrice = tierObj?.effective_price ?? tierObj?.price ?? 0;
+  const seatPriceFor = (seatId) => {
+    const sections = event.seatmap_sections || [];
+    if (!sections.length) return event.seat_price;
+    try {
+      const rowIdx = seatId.charCodeAt(0) - "A".charCodeAt(0);
+      const sorted = [...sections].sort((a, b) => (a.after_row || 0) - (b.after_row || 0));
+      const boundaries = [-1, ...sorted.map((s) => s.after_row || 0), 1e6];
+      for (let i = 1; i < boundaries.length; i++) {
+        if (boundaries[i - 1] < rowIdx && rowIdx <= boundaries[i]) {
+          if (i === 1) return event.seat_price; // front zone
+          const sec = sorted[i - 2];
+          return sec?.price ?? event.seat_price;
+        }
+      }
+    } catch { /* fall through */ }
+    return event.seat_price;
+  };
   const subtotal = event.has_seatmap
-    ? selectedSeats.length * event.seat_price
+    ? selectedSeats.reduce((sum, s) => sum + (seatPriceFor(s) || 0), 0)
     : tierEffectivePrice * qty;
   const total = appliedCode ? Math.max(0, subtotal - appliedCode.discount_amount) : subtotal;
 
@@ -189,7 +254,20 @@ export default function EventDetail() {
         {/* Booking sidebar */}
         <aside className="lg:sticky lg:top-24 lg:self-start">
           <div className="border rounded-2xl p-6" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
-            <div className="text-xs uppercase tracking-[0.3em] mb-3" style={{ color: "var(--accent)" }}>Book your tickets</div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-xs uppercase tracking-[0.3em]" style={{ color: "var(--accent)" }}>Book your tickets</div>
+              {liveConnected && (
+                <span
+                  className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest"
+                  style={{ color: "var(--success)" }}
+                  data-testid="live-indicator"
+                  title="Live seat updates"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--success)", boxShadow: "0 0 8px var(--success)" }} />
+                  Live
+                </span>
+              )}
+            </div>
 
             {!event.has_seatmap ? (
               <>

@@ -10,6 +10,7 @@ from emergentintegrations.payments.stripe.checkout import (
 from core import db, get_current_user, utc_now, gen_qr_data_url, STRIPE_API_KEY, logger
 from models import CheckoutIn
 from emails import send_template_fireforget
+from routers.ws_seats import notify_seats, notify_tier_refresh
 
 router = APIRouter(tags=["payments"])
 
@@ -126,6 +127,14 @@ async def checkout_status(session_id: str, user: dict = Depends(get_current_user
             )
             await _send_booking_confirmation_email(tx["booking_id"])
             logger.info(f"[booking_paid] {tx['booking_id']} — confirmation email queued")
+            # Live broadcast — seats went from held → booked
+            booking_doc = await db.bookings.find_one({"booking_id": tx["booking_id"]}, {"_id": 0})
+            if booking_doc:
+                seats = booking_doc.get("seats") or []
+                if seats:
+                    await notify_seats(booking_doc["event_id"], [{"seat_id": s, "status": "booked"} for s in seats])
+                else:
+                    await notify_tier_refresh(booking_doc["event_id"])
 
     return {"status": new_status, "payment_status": new_pay, "booking_id": tx["booking_id"]}
 
