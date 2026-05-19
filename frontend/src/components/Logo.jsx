@@ -1,19 +1,16 @@
 /**
- * Allsale Events brand logo.
+ * Allsale Events brand logo (uses the official uploaded artwork).
  *
- * Uses the official uploaded brand artwork (`/allsale-logo.png`).
- * The PNG is mostly transparent margin around the wordmark, so we
- * apply a generous negative-margin trim via CSS to keep the lockup
- * compact in headers and footers.
+ * The PNG has been pre-trimmed so the artwork fills the file with only
+ * a small transparent margin. Aspect ratio is ~1.49 : 1 (W : H).
  *
- * Variants:
- *   <Logo />              — default header lockup (height-tuned for navbar)
- *   <Logo size={64} />    — taller (auth cards / hero)
- *   <Logo variant="mark" /> — kept for compatibility (still returns the image)
+ *   <Logo />          — default header lockup (height-based)
+ *   <Logo size={56} /> — taller for auth cards / hero
+ *   <Logo variant="mark" /> — square crop for favicons / avatars
  */
-export function LogoMark({ size = 28, className = "", ...rest }) {
-  // Image is square (1254×1254) with the wordmark filling the middle band.
-  // Using object-fit: contain inside a fixed box keeps it crisp at any size.
+const ASPECT = 1254 / 841; // matches the trimmed asset
+
+export function LogoMark({ size = 40, className = "", ...rest }) {
   return (
     <img
       src="/allsale-logo.png"
@@ -28,27 +25,22 @@ export function LogoMark({ size = 28, className = "", ...rest }) {
 }
 
 export default function Logo({
-  size = 36,
+  size = 48,
   className = "",
   variant = "lockup",
   ...rest
 }) {
-  // The brand artwork already contains the "Allsale" + "EVENT" wordmark,
-  // so the lockup variant is just the image itself rendered at a larger size.
   if (variant === "mark") {
     return <LogoMark size={size} className={className} {...rest} />;
   }
-
-  // Lockup: render the artwork wider than tall (preserving aspect) so the
-  // wordmark reads cleanly in headers without dwarfing nav links.
-  const w = Math.round(size * 2.2);
+  const w = Math.round(size * ASPECT);
   return (
     <img
       src="/allsale-logo.png"
       alt="Allsale Events"
       width={w}
       height={size}
-      style={{ height: size, width: "auto", objectFit: "contain", display: "block" }}
+      style={{ height: size, width: w, objectFit: "contain", display: "block" }}
       className={className}
       data-testid="brand-logo"
       {...rest}
