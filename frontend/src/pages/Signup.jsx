@@ -38,7 +38,7 @@ export default function Signup() {
     <div className="min-h-[80vh] grid lg:grid-cols-2">
       <div className="flex items-center justify-center px-6 py-12 order-2 lg:order-1">
         <div className="w-full max-w-md">
-          <Link to="/" className="inline-flex"><Logo size={56} /></Link>
+          <Link to="/" className="inline-flex"><Logo size={88} /></Link>
           <h1 className="serif text-4xl mt-8 mb-2">Create your account</h1>
           <p className="mb-8 text-sm" style={{ color: "var(--text-muted)" }}>Book tickets, save events, or list your own show.</p>
 

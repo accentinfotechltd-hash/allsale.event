@@ -18,9 +18,9 @@ export default function Layout({ children }) {
   return (
     <div className="min-h-screen grain">
       <header className="sticky top-0 z-50 glass border-b">
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center gap-6">
+        <div className="max-w-7xl mx-auto px-6 py-2 flex items-center gap-6">
           <Link to="/" className="inline-flex items-center" data-testid="brand-link">
-            <Logo size={48} />
+            <Logo size={72} />
           </Link>
 
           <form onSubmit={onSearch} className="flex-1 max-w-xl hidden md:block">
@@ -87,7 +87,7 @@ export default function Layout({ children }) {
       <footer className="border-t mt-24" style={{ borderColor: "var(--border)" }}>
         <div className="max-w-7xl mx-auto px-6 py-12 grid md:grid-cols-4 gap-8">
           <div>
-            <div className="mb-2"><Logo size={56} /></div>
+            <div className="mb-2"><Logo size={72} /></div>
             <p className="text-sm" style={{ color: "var(--text-dim)" }}>The new way to discover and book unforgettable live experiences.</p>
           </div>
           <div>
