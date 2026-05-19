@@ -1,4 +1,6 @@
-# AURA — Premium Event Ticketing Platform
+# Allsale Events — Premium Event Ticketing Platform
+
+> **Brand**: Rebranded from "AURA Tickets" → **Allsale Events** on 2026-02-16 (display name, email branding, sender name, credential domain `@allsale.events`). Internal protocol identifiers (`AURA|` QR prefix, `aura_token` localStorage key, `aura-tickets/` object-storage path) intentionally preserved to keep existing tickets/uploads valid.
 
 ## Original Problem Statement
 Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed in .NET stack; pivoted to React + FastAPI + MongoDB. Must handle concurrency (no double-booking), tiered tickets, interactive seat selection, 10-min seat hold, QR e-tickets, organizer + admin dashboards, payments, email confirmation.
@@ -250,6 +252,24 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 
 ### Not shipped this iteration (intentional)
 - 🟢 **CreateEvent UI** for entering per-section prices — backend persists/reads them fine, organizers can set via API or future UI tweak.
+
+## Iteration 17 (2026-02-16) — Event-views tracking + Demand sparkline + Sales velocity
+- ✅ **`/api/events/{id}/view`** anonymous-friendly view ping; stored in `event_views` collection with timestamp + fingerprint (user_id or client IP). 60-second sessionStorage debounce on the EventDetail page.
+- ✅ **`/api/events/{id}/demand`** returns 7-day buckets (views + paid bookings, oldest → newest). Rendered as an inline SVG sparkline (`<DemandSparkline />` component) under the booking sidebar on EventDetail — bars = views, dots = bookings, totals labeled.
+- ✅ **`/api/organizer/events/{id}/velocity`** organizer-only: capacity, sold, remaining, sold_24h, sold_7d, per_hour_24h, per_day_7d, forecast_days, forecast_label ("Sellout today", "Expected sellout in 4d", "No sales yet", "Sold out", "Slow demand"). Organizers see urgency-colored forecast on `/organizer/events/:id`.
+- ✅ Handles seatmap and tier-based events. Forbid other organizers (403) and anon (401).
+- ✅ **9/9 pytest pass** (`tests/test_iteration17_demand_velocity.py`).
+
+## Iteration 18 (2026-02-16) — Allsale Events rebrand
+- ✅ **Display name** "AURA" → "Allsale Events" across UI: Layout header/footer, Login, Signup, BecomeOrganizer, toast copy.
+- ✅ **Email branding** updated in `emails.py`: SENDER_NAME, layout header ("Allsale · Events"), footer ("© 2026 Allsale Events"), all template body strings ("event is live on Allsale Events", etc.).
+- ✅ **Backend FastAPI title + logger banner** rebranded.
+- ✅ **AI recommendations prompt** updated to "Allsale Events' recommendation engine".
+- ✅ **Credential domain migration**: legacy `admin@aura.events`, `organizer@aura.events`, `attendee@aura.events` are auto-renamed to `@allsale.events` on backend startup (idempotent). Organizer display "AURA Productions" → "Allsale Productions" and admin display "AURA Admin" → "Allsale Events Admin" backfilled. Legacy `events.organizer_name` backfilled.
+- ✅ **Internal identifiers preserved** (no breakage): QR payload prefix `AURA|<bid>`, frontend `localStorage.aura_token`, object-storage path `aura-tickets/uploads/...`, `sessionStorage` view-debounce key `aura:view:`.
+- ✅ **7/7 rebrand regression pytest pass** + **15/15 email template pytest pass** + **9/9 demand/velocity pytest pass** (31/31 critical tests green).
+
+### Not shipped this iteration (intentional)
 - 🟢 **Demand sparkline + Sales velocity widget** — deferred; both depend on a small `event_views` aggregation we haven't seeded yet.
 
 ## Test Credentials

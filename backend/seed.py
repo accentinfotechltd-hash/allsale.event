@@ -144,6 +144,11 @@ async def seed_demo():
             "password_hash": hash_password(ADMIN_PASSWORD), "picture": None,
             "created_at": utc_now().isoformat(), "auth_provider": "password",
         })
+    # Backfill admin display name for legacy seeds
+    await db.users.update_one(
+        {"email": ADMIN_EMAIL, "name": "AURA Admin"},
+        {"$set": {"name": "Allsale Events Admin"}},
+    )
     org = await db.users.find_one({"email": "organizer@allsale.events"})
     if not org:
         org_id = f"user_{uuid.uuid4().hex[:12]}"
