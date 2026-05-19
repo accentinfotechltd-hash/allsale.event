@@ -156,6 +156,35 @@ export default function CreateEvent() {
                   }))}
                 />
               </Field>
+              {form.seatmap_sections?.length > 0 && (
+                <Field label="Section pricing (optional)">
+                  <div className="rounded-xl p-4" style={{ background: "var(--bg-elev)", border: "1px solid var(--border)" }}>
+                    <div className="space-y-2">
+                      {form.seatmap_sections.map((s, i) => (
+                        <div key={i} className="flex items-center gap-3" data-testid={`section-price-row-${i}`}>
+                          <span className="text-sm flex-1 truncate">{s.label}</span>
+                          <input
+                            type="number" min="0" step="1"
+                            placeholder={`Default: $${form.seat_price}`}
+                            value={s.price ?? ""}
+                            onChange={(e) => {
+                              const v = e.target.value === "" ? null : parseFloat(e.target.value);
+                              const next = [...form.seatmap_sections];
+                              next[i] = { ...next[i], price: v };
+                              update("seatmap_sections", next);
+                            }}
+                            className="w-32"
+                            data-testid={`section-price-input-${i}`}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-xs mt-3" style={{ color: "var(--text-dim)" }}>
+                      Leave blank to use the base seat price for that section.
+                    </p>
+                  </div>
+                </Field>
+              )}
             </>
           )}
         </div>

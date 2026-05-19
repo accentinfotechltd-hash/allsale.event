@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send, Zap } from "lucide-react";
+import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send, Zap, Activity } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { toast } from "sonner";
 
@@ -89,6 +89,8 @@ export default function OrganizerEvent() {
         <Stat label="Sell-through" value={`${totals.sell_through_pct}%`} sub={`${totals.tickets_sold} / ${totals.capacity}`} icon={<Percent />} />
         <Stat label="Unique attendees" value={totals.unique_attendees.toLocaleString()} icon={<Users />} />
       </div>
+
+      <VelocityWidget eventId={eventId} />
 
       <div className="grid lg:grid-cols-2 gap-6 mb-8">
         {/* By tier */}
@@ -467,6 +469,61 @@ function DynamicPricingPanel({ eventId, event }) {
         {saving ? "Saving…" : "Save"}
       </button>
     </Panel>
+  );
+}
+
+
+function VelocityWidget({ eventId }) {
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get(`/organizer/events/${eventId}/velocity`)
+      .then(({ data }) => { if (!cancelled) setData(data); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [eventId]);
+
+  if (!data) return null;
+
+  // Determine accent based on forecast urgency
+  const urgent = data.forecast_days !== null && data.forecast_days <= 3;
+  const accent = urgent ? "var(--danger)" : data.forecast_days !== null && data.forecast_days <= 14 ? "var(--accent)" : "var(--text-muted)";
+
+  return (
+    <div
+      className="rounded-2xl p-5 mb-8 flex items-center gap-5 flex-wrap"
+      style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+      data-testid="velocity-widget"
+    >
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-full flex items-center justify-center" style={{ background: "var(--accent-soft)" }}>
+          <Activity className="w-5 h-5" style={{ color: "var(--accent)" }} />
+        </div>
+        <div>
+          <div className="text-xs uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Sales velocity</div>
+          <div className="serif text-2xl" style={{ color: accent }} data-testid="velocity-forecast">{data.forecast_label}</div>
+        </div>
+      </div>
+      <div className="flex-1 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm min-w-[280px]">
+        <Mini label="Last 24h" value={data.sold_24h} unit="tickets" />
+        <Mini label="Last 7d" value={data.sold_7d} unit="tickets" />
+        <Mini label="Per hour" value={data.per_hour_24h} unit="/hr" />
+        <Mini label="Remaining" value={data.remaining} unit={`of ${data.capacity}`} />
+      </div>
+    </div>
+  );
+}
+
+function Mini({ label, value, unit }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>{label}</div>
+      <div className="text-lg">
+        <span style={{ color: "var(--text)" }}>{value}</span>{" "}
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>{unit}</span>
+      </div>
+    </div>
   );
 }
 

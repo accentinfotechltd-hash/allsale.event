@@ -187,6 +187,18 @@ async def get_current_user(request: Request) -> dict:
     raise HTTPException(status_code=401, detail="Not authenticated")
 
 
+async def get_current_user_optional(request: Request) -> Optional[dict]:
+    """Same as get_current_user but returns None instead of 401 for anonymous callers.
+    Used by routes like view-tracking that should work for logged-out visitors too.
+    """
+    try:
+        return await get_current_user(request)
+    except HTTPException as e:
+        if e.status_code == 401:
+            return None
+        raise
+
+
 async def require_role(user: dict, *roles: str):
     if user.get("role") not in roles and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Forbidden")

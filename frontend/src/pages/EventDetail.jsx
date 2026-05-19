@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import SeatMap from "@/components/SeatMap";
+import DemandSparkline from "@/components/DemandSparkline";
 import useEventLiveUpdates from "@/lib/useEventLiveUpdates";
 import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi } from "lucide-react";
 import { toast } from "sonner";
@@ -21,6 +22,33 @@ export default function EventDetail() {
   const [validatingCode, setValidatingCode] = useState(false);
   const [myWaitlist, setMyWaitlist] = useState(null); // null=unknown, []=not on, [{...}]=on
   const [joiningWl, setJoiningWl] = useState(false);
+  const [demand, setDemand] = useState([]);
+
+  // Fire a single anonymous-friendly view ping (debounced to once per minute per browser tab)
+  useEffect(() => {
+    if (!eventId) return;
+    const key = `aura:view:${eventId}`;
+    try {
+      const last = sessionStorage.getItem(key);
+      if (last && Date.now() - parseInt(last, 10) < 60_000) return;
+      sessionStorage.setItem(key, String(Date.now()));
+    } catch { /* SSR / private mode */ }
+    api.post(`/events/${eventId}/view`).catch(() => {});
+  }, [eventId]);
+
+  // Pull 7-day demand sparkline (refresh every 2 min)
+  useEffect(() => {
+    if (!eventId) return;
+    let cancelled = false;
+    const fetchDemand = () => {
+      api.get(`/events/${eventId}/demand`)
+        .then(({ data }) => { if (!cancelled) setDemand(data.items || []); })
+        .catch(() => {});
+    };
+    fetchDemand();
+    const id = setInterval(fetchDemand, 120_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [eventId]);
 
   const loadWaitlist = async () => {
     if (!user) { setMyWaitlist([]); return; }
@@ -268,6 +296,11 @@ export default function EventDetail() {
                 </span>
               )}
             </div>
+            {demand.length > 0 && (
+              <div className="mb-4 pb-4 border-b" style={{ borderColor: "var(--border)" }}>
+                <DemandSparkline items={demand} />
+              </div>
+            )}
 
             {!event.has_seatmap ? (
               <>
