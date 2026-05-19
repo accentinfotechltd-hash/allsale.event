@@ -2,50 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
-/* AURA — Premium Event Ticketing */
+/* Allsale Events — Light theme with teal + orange palette (from logo) */
 @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&display=swap');
 @import url('https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600,700&display=swap');
 
 :root {
-    --bg: #0a0a0b;
-    --bg-elev: #131316;
-    --bg-card: #17171b;
-    --bg-card-hover: #1e1e23;
-    --border: #26262c;
-    --border-strong: #34343c;
-    --text: #f5f5f4;
-    --text-muted: #a1a1aa;
-    --text-dim: #71717a;
-    --accent: #ff4f00;
-    --accent-hover: #ff6a26;
-    --accent-soft: rgba(255, 79, 0, 0.12);
-    --accent-glow: rgba(255, 79, 0, 0.35);
-    --success: #34d399;
-    --warn: #fbbf24;
-    --danger: #ef4444;
+    /* Surfaces */
+    --bg: #FBFCFE;
+    --bg-elev: #F1F4F8;
+    --bg-card: #FFFFFF;
+    --bg-card-hover: #F4F8FC;
+    --border: #E2E8EF;
+    --border-strong: #C8D3DE;
+
+    /* Type */
+    --text: #0F2A3A;        /* deep teal-navy */
+    --text-muted: #4A5A6B;
+    --text-dim: #8092A3;
+
+    /* Brand — sampled from logo */
+    --accent: #F08A2A;      /* orange ("Sale") — primary CTA color */
+    --accent-hover: #E37918;
+    --accent-soft: rgba(240, 138, 42, 0.13);
+    --accent-glow: rgba(240, 138, 42, 0.32);
+    --primary: #1B7A9E;     /* teal ("All" + "EVENT" banner) */
+    --primary-hover: #156A8A;
+    --primary-soft: rgba(27, 122, 158, 0.10);
+
+    /* Status */
+    --success: #2BA37A;
+    --warn: #E8A93B;
+    --danger: #E1495B;
 }
 
 @layer base {
     :root {
-        --background: 240 5% 4%;
-        --foreground: 60 9% 96%;
-        --card: 240 6% 9%;
-        --card-foreground: 60 9% 96%;
-        --popover: 240 6% 9%;
-        --popover-foreground: 60 9% 96%;
-        --primary: 20 100% 50%;
+        --background: 210 33% 99%;
+        --foreground: 205 60% 14%;
+        --card: 0 0% 100%;
+        --card-foreground: 205 60% 14%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 205 60% 14%;
+        --primary: 196 71% 36%;
         --primary-foreground: 0 0% 100%;
-        --secondary: 240 5% 12%;
-        --secondary-foreground: 60 9% 96%;
-        --muted: 240 5% 12%;
-        --muted-foreground: 240 5% 65%;
-        --accent: 20 100% 50%;
+        --secondary: 210 25% 95%;
+        --secondary-foreground: 205 60% 14%;
+        --muted: 210 25% 95%;
+        --muted-foreground: 210 13% 36%;
+        --accent: 28 87% 55%;
         --accent-foreground: 0 0% 100%;
-        --destructive: 0 84% 60%;
+        --destructive: 354 71% 58%;
         --destructive-foreground: 0 0% 100%;
-        --border: 240 6% 16%;
-        --input: 240 6% 16%;
-        --ring: 20 100% 50%;
+        --border: 213 24% 91%;
+        --input: 213 24% 91%;
+        --ring: 28 87% 55%;
         --radius: 0.5rem;
     }
 }
@@ -67,8 +77,8 @@ body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     background:
-        radial-gradient(1200px 600px at 20% -10%, rgba(255, 79, 0, 0.08), transparent 60%),
-        radial-gradient(1000px 600px at 80% 110%, rgba(255, 79, 0, 0.05), transparent 60%),
+        radial-gradient(1200px 600px at 18% -8%, rgba(240, 138, 42, 0.10), transparent 60%),
+        radial-gradient(1100px 600px at 82% 110%, rgba(27, 122, 158, 0.10), transparent 60%),
         var(--bg);
     letter-spacing: -0.005em;
 }
@@ -80,21 +90,21 @@ body {
 }
 
 ::selection {
-    background: var(--accent);
+    background: var(--primary);
     color: white;
 }
 
 /* Custom scrollbar */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-track { background: var(--bg-elev); }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
 /* Reusable */
 .glass {
-    background: rgba(23, 23, 27, 0.6);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
     border: 1px solid var(--border);
 }
 
@@ -118,6 +128,25 @@ body {
 }
 .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
+.btn-secondary {
+    background: var(--primary);
+    color: white;
+    border-radius: 9999px;
+    padding: 0.75rem 1.5rem;
+    font-weight: 600;
+    transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.btn-secondary:hover {
+    background: var(--primary-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 14px 40px -16px rgba(27, 122, 158, 0.35);
+}
+
 .btn-ghost {
     background: transparent;
     color: var(--text);
@@ -138,11 +167,13 @@ body {
     border: 1px solid var(--border);
     border-radius: 14px;
     overflow: hidden;
-    transition: border-color 0.25s ease, transform 0.25s ease;
+    box-shadow: 0 1px 2px rgba(15, 42, 58, 0.04);
+    transition: border-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
 }
 .card-event:hover {
     border-color: var(--accent);
     transform: translateY(-4px);
+    box-shadow: 0 18px 40px -22px rgba(15, 42, 58, 0.18);
 }
 
 .chip {
@@ -163,6 +194,12 @@ body {
     background: var(--accent-soft);
     border-color: var(--accent);
     color: var(--accent);
+}
+
+.chip-primary {
+    background: var(--primary-soft);
+    border-color: var(--primary);
+    color: var(--primary);
 }
 
 @keyframes pulse-accent {
@@ -199,20 +236,20 @@ body {
 }
 .seat:hover:not(.seat-booked):not(.seat-held) { background: var(--accent-soft); border-color: var(--accent); transform: translateY(-2px); }
 .seat-selected { background: var(--accent); border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-.seat-booked   { background: #2a2a2e; border-color: #2a2a2e; opacity: 0.4; cursor: not-allowed; }
-.seat-held     { background: #3a2018; border-color: #5a2a18; cursor: not-allowed; }
+.seat-booked   { background: #DDE3EA; border-color: #DDE3EA; opacity: 0.55; cursor: not-allowed; }
+.seat-held     { background: #FCE3CB; border-color: #F0B381; cursor: not-allowed; }
 
 /* Stage indicator */
 .stage-arc {
     height: 28px;
     background: linear-gradient(to bottom, var(--accent), transparent);
     border-radius: 200px 200px 0 0 / 28px 28px 0 0;
-    opacity: 0.55;
+    opacity: 0.7;
 }
 
 /* Inputs */
 input, select, textarea {
-    background: var(--bg-elev);
+    background: #FFFFFF;
     border: 1px solid var(--border);
     color: var(--text);
     border-radius: 10px;
@@ -221,6 +258,7 @@ input, select, textarea {
     transition: border-color 0.18s ease, box-shadow 0.18s ease;
     font-family: inherit;
 }
+input::placeholder, textarea::placeholder { color: var(--text-dim); }
 input:focus, select:focus, textarea:focus {
     outline: none;
     border-color: var(--accent);
@@ -236,8 +274,8 @@ input:focus, select:focus, textarea:focus {
     position: fixed;
     inset: 0;
     pointer-events: none;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.06 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-    opacity: 0.4;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='1.4' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.045 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    opacity: 0.5;
     z-index: 100;
-    mix-blend-mode: overlay;
+    mix-blend-mode: multiply;
 }

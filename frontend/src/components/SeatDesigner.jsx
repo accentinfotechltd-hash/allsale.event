@@ -80,13 +80,13 @@ export default function SeatDesigner({
           <button
             type="button" onClick={() => setMode("aisle")}
             className="px-3 py-1 rounded-full text-xs uppercase tracking-widest transition"
-            style={{ background: mode === "aisle" ? "var(--accent)" : "transparent", color: mode === "aisle" ? "#000" : "var(--text-muted)" }}
+            style={{ background: mode === "aisle" ? "var(--accent)" : "transparent", color: mode === "aisle" ? "#FFFFFF" : "var(--text-muted)" }}
             data-testid="designer-mode-aisle"
           >Aisle</button>
           <button
             type="button" onClick={() => setMode("section")}
             className="px-3 py-1 rounded-full text-xs uppercase tracking-widest transition"
-            style={{ background: mode === "section" ? "var(--accent)" : "transparent", color: mode === "section" ? "#000" : "var(--text-muted)" }}
+            style={{ background: mode === "section" ? "var(--accent)" : "transparent", color: mode === "section" ? "#FFFFFF" : "var(--text-muted)" }}
             data-testid="designer-mode-section"
           >Section</button>
         </div>

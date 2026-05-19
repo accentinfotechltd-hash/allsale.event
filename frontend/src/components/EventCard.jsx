@@ -28,7 +28,7 @@ export default function EventCard({ event, index = 0 }) {
             <span
               data-testid={`waitlist-count-${event.event_id}`}
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-medium backdrop-blur-md"
-              style={{ background: "rgba(255,79,0,0.92)", color: "#000" }}
+              style={{ background: "rgba(240, 138, 42, 0.95)", color: "#FFFFFF" }}
             >
               {event.waitlist_count} waiting
             </span>

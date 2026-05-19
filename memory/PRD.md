@@ -260,6 +260,18 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 - ✅ Handles seatmap and tier-based events. Forbid other organizers (403) and anon (401).
 - ✅ **9/9 pytest pass** (`tests/test_iteration17_demand_velocity.py`).
 
+## Iteration 19 (2026-02-16) — Brand artwork + Light theme palette swap
+- ✅ **Official logo wired**: user-uploaded "AllSale EVENT" artwork stored at `/app/frontend/public/allsale-logo.png`. `Logo.jsx` now renders the PNG via `<img>` (lockup variant in header/footer/auth cards, mark variant available for square avatars).
+- ✅ **Theme repalette** (`index.css`): switched from dark + hot-coral (#FF4F00) → **light** + teal/orange. New CSS variables:
+  - `--bg: #FBFCFE` · `--bg-card: #FFFFFF` · `--border: #E2E8EF` · `--text: #0F2A3A` (deep teal-navy)
+  - `--accent: #F08A2A` (logo orange — primary CTA) · `--primary: #1B7A9E` (logo teal — secondary brand)
+  - Soft radial-gradient body backdrop using both brand colors at 10% opacity.
+- ✅ **Component updates**: `.glass` is now translucent white blur, `.card-event` has subtle shadow + orange hover-border, `.chip-primary` introduced for teal pills, seat colors swapped to light theme (`#DDE3EA` booked, `#FCE3CB` held).
+- ✅ **Hard-coded color literals updated**: Recharts (`OrganizerEvent.jsx`, `Organizer.jsx`) — bar/line colors `#ff4f00 → #F08A2A`, axis stroke `#71717a → #8092A3`, tooltip background dark → white card. `EventCard.jsx` FROM-price chip now orange-on-white. `SeatDesigner.jsx` toggle text now white-on-orange.
+- ✅ **Favicon** swapped to a teal disc + orange swoosh mark matching the logo palette.
+- ✅ Removed dark-only Tailwind classes (`hover:text-white`, `text-white` on links) — now uses `hover:opacity-80` + font-weight indicator.
+- ✅ All 31/31 backend tests still pass (no logic changes to API). Smoke-tested landing, events list, event detail, and login pages — all render cleanly in the new palette.
+
 ## Iteration 18 (2026-02-16) — Allsale Events rebrand
 - ✅ **Display name** "AURA" → "Allsale Events" across UI: Layout header/footer, Login, Signup, BecomeOrganizer, toast copy.
 - ✅ **Email branding** updated in `emails.py`: SENDER_NAME, layout header ("Allsale · Events"), footer ("© 2026 Allsale Events"), all template body strings ("event is live on Allsale Events", etc.).

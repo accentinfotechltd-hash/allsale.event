@@ -120,7 +120,7 @@ export default function Landing() {
             <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>Browse by mood</div>
             <h2 className="serif text-4xl">Pick your scene</h2>
           </div>
-          <Link to="/events" className="hidden md:inline-flex items-center gap-2 text-sm hover:text-white" style={{ color: "var(--text-muted)" }}>
+          <Link to="/events" className="hidden md:inline-flex items-center gap-2 text-sm hover:opacity-80" style={{ color: "var(--text-muted)" }}>
             All events <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
@@ -185,7 +185,7 @@ export default function Landing() {
             <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>Curated this week</div>
             <h2 className="serif text-4xl">Hand-picked headliners</h2>
           </div>
-          <Link to="/events" className="hidden md:inline-flex items-center gap-2 text-sm hover:text-white" style={{ color: "var(--text-muted)" }}>
+          <Link to="/events" className="hidden md:inline-flex items-center gap-2 text-sm hover:opacity-80" style={{ color: "var(--text-muted)" }}>
             See all <ArrowRight className="w-4 h-4" />
           </Link>
         </div>

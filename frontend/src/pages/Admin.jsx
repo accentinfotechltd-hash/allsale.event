@@ -500,7 +500,7 @@ function PayoutsTab() {
             className="px-4 py-2 rounded-full text-xs uppercase tracking-widest transition border"
             style={{
               background: status === s ? "var(--accent)" : "transparent",
-              color: status === s ? "#000" : "var(--text-muted)",
+              color: status === s ? "#FFFFFF" : "var(--text-muted)",
               borderColor: status === s ? "var(--accent)" : "var(--border)",
             }}
             data-testid={`payout-filter-${s || "all"}`}

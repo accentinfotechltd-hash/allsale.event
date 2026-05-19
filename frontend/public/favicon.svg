@@ -1,10 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 32">
-  <rect width="40" height="32" rx="6" fill="#0B0B0E"/>
-  <path d="M14 6.4 L26 27 L4 27 Z" fill="#FF4F00"/>
-  <rect x="7" y="19" width="14" height="2.8" rx="0.6" fill="#0B0B0E"/>
-  <circle cx="10.4" cy="20.4" r="0.7" fill="#FF4F00"/>
-  <circle cx="14" cy="20.4" r="0.7" fill="#FF4F00"/>
-  <circle cx="17.6" cy="20.4" r="0.7" fill="#FF4F00"/>
-  <circle cx="33" cy="9" r="3" fill="#FF4F00"/>
-  <circle cx="33" cy="9" r="1.2" fill="#FFD6BD"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="12" fill="#FFFFFF"/>
+  <!-- Teal "A" disc -->
+  <circle cx="14" cy="20" r="6" fill="#1B7A9E"/>
+  <!-- Orange "S" arrow swooping right -->
+  <path d="M22 36 Q22 22 36 22 L46 22 Q56 22 56 32 Q56 42 46 42 L40 42" stroke="#F08A2A" stroke-width="6.5" fill="none" stroke-linecap="round"/>
+  <!-- Spark dots -->
+  <circle cx="50" cy="10" r="2.4" fill="#F08A2A"/>
+  <circle cx="42" cy="14" r="1.6" fill="#1B7A9E"/>
+  <circle cx="14" cy="50" r="2" fill="#F08A2A"/>
 </svg>

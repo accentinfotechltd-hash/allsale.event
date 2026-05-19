@@ -101,11 +101,11 @@ export default function OrganizerEvent() {
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={tiers}>
-                  <XAxis dataKey="tier" stroke="#71717a" fontSize={11} />
-                  <YAxis stroke="#71717a" fontSize={11} />
-                  <Tooltip contentStyle={{ background: "#17171b", border: "1px solid #26262c", borderRadius: 8 }} formatter={(v) => `$${v}`} />
+                  <XAxis dataKey="tier" stroke="#8092A3" fontSize={11} />
+                  <YAxis stroke="#8092A3" fontSize={11} />
+                  <Tooltip contentStyle={{ background: "#FFFFFF", border: "1px solid #E2E8EF", color: "#0F2A3A", borderRadius: 8 }} formatter={(v) => `$${v}`} />
                   <Bar dataKey="revenue" radius={[6, 6, 0, 0]}>
-                    {tiers.map((_, i) => <Cell key={i} fill="#ff4f00" />)}
+                    {tiers.map((_, i) => <Cell key={i} fill="#F08A2A" />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -121,10 +121,10 @@ export default function OrganizerEvent() {
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={days}>
-                  <XAxis dataKey="date" stroke="#71717a" fontSize={11} />
-                  <YAxis stroke="#71717a" fontSize={11} />
-                  <Tooltip contentStyle={{ background: "#17171b", border: "1px solid #26262c", borderRadius: 8 }} formatter={(v) => `$${v}`} />
-                  <Line type="monotone" dataKey="revenue" stroke="#ff4f00" strokeWidth={2.5} dot={{ fill: "#ff4f00", r: 3 }} />
+                  <XAxis dataKey="date" stroke="#8092A3" fontSize={11} />
+                  <YAxis stroke="#8092A3" fontSize={11} />
+                  <Tooltip contentStyle={{ background: "#FFFFFF", border: "1px solid #E2E8EF", color: "#0F2A3A", borderRadius: 8 }} formatter={(v) => `$${v}`} />
+                  <Line type="monotone" dataKey="revenue" stroke="#F08A2A" strokeWidth={2.5} dot={{ fill: "#F08A2A", r: 3 }} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
@@ -156,11 +156,11 @@ export default function OrganizerEvent() {
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={codes} layout="vertical" margin={{ left: 60, right: 20, top: 10, bottom: 10 }}>
-                  <XAxis type="number" stroke="#71717a" fontSize={11} />
-                  <YAxis type="category" dataKey="code" stroke="#71717a" fontSize={11} width={80} />
-                  <Tooltip contentStyle={{ background: "#17171b", border: "1px solid #26262c", borderRadius: 8 }} formatter={(v) => `$${v}`} />
+                  <XAxis type="number" stroke="#8092A3" fontSize={11} />
+                  <YAxis type="category" dataKey="code" stroke="#8092A3" fontSize={11} width={80} />
+                  <Tooltip contentStyle={{ background: "#FFFFFF", border: "1px solid #E2E8EF", color: "#0F2A3A", borderRadius: 8 }} formatter={(v) => `$${v}`} />
                   <Bar dataKey="revenue" radius={[0, 6, 6, 0]}>
-                    {codes.map((c, i) => <Cell key={i} fill={c.code === "Direct" ? "#71717a" : "#ff4f00"} />)}
+                    {codes.map((c, i) => <Cell key={i} fill={c.code === "Direct" ? "#8092A3" : "#F08A2A"} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>

@@ -64,10 +64,10 @@ export default function Organizer() {
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={analytics.series}>
-                    <XAxis dataKey="date" stroke="#71717a" fontSize={11} />
-                    <YAxis stroke="#71717a" fontSize={11} />
-                    <Tooltip contentStyle={{ background: "#17171b", border: "1px solid #26262c", borderRadius: 8 }} />
-                    <Line type="monotone" dataKey="revenue" stroke="#ff4f00" strokeWidth={2.5} dot={false} />
+                    <XAxis dataKey="date" stroke="#8092A3" fontSize={11} />
+                    <YAxis stroke="#8092A3" fontSize={11} />
+                    <Tooltip contentStyle={{ background: "#FFFFFF", border: "1px solid #E2E8EF", color: "#0F2A3A", borderRadius: 8 }} />
+                    <Line type="monotone" dataKey="revenue" stroke="#F08A2A" strokeWidth={2.5} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
