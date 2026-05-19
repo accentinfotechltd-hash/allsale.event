@@ -19,8 +19,8 @@ export default function Layout({ children }) {
       <header className="sticky top-0 z-50 glass border-b">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center gap-6">
           <Link to="/" className="flex items-baseline gap-1.5" data-testid="brand-link">
-            <span className="serif text-3xl tracking-tight" style={{ color: "var(--text)" }}>AURA</span>
-            <span className="text-xs uppercase tracking-[0.3em]" style={{ color: "var(--accent)" }}>·tickets</span>
+            <span className="serif text-3xl tracking-tight" style={{ color: "var(--text)" }}>Allsale</span>
+            <span className="text-xs uppercase tracking-[0.3em]" style={{ color: "var(--accent)" }}>·events</span>
           </Link>
 
           <form onSubmit={onSearch} className="flex-1 max-w-xl hidden md:block">
@@ -87,7 +87,7 @@ export default function Layout({ children }) {
       <footer className="border-t mt-24" style={{ borderColor: "var(--border)" }}>
         <div className="max-w-7xl mx-auto px-6 py-12 grid md:grid-cols-4 gap-8">
           <div>
-            <div className="serif text-2xl mb-2">AURA</div>
+            <div className="serif text-2xl mb-2">Allsale Events</div>
             <p className="text-sm" style={{ color: "var(--text-dim)" }}>The new way to discover and book unforgettable live experiences.</p>
           </div>
           <div>
@@ -115,7 +115,7 @@ export default function Layout({ children }) {
           </div>
         </div>
         <div className="border-t py-6 text-center text-xs" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}>
-          © 2026 AURA Tickets. Live, loud, and limited.
+          © 2026 Allsale Events. Live, loud, and limited.
         </div>
       </footer>
     </div>

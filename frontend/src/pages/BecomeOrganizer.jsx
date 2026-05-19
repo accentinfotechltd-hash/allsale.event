@@ -60,7 +60,7 @@ export default function BecomeOrganizer() {
   return (
     <div className="max-w-4xl mx-auto px-6 py-16">
       <div className="text-xs uppercase tracking-[0.3em] mb-3" style={{ color: "var(--accent)" }}>For creators</div>
-      <h1 className="serif text-5xl mb-4" data-testid="become-organizer-headline">Host events on AURA</h1>
+      <h1 className="serif text-5xl mb-4" data-testid="become-organizer-headline">Host events on Allsale Events</h1>
       <p className="text-lg mb-12 max-w-2xl" style={{ color: "var(--text-muted)" }}>
         Switch on the organizer tools. Free to set up — we only charge a small commission when you sell a ticket.
       </p>
@@ -93,7 +93,7 @@ export default function BecomeOrganizer() {
           data-testid="agree-terms-checkbox"
         />
         <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-          I understand the commission structure and agree to AURA's <span style={{ color: "var(--accent)" }}>Organizer Terms</span> (no spam, no fraud, valid events only).
+          I understand the commission structure and agree to Allsale Events' <span style={{ color: "var(--accent)" }}>Organizer Terms</span> (no spam, no fraud, valid events only).
         </span>
       </label>
 

@@ -25,9 +25,9 @@ if not BASE_URL:
 BASE_URL = (BASE_URL or "").rstrip("/")
 assert BASE_URL, "REACT_APP_BACKEND_URL must be set"
 
-ADMIN = {"email": "admin@aura.events", "password": "admin123"}
-ORG = {"email": "organizer@aura.events", "password": "organizer123"}
-ATT = {"email": "attendee@aura.events", "password": "attendee123"}
+ADMIN = {"email": "admin@allsale.events", "password": "admin123"}
+ORG = {"email": "organizer@allsale.events", "password": "organizer123"}
+ATT = {"email": "attendee@allsale.events", "password": "attendee123"}
 
 
 def _login(creds):
@@ -153,7 +153,7 @@ class TestAdminUserList:
         )
         assert r.status_code == 200
         users = r.json()
-        # admin@aura.events is legacy (no active field) -> must appear
+        # admin@allsale.events is legacy (no active field) -> must appear
         assert any(u["email"] == ADMIN["email"] for u in users)
 
     def test_filter_active_false(self, admin_auth):

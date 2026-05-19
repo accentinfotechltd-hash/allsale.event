@@ -15,9 +15,9 @@ import requests
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://seathold.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN = {"email": "admin@aura.events", "password": "admin123"}
-ORGANIZER = {"email": "organizer@aura.events", "password": "organizer123"}
-ATTENDEE = {"email": "attendee@aura.events", "password": "attendee123"}
+ADMIN = {"email": "admin@allsale.events", "password": "admin123"}
+ORGANIZER = {"email": "organizer@allsale.events", "password": "organizer123"}
+ATTENDEE = {"email": "attendee@allsale.events", "password": "attendee123"}
 
 DEMO_EVENT_ID = "evt_5dba915db2be"  # Midnight Echoes — has paid bookings
 

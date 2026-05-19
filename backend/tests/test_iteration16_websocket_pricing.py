@@ -110,7 +110,7 @@ def test_seat_price_for_handles_invalid_seat_id():
 async def _seed_tier_event() -> str:
     client = AsyncIOMotorClient(os.environ["MONGO_URL"])
     db = client[os.environ["DB_NAME"]]
-    org = await db.users.find_one({"email": "organizer@aura.events"}, {"_id": 0})
+    org = await db.users.find_one({"email": "organizer@allsale.events"}, {"_id": 0})
     eid = f"evt_ws_test_{uuid.uuid4().hex[:6]}"
     await db.events.insert_one({
         "event_id": eid, "title": "WS Test",

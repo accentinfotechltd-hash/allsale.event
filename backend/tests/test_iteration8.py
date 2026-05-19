@@ -27,9 +27,9 @@ if not BASE_URL:
 BASE_URL = (BASE_URL or "").rstrip("/")
 assert BASE_URL
 
-ADMIN = {"email": "admin@aura.events", "password": "admin123"}
-ORG = {"email": "organizer@aura.events", "password": "organizer123"}
-ATT = {"email": "attendee@aura.events", "password": "attendee123"}
+ADMIN = {"email": "admin@allsale.events", "password": "admin123"}
+ORG = {"email": "organizer@allsale.events", "password": "organizer123"}
+ATT = {"email": "attendee@allsale.events", "password": "attendee123"}
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.environ.get("DB_NAME", "test_database")

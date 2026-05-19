@@ -73,12 +73,12 @@ def login(email: str, password: str) -> tuple[str, dict]:
 
 
 def admin_token() -> str:
-    t, _ = login("admin@aura.events", "admin123")
+    t, _ = login("admin@allsale.events", "admin123")
     return t
 
 
 def attendee_token() -> str:
-    t, _ = login("attendee@aura.events", "attendee123")
+    t, _ = login("attendee@allsale.events", "attendee123")
     return t
 
 

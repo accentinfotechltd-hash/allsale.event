@@ -1,0 +1,60 @@
+{
+  "summary": "Iteration 18 (Allsale Events rebrand + view tracking/demand sparkline/sales velocity) — backend + frontend e2e tested. 9/9 iter17 demand+velocity pytest cases PASS on public URL. 6/7 new rebrand regression tests PASS — 1 real bug: admin user's display name is still 'AURA Admin'. All frontend rebrand checks PASS (header 'Allsale · EVENTS', login/signup wordmark, no AURA leak in body). DemandSparkline (data-testid='demand-sparkline') renders on EventDetail with '7-DAY DEMAND' + view count after view pings. VelocityWidget (data-testid='velocity-widget') + velocity-forecast render on /organizer/events/:id. Legacy @aura.events login correctly fails (migration ran).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/auth/login (admin@allsale.events)",
+        "issue": "Admin user's display 'name' field is still 'AURA Admin'. seed.py backfills organizer ('AURA Productions' -> 'Allsale Productions') and events table, but does NOT update the admin user's name. The user clearly stated 'change everywhere'. FIX: in seed.py after the admin user is found/created, add: `await db.users.update_one({'email': ADMIN_EMAIL, 'name': 'AURA Admin'}, {'$set': {'name': 'Allsale Events Admin'}})` (idempotent). Note: the freshly created admin in seed_demo() already uses 'Allsale Events Admin' (line 143), but pre-existing admin docs were never patched. Verified by POST /api/auth/login returning {'name': 'AURA Admin'}."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "/become-organizer (logged-out)",
+        "issues": ["Login redirect builds a nested redirect param: `/login?redirect=%2Fbecome-organizer%3Fredirect%3D%2Forganizer` — looks like the protect-route HOC is double-encoding because BecomeOrganizer itself appends ?redirect=/organizer. Minor / cosmetic, login still works."]
+      },
+      {
+        "screen": "App-wide (console)",
+        "issues": ["React dev warning: 'Cannot update a component while rendering a different component' — almost certainly a setState during render in a Layout/auth-aware route guard. Not a regression of this iteration, but worth fixing alongside the redirect-encoding above."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration17_demand_velocity.py",
+    "/app/backend/tests/test_rebrand_regression.py",
+    "/app/test_reports/pytest/pytest_iter17_retest.xml",
+    "/app/test_reports/pytest/pytest_iter18_rebrand.xml"
+  ],
+  "action_items": [
+    "(LOW) seed.py: backfill admin user's display name. Add `await db.users.update_one({'email': ADMIN_EMAIL, 'name': 'AURA Admin'}, {'$set': {'name': 'Allsale Events Admin'}})` after the admin upsert block (around line 146). User explicitly said 'change everywhere'.",
+    "(POLISH) Fix nested ?redirect= double-encoding when an auth-gated page (e.g. /become-organizer) bounces to /login. The redirect param of BecomeOrganizer should be stripped before being re-encoded into the login redirect.",
+    "(POLISH) Investigate React 'setState during render' warning — likely in <Layout> or a redirect-aware route component."
+  ],
+  "critical_code_review_comments": [
+    "seed.py:140-160 — Migration rebrands legacy email + organizer name + event.organizer_name, but missed admin user's display name. Pattern is repeated for organizer (`if org.get('name') == 'AURA Productions': ... 'Allsale Productions'`) — copy that pattern for admin.",
+    "routers/analytics.py:32 — `fingerprint` falls back to `request.client.host` for anon users. Good for dedup intent, but the value is currently NOT used (we count every insert). Either dedup at write-time (upsert) or drop the field to save storage. Current behaviour: every page-mount = +1 view because frontend has no client-side debounce visible from this read.",
+    "routers/analytics.py:73 — `(b.get('paid_at') or '')[:10]` returns '' when paid_at is missing/null, and '' won't be in `buckets`, so it's safe — but consider explicit None check for readability.",
+    "routers/analytics.py:102 — Seatmap capacity uses `count_documents({'event_id': eid, 'status': 'booked'})` which is correct, BUT capacity excludes ONLY aisles, not 'reserved' or 'blocked' seats (if any future state exists). Fine for now.",
+    "routers/analytics.py:132 — `rate_per_day = per_day_7 if sold_7d > 0 else (sold_24h * 1.0)` — when sold_24h is non-zero but sold_7d is zero (impossible in practice unless clock skew), rate becomes sold_24h tickets/day which is misleading (under-projects). Acceptable edge case.",
+    "DemandSparkline.jsx — Renders even when all 7 buckets are 0 (sparkline becomes a flat line). Consider hiding the widget below a minimum threshold for events with no demand signal yet.",
+    "EventDetail.jsx:28-51 — view ping fires on mount with no debounce other than React StrictMode dedup. SPA route changes (back/forward) will fire a fresh POST. Consider sessionStorage flag like `view_${event_id}_at` with 60s TTL to enforce the documented 'at most one POST per minute' contract.",
+    "frontend protected route — double-redirect encoding noted in design_issues."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_rebrand_regression.py (NEW — 7 tests covering auth migration, legacy account rejection, event organizer_name backfill, email-template rebrand for booking/approved/payout/hold templates)"
+  ],
+  "success_rate": {
+    "backend": "94% (15/16 — 9/9 iter17 demand+velocity, 6/7 iter18 rebrand)",
+    "frontend": "100% (header, login, signup brand checks PASS; demand-sparkline + velocity-widget + velocity-forecast all render with correct data)"
+  },
+  "test_credentials": "admin@allsale.events/admin123, organizer@allsale.events/organizer123, attendee@allsale.events/attendee123 — all 3 login successfully (admin name still 'AURA Admin' is the only branding miss)",
+  "seed_data_creation": "test_iteration17 creates evt_demand_test_* events + bookings and cleans them up in module teardown. test_rebrand_regression makes no schema writes. A few extra anonymous view records were inserted into event_views via the frontend Playwright run (negligible).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter17 demand/velocity backend is solid (9/9). Iter18 rebrand backend regression file at /app/backend/tests/test_rebrand_regression.py imports private email-template helpers (_t_booking_confirmation, _t_organizer_event_approved, _t_organizer_payout_issued, _t_hold_expired). Email-template AURA scan strips href/src/alt/action/class/id/style + http(s) URLs to ignore the intentionally-preserved 'aura-tickets/...' object-storage paths and 'aura_token' localStorage key. /api/events returns a bare JSON list (not {items: [...]}). /api/auth/login returns user fields flattened at top level (no `user` wrapper). DemandSparkline / VelocityWidget tested against evt_f02c795ebe0d (Dune IMAX) — IDs reseed but organizer event list at /api/organizer/events works for discovery.",
+  "rca of the issue": "BUG: GET /api/auth/me / login response shows admin user's display name as 'AURA Admin' instead of 'Allsale Events Admin'. REPRO: curl -X POST $URL/api/auth/login -d '{\"email\":\"admin@allsale.events\",\"password\":\"admin123\"}' → response.name == 'AURA Admin'. ROOT CAUSE: seed.py:140-146 only creates the admin doc if missing — it never updates the name of a pre-existing admin row. When the email was migrated from admin@aura.events to admin@allsale.events (lines 127-138), only the email field was changed; the name field was left as 'AURA Admin' from the original seed. MITIGATION: 1-line idempotent update after the admin upsert, mirroring the organizer rename at lines 158-160: `await db.users.update_one({'email': ADMIN_EMAIL, 'name': 'AURA Admin'}, {'$set': {'name': 'Allsale Events Admin'}})`. NOT applied here because it is a business/branding decision (exact replacement string)."
+}

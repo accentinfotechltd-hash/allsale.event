@@ -22,8 +22,8 @@ logger = logging.getLogger("aura.emails")
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY") or ""
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL") or "onboarding@resend.dev"
-APP_PUBLIC_URL = os.environ.get("APP_PUBLIC_URL") or "https://aura.events"
-SENDER_NAME = "AURA Tickets"
+APP_PUBLIC_URL = os.environ.get("APP_PUBLIC_URL") or "https://allsale.events"
+SENDER_NAME = "Allsale Events"
 
 if RESEND_API_KEY:
     resend.api_key = RESEND_API_KEY
@@ -60,7 +60,7 @@ def _layout(title: str, preheader: str, body_html: str, cta_label: Optional[str]
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:560px;background:{BG_CARD};border:1px solid {BORDER};border-radius:16px;overflow:hidden;">
       <tr><td style="padding:28px 32px 6px 32px;">
         <div style="font-family:Georgia,'Times New Roman',serif;font-size:22px;letter-spacing:1px;color:{TEXT};">
-          AURA <span style="color:{BRAND_COLOR};">·</span> Tickets
+          Allsale <span style="color:{BRAND_COLOR};">·</span> Events
         </div>
       </td></tr>
       <tr><td style="padding:18px 32px 0 32px;">
@@ -69,8 +69,8 @@ def _layout(title: str, preheader: str, body_html: str, cta_label: Optional[str]
       <tr><td style="padding:0 32px 8px 32px;font-size:15px;line-height:1.65;color:{TEXT_MUTED};">{body_html}</td></tr>
       {cta_html}
       <tr><td style="padding:36px 32px 28px 32px;font-size:12px;color:{TEXT_MUTED};border-top:1px solid {BORDER};margin-top:24px;">
-        You're receiving this because you have an AURA Tickets account.<br>
-        © {datetime.now().year} AURA · <a href="{APP_PUBLIC_URL}" style="color:{BRAND_COLOR};text-decoration:none;">{APP_PUBLIC_URL.replace('https://','').replace('http://','')}</a>
+        You're receiving this because you have an Allsale Events account.<br>
+        © {datetime.now().year} Allsale Events · <a href="{APP_PUBLIC_URL}" style="color:{BRAND_COLOR};text-decoration:none;">{APP_PUBLIC_URL.replace('https://','').replace('http://','')}</a>
       </td></tr>
     </table>
   </td></tr></table>
@@ -78,7 +78,7 @@ def _layout(title: str, preheader: str, body_html: str, cta_label: Optional[str]
 
 
 def _text_fallback(lines: list[str]) -> str:
-    return "\n".join(lines) + f"\n\n— AURA Tickets\n{APP_PUBLIC_URL}\n"
+    return "\n".join(lines) + f"\n\n— Allsale Events\n{APP_PUBLIC_URL}\n"
 
 
 def _money(amount: float, currency: str = "USD") -> str:
@@ -162,14 +162,14 @@ def _t_refund_issued(ctx: Dict[str, Any]) -> tuple[str, str, str]:
 
 def _t_organizer_event_approved(ctx: Dict[str, Any]) -> tuple[str, str, str]:
     body = f"""
-    <p style="color:{TEXT};">Good news, {ctx.get('organizer_name','organizer')} — your event is live on AURA.</p>
+    <p style="color:{TEXT};">Good news, {ctx.get('organizer_name','organizer')} — your event is live on Allsale Events.</p>
     <p style="color:{TEXT};font-size:18px;margin-top:4px;"><strong>{ctx['event_title']}</strong></p>
     <p>It's now discoverable to attendees and ready to start selling tickets.</p>
     """
     subject = f"Approved & live: {ctx['event_title']}"
-    html = _layout("Your event is live", "Approved by AURA moderation", body, "View event page", f"{APP_PUBLIC_URL}/events/{ctx['event_id']}")
+    html = _layout("Your event is live", "Approved by Allsale Events moderation", body, "View event page", f"{APP_PUBLIC_URL}/events/{ctx['event_id']}")
     text = _text_fallback([
-        f"Your event '{ctx['event_title']}' has been approved and is live on AURA.",
+        f"Your event '{ctx['event_title']}' has been approved and is live on Allsale Events.",
         f"View: {APP_PUBLIC_URL}/events/{ctx['event_id']}",
     ])
     return subject, html, text

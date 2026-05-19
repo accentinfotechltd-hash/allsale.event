@@ -83,9 +83,9 @@ def test_organizer_upgrade_is_idempotent():
 
 
 def test_admin_upgrade_does_not_downgrade():
-    # admin@aura.events is seeded admin
+    # admin@allsale.events is seeded admin
     r = requests.post(f"{API}/api/auth/login", json={
-        "email": "admin@aura.events", "password": "admin123",
+        "email": "admin@allsale.events", "password": "admin123",
     }, timeout=10)
     token = r.json()["token"]
     r2 = requests.post(f"{API}/api/auth/become-organizer",

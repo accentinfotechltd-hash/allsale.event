@@ -46,7 +46,7 @@ def _cleanup_module():
 
 def _organizer_token() -> str:
     r = requests.post(f"{API}/api/auth/login", json={
-        "email": "organizer@aura.events", "password": "organizer123",
+        "email": "organizer@allsale.events", "password": "organizer123",
     }, timeout=10)
     r.raise_for_status()
     return r.json()["token"]
@@ -138,7 +138,7 @@ def test_legacy_event_without_fields_returns_defaults():
         client = AsyncIOMotorClient(os.environ["MONGO_URL"])
         db = client[os.environ["DB_NAME"]]
         eid = f"evt_theatre_test_legacy_{uuid.uuid4().hex[:6]}"
-        org = await db.users.find_one({"email": "organizer@aura.events"}, {"_id": 0})
+        org = await db.users.find_one({"email": "organizer@allsale.events"}, {"_id": 0})
         await db.events.insert_one({
             "event_id": eid, "title": "Legacy Theatre",
             "organizer_id": org["user_id"], "category": "theater",

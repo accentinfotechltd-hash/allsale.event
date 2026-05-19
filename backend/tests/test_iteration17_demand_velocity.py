@@ -40,7 +40,7 @@ def _cleanup_module():
 
 def _organizer_token() -> str:
     r = requests.post(f"{API}/api/auth/login", json={
-        "email": "organizer@aura.events", "password": "organizer123",
+        "email": "organizer@allsale.events", "password": "organizer123",
     }, timeout=10)
     r.raise_for_status()
     return r.json()["token"]
@@ -49,7 +49,7 @@ def _organizer_token() -> str:
 async def _seed_event(capacity: int = 100, with_sales: int = 0) -> str:
     client = AsyncIOMotorClient(os.environ["MONGO_URL"])
     db = client[os.environ["DB_NAME"]]
-    org = await db.users.find_one({"email": "organizer@aura.events"}, {"_id": 0})
+    org = await db.users.find_one({"email": "organizer@allsale.events"}, {"_id": 0})
     eid = f"evt_demand_test_{uuid.uuid4().hex[:6]}"
     await db.events.insert_one({
         "event_id": eid, "title": "Demand Test",

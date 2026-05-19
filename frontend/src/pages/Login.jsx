@@ -49,7 +49,7 @@ export default function Login() {
 
       <div className="flex items-center justify-center px-6 py-12">
         <div className="w-full max-w-md">
-          <Link to="/" className="serif text-3xl">AURA</Link>
+          <Link to="/" className="serif text-3xl">Allsale Events</Link>
           <h1 className="serif text-4xl mt-8 mb-2">Welcome back</h1>
           <p className="mb-8 text-sm" style={{ color: "var(--text-muted)" }}>Sign in to your tickets and bookings.</p>
 

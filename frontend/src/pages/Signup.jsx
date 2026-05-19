@@ -20,7 +20,7 @@ export default function Signup() {
       const { data } = await api.post("/auth/register", form);
       if (data.token) localStorage.setItem("aura_token", data.token);
       setUser(data);
-      toast.success("Welcome to AURA!");
+      toast.success("Welcome to Allsale Events!");
       nav("/");
     } catch (err) {
       toast.error(formatApiErrorDetail(err?.response?.data?.detail) || "Signup failed");
@@ -37,7 +37,7 @@ export default function Signup() {
     <div className="min-h-[80vh] grid lg:grid-cols-2">
       <div className="flex items-center justify-center px-6 py-12 order-2 lg:order-1">
         <div className="w-full max-w-md">
-          <Link to="/" className="serif text-3xl">AURA</Link>
+          <Link to="/" className="serif text-3xl">Allsale Events</Link>
           <h1 className="serif text-4xl mt-8 mb-2">Create your account</h1>
           <p className="mb-8 text-sm" style={{ color: "var(--text-muted)" }}>Book tickets, save events, or list your own show.</p>
 

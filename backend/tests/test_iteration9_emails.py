@@ -66,7 +66,7 @@ def test_template_renders(template: str):
     assert subject and isinstance(subject, str)
     assert "<html" in html.lower()
     assert "</html>" in html.lower()
-    assert "AURA" in html
+    assert "Allsale" in html
     # Text fallback is plain (no tags)
     assert "<" not in text.replace("—", "")
     # Brand color present in HTML
@@ -162,7 +162,7 @@ def test_send_template_skipped_when_no_api_key(monkeypatch):
 # ---------------------------------------------------------------------------
 def _admin_token() -> str:
     r = requests.post(f"{API_URL}/api/auth/login", json={
-        "email": "admin@aura.events", "password": "admin123",
+        "email": "admin@allsale.events", "password": "admin123",
     }, timeout=10)
     r.raise_for_status()
     return r.json()["token"]
@@ -170,7 +170,7 @@ def _admin_token() -> str:
 
 def _attendee_token() -> str:
     r = requests.post(f"{API_URL}/api/auth/login", json={
-        "email": "attendee@aura.events", "password": "attendee123",
+        "email": "attendee@allsale.events", "password": "attendee123",
     }, timeout=10)
     r.raise_for_status()
     return r.json()["token"]

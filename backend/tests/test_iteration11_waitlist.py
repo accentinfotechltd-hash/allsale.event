@@ -78,7 +78,7 @@ async def seed_sold_out_event(capacity: int = 1) -> tuple[str, str]:
     """Insert a tiny tier-based event filled to capacity. Returns (event_id, organizer_user_id)."""
     client = AsyncIOMotorClient(os.environ["MONGO_URL"])
     db = client[os.environ["DB_NAME"]]
-    org = await db.users.find_one({"email": "organizer@aura.events"}, {"_id": 0})
+    org = await db.users.find_one({"email": "organizer@allsale.events"}, {"_id": 0})
     suffix = uuid.uuid4().hex[:6]
     event_id = f"evt_wl_test_{suffix}"
     await db.events.insert_one({
@@ -177,7 +177,7 @@ def test_join_seatmap_rejected():
     async def _seed():
         client = AsyncIOMotorClient(os.environ["MONGO_URL"])
         db = client[os.environ["DB_NAME"]]
-        org = await db.users.find_one({"email": "organizer@aura.events"}, {"_id": 0})
+        org = await db.users.find_one({"email": "organizer@allsale.events"}, {"_id": 0})
         eid = f"evt_seat_test_{uuid.uuid4().hex[:6]}"
         await db.events.insert_one({
             "event_id": eid, "title": "seatmap-test", "organizer_id": org["user_id"],
@@ -261,7 +261,7 @@ def test_offer_next_no_capacity():
     user_t, _ = register_attendee()
     requests.post(f"{API}/api/events/{event_id}/waitlist/join",
                   headers={"Authorization": f"Bearer {user_t}"}, json={}, timeout=10)
-    org_t, _ = login("organizer@aura.events", "organizer123")
+    org_t, _ = login("organizer@allsale.events", "organizer123")
     r = requests.post(f"{API}/api/organizer/events/{event_id}/waitlist/offer-next",
                       headers={"Authorization": f"Bearer {org_t}"}, timeout=10)
     assert r.status_code == 400  # No capacity
@@ -276,7 +276,7 @@ def test_offer_next_success_creates_booking_and_email():
     # Free the slot
     asyncio.run(free_one_paid_slot(event_id))
 
-    org_t, _ = login("organizer@aura.events", "organizer123")
+    org_t, _ = login("organizer@allsale.events", "organizer123")
     r = requests.post(f"{API}/api/organizer/events/{event_id}/waitlist/offer-next",
                       headers={"Authorization": f"Bearer {org_t}"}, timeout=10)
     assert r.status_code == 200
@@ -301,7 +301,7 @@ def test_offer_next_fifo_order():
     requests.post(f"{API}/api/events/{event_id}/waitlist/join",
                   headers={"Authorization": f"Bearer {t2}"}, json={}, timeout=10)
     asyncio.run(free_one_paid_slot(event_id))
-    org_t, _ = login("organizer@aura.events", "organizer123")
+    org_t, _ = login("organizer@allsale.events", "organizer123")
     r = requests.post(f"{API}/api/organizer/events/{event_id}/waitlist/offer-next",
                       headers={"Authorization": f"Bearer {org_t}"}, timeout=10).json()
     # First waiter gets it

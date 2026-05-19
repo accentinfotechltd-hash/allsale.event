@@ -86,7 +86,7 @@ def _login(email: str, password: str) -> str:
 async def _seed_tier_event() -> str:
     client = AsyncIOMotorClient(os.environ["MONGO_URL"])
     db = client[os.environ["DB_NAME"]]
-    org = await db.users.find_one({"email": "organizer@aura.events"}, {"_id": 0})
+    org = await db.users.find_one({"email": "organizer@allsale.events"}, {"_id": 0})
     eid = f"evt_dyn_test_{uuid.uuid4().hex[:6]}"
     await db.events.insert_one({
         "event_id": eid, "title": "Dyn Test",
@@ -103,7 +103,7 @@ async def _seed_tier_event() -> str:
 
 def test_set_dynamic_pricing_organizer_can():
     eid = asyncio.run(_seed_tier_event())
-    token = _login("organizer@aura.events", "organizer123")
+    token = _login("organizer@allsale.events", "organizer123")
     r = requests.patch(
         f"{API}/api/organizer/events/{eid}/dynamic-pricing",
         headers={"Authorization": f"Bearer {token}"},
@@ -116,7 +116,7 @@ def test_set_dynamic_pricing_organizer_can():
 
 def test_set_dynamic_pricing_validates_bounds():
     eid = asyncio.run(_seed_tier_event())
-    token = _login("organizer@aura.events", "organizer123")
+    token = _login("organizer@allsale.events", "organizer123")
     r = requests.patch(
         f"{API}/api/organizer/events/{eid}/dynamic-pricing",
         headers={"Authorization": f"Bearer {token}"},
@@ -131,7 +131,7 @@ def test_event_detail_returns_effective_price():
     async def _setup():
         client = AsyncIOMotorClient(os.environ["MONGO_URL"])
         db = client[os.environ["DB_NAME"]]
-        org = await db.users.find_one({"email": "organizer@aura.events"}, {"_id": 0})
+        org = await db.users.find_one({"email": "organizer@allsale.events"}, {"_id": 0})
         eid = f"evt_dyn_test_{uuid.uuid4().hex[:6]}"
         await db.events.insert_one({
             "event_id": eid, "title": "Surge Test",
@@ -175,7 +175,7 @@ def test_events_list_includes_waitlist_count_when_present():
     async def _seed():
         client = AsyncIOMotorClient(os.environ["MONGO_URL"])
         db = client[os.environ["DB_NAME"]]
-        org = await db.users.find_one({"email": "organizer@aura.events"}, {"_id": 0})
+        org = await db.users.find_one({"email": "organizer@allsale.events"}, {"_id": 0})
         eid = f"evt_dyn_test_wl_{uuid.uuid4().hex[:6]}"
         await db.events.insert_one({
             "event_id": eid, "title": "WL Count Test",

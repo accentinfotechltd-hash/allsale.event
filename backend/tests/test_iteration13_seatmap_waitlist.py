@@ -73,7 +73,7 @@ async def _seed_seatmap_sold_out(rows: int = 2, cols: int = 2, aisles: list = No
     aisles = aisles or []
     client = AsyncIOMotorClient(os.environ["MONGO_URL"])
     db = client[os.environ["DB_NAME"]]
-    org = await db.users.find_one({"email": "organizer@aura.events"}, {"_id": 0})
+    org = await db.users.find_one({"email": "organizer@allsale.events"}, {"_id": 0})
     eid = f"evt_seat_wl_{uuid.uuid4().hex[:6]}"
     await db.events.insert_one({
         "event_id": eid, "title": "Seat WL Test",
@@ -154,7 +154,7 @@ def test_offer_next_seatmap_claims_seats():
     # Free 2 seats
     asyncio.run(_free_seats(eid, ["A-1", "A-2"]))
     # Offer next
-    org_t = _login("organizer@aura.events", "organizer123")
+    org_t = _login("organizer@allsale.events", "organizer123")
     r = requests.post(f"{API}/api/organizer/events/{eid}/waitlist/offer-next",
                       headers={"Authorization": f"Bearer {org_t}"}, timeout=10)
     assert r.status_code == 200
@@ -182,7 +182,7 @@ def test_offer_next_partial_fulfillment():
                   headers={"Authorization": f"Bearer {token}"},
                   json={"quantity": 3}, timeout=10)
     asyncio.run(_free_seats(eid, ["B-2"]))
-    org_t = _login("organizer@aura.events", "organizer123")
+    org_t = _login("organizer@allsale.events", "organizer123")
     r = requests.post(f"{API}/api/organizer/events/{eid}/waitlist/offer-next",
                       headers={"Authorization": f"Bearer {org_t}"}, timeout=10)
     assert r.status_code == 200
@@ -196,7 +196,7 @@ def test_seatmap_offer_no_capacity_returns_400():
     requests.post(f"{API}/api/events/{eid}/waitlist/join",
                   headers={"Authorization": f"Bearer {token}"},
                   json={"quantity": 1}, timeout=10)
-    org_t = _login("organizer@aura.events", "organizer123")
+    org_t = _login("organizer@allsale.events", "organizer123")
     r = requests.post(f"{API}/api/organizer/events/{eid}/waitlist/offer-next",
                       headers={"Authorization": f"Bearer {org_t}"}, timeout=10)
     assert r.status_code == 400

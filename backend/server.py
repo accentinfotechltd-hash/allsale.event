@@ -1,4 +1,4 @@
-"""AURA - Premium Event Ticketing Platform Backend.
+"""Allsale Events - Premium Event Ticketing Platform Backend.
 
 Slim entrypoint: env load, FastAPI app, CORS, startup (indexes + storage + seed),
 and router mounting. Endpoints live in routers/.
@@ -37,7 +37,7 @@ from routers import ws_seats as ws_seats_router
 from routers import analytics as analytics_router
 
 
-app = FastAPI(title="AURA Event Ticketing API", version="1.0")
+app = FastAPI(title="Allsale Events Ticketing API", version="1.0")
 
 # Mount all routers under /api
 api = APIRouter(prefix="/api")
@@ -58,7 +58,7 @@ api.include_router(analytics_router.router)
 
 @api.get("/")
 async def root():
-    return {"name": "AURA Tickets API", "version": "1.0"}
+    return {"name": "Allsale Events Tickets API", "version": "1.0"}
 
 
 app.include_router(api)
@@ -115,7 +115,7 @@ async def on_startup():
     await db.event_views.create_index([("event_id", 1), ("at", -1)])
     init_storage()
     await seed_demo()
-    logger.info("AURA backend ready")
+    logger.info("Allsale Events backend ready")
 
 
 @app.on_event("shutdown")

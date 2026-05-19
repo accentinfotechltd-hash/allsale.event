@@ -24,9 +24,9 @@ def _load_base_url():
 BASE_URL = _load_base_url()
 API = f"{BASE_URL}/api"
 
-ORG_EMAIL = "organizer@aura.events"
+ORG_EMAIL = "organizer@allsale.events"
 ORG_PASS = "organizer123"
-ATT_EMAIL = "attendee@aura.events"
+ATT_EMAIL = "attendee@allsale.events"
 ATT_PASS = "attendee123"
 
 DEMO_EVENT_ID = "evt_5dba915db2be"  # Midnight Echoes

@@ -109,7 +109,7 @@ async def _ask_llm(user: dict, past_event_meta: list[dict], candidates: list[dic
     } for c in candidates]
 
     system = (
-        "You are AURA Tickets' recommendation engine. Given a user's past event "
+        "You are Allsale Events' recommendation engine. Given a user's past event "
         "bookings and a list of available upcoming events, pick 3 to 5 events the "
         "user would most likely enjoy. Prefer overlap with their past category and "
         "city. Return STRICT JSON: an array of objects with two keys: 'event_id' "

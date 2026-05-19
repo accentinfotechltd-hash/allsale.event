@@ -18,9 +18,9 @@ BASE_URL = os.environ.get(
 ).rstrip("/")
 API = f"{BASE_URL}/api"
 
-ADMIN = {"email": "admin@aura.events", "password": "admin123"}
-ORGANIZER = {"email": "organizer@aura.events", "password": "organizer123"}
-ATTENDEE = {"email": "attendee@aura.events", "password": "attendee123"}
+ADMIN = {"email": "admin@allsale.events", "password": "admin123"}
+ORGANIZER = {"email": "organizer@allsale.events", "password": "organizer123"}
+ATTENDEE = {"email": "attendee@allsale.events", "password": "attendee123"}
 
 # 1x1 PNG
 PNG_BYTES = (

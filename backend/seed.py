@@ -123,39 +123,62 @@ DEMO_EVENTS = [
 
 
 async def seed_demo():
+    # Migration: rename legacy @aura.events accounts to @allsale.events (idempotent)
+    for old, new in [
+        ("admin@aura.events", "admin@allsale.events"),
+        ("organizer@aura.events", "organizer@allsale.events"),
+        ("attendee@aura.events", "attendee@allsale.events"),
+    ]:
+        existing_new = await db.users.find_one({"email": new}, {"_id": 0, "user_id": 1})
+        existing_old = await db.users.find_one({"email": old}, {"_id": 0, "user_id": 1})
+        if existing_old and not existing_new:
+            await db.users.update_one({"email": old}, {"$set": {"email": new}})
+        elif existing_old and existing_new:
+            # Both exist: delete the legacy duplicate to keep the unique-email index happy
+            await db.users.delete_one({"email": old})
+
     if not await db.users.find_one({"email": ADMIN_EMAIL}):
         await db.users.insert_one({
             "user_id": f"user_{uuid.uuid4().hex[:12]}",
-            "email": ADMIN_EMAIL, "name": "AURA Admin", "role": "admin",
+            "email": ADMIN_EMAIL, "name": "Allsale Events Admin", "role": "admin",
             "password_hash": hash_password(ADMIN_PASSWORD), "picture": None,
             "created_at": utc_now().isoformat(), "auth_provider": "password",
         })
-    org = await db.users.find_one({"email": "organizer@aura.events"})
+    org = await db.users.find_one({"email": "organizer@allsale.events"})
     if not org:
         org_id = f"user_{uuid.uuid4().hex[:12]}"
         await db.users.insert_one({
-            "user_id": org_id, "email": "organizer@aura.events",
-            "name": "AURA Productions", "role": "organizer",
+            "user_id": org_id, "email": "organizer@allsale.events",
+            "name": "Allsale Productions", "role": "organizer",
             "password_hash": hash_password("organizer123"), "picture": None,
             "created_at": utc_now().isoformat(), "auth_provider": "password",
         })
     else:
         org_id = org["user_id"]
+        # Keep organizer display name in sync with rebrand
+        if org.get("name") == "AURA Productions":
+            await db.users.update_one({"user_id": org_id}, {"$set": {"name": "Allsale Productions"}})
 
-    if not await db.users.find_one({"email": "attendee@aura.events"}):
+    if not await db.users.find_one({"email": "attendee@allsale.events"}):
         await db.users.insert_one({
             "user_id": f"user_{uuid.uuid4().hex[:12]}",
-            "email": "attendee@aura.events", "name": "Demo Attendee", "role": "attendee",
+            "email": "attendee@allsale.events", "name": "Demo Attendee", "role": "attendee",
             "password_hash": hash_password("attendee123"), "picture": None,
             "created_at": utc_now().isoformat(), "auth_provider": "password",
         })
+
+    # Backfill organizer_name on legacy events
+    await db.events.update_many(
+        {"organizer_name": "AURA Productions"},
+        {"$set": {"organizer_name": "Allsale Productions"}},
+    )
 
     if await db.events.count_documents({}) == 0:
         for i, e in enumerate(DEMO_EVENTS):
             date = utc_now() + timedelta(days=15 + i * 7)
             await db.events.insert_one({
                 "event_id": f"evt_{uuid.uuid4().hex[:12]}",
-                "organizer_id": org_id, "organizer_name": "AURA Productions",
+                "organizer_id": org_id, "organizer_name": "Allsale Productions",
                 "title": e["title"], "description": e["description"],
                 "category": e["category"], "venue": e["venue"], "city": e["city"],
                 "date": date.isoformat(),
