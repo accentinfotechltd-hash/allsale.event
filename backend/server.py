@@ -10,6 +10,7 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
 import logging
+import os
 
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
@@ -61,11 +62,27 @@ async def root():
     return {"name": "Allsale Events Tickets API", "version": "1.0"}
 
 
+@api.get("/health")
+async def health():
+    """Liveness probe for uptime monitoring + load balancers."""
+    try:
+        await db.command("ping")
+        db_ok = True
+    except Exception:
+        db_ok = False
+    return {"status": "ok" if db_ok else "degraded", "db": db_ok}
+
+
 app.include_router(api)
 
+# CORS: production should set CORS_ORIGINS as a comma-separated list of origins
+# (e.g. "https://events.allsale.co.nz,https://www.allsale.co.nz"). Falls back
+# to "*" for local dev / preview environments.
+_origins_env = os.environ.get("CORS_ORIGINS", "*")
+_origins = [o.strip() for o in _origins_env.split(",") if o.strip()] or ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -114,7 +131,11 @@ async def on_startup():
     await db.recommendation_cache.create_index([("expires_at", 1)])
     await db.event_views.create_index([("event_id", 1), ("at", -1)])
     init_storage()
-    await seed_demo()
+    # Seed demo accounts/events unless explicitly disabled (production should set SEED_DEMO=false)
+    if os.environ.get("SEED_DEMO", "true").lower() not in ("false", "0", "no"):
+        await seed_demo()
+    else:
+        logger.info("SEED_DEMO disabled — skipping demo data seed")
     logger.info("Allsale Events backend ready")
 
 
