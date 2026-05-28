@@ -147,8 +147,10 @@ async def stripe_webhook(request: Request):
     try:
         evt = await stripe.handle_webhook(body, sig)
     except Exception as e:
-        logger.error(f"Webhook error: {e}")
-        return {"ok": False}
+        # Reject with 400 so Stripe knows verification failed and will retry.
+        # Returning 200 here would silently swallow forged or replayed requests.
+        logger.error(f"Stripe webhook signature verification failed: {e}")
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
     if evt.payment_status == "paid" and evt.session_id:
         booking_id = (evt.metadata or {}).get("booking_id")
         if booking_id:

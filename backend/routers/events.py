@@ -1,8 +1,11 @@
 """Event endpoints: list, featured, categories, detail, create."""
+import os
 import uuid
 from typing import Optional, Dict, Any
+from xml.sax.saxutils import escape as xml_escape
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from core import db, get_current_user, require_role, utc_now, event_to_public, compute_tier_effective_price
@@ -185,3 +188,20 @@ async def set_dynamic_pricing(event_id: str, payload: DynamicPricingIn, user: di
         }}},
     )
     return {"ok": True, "dynamic_pricing": payload.model_dump()}
+
+
+@router.get("/sitemap.xml")
+async def sitemap():
+    """Public sitemap for SEO — lists Browse + every approved event."""
+    base = os.environ.get("APP_PUBLIC_URL", "https://allsale.events").rstrip("/")
+    urls = [f"{base}/", f"{base}/events"]
+    async for e in db.events.find(
+        {"status": "approved"}, {"_id": 0, "event_id": 1, "date": 1},
+    ).limit(5000):
+        urls.append(f"{base}/events/{e['event_id']}")
+    body = ['<?xml version="1.0" encoding="UTF-8"?>',
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for u in urls:
+        body.append(f"  <url><loc>{xml_escape(u)}</loc></url>")
+    body.append("</urlset>")
+    return Response(content="\n".join(body), media_type="application/xml")
