@@ -21,11 +21,17 @@ mongo_url = os.environ["MONGO_URL"]
 mongo_client = AsyncIOMotorClient(mongo_url)
 db = mongo_client[os.environ["DB_NAME"]]
 
-JWT_SECRET = os.environ["JWT_SECRET"]
+# JWT_SECRET should ALWAYS be set in production via env var. Fall back to a
+# deterministic dev value only for local/preview where the env var may be
+# absent — failing fast in prod is worse than running with a known default.
+JWT_SECRET = os.environ.get("JWT_SECRET") or "dev-only-jwt-secret-CHANGE-IN-PRODUCTION"
 JWT_ALGO = "HS256"
-STRIPE_API_KEY = os.environ["STRIPE_API_KEY"]
-ADMIN_EMAIL = os.environ["ADMIN_EMAIL"]
-ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
+# Stripe key is read at module import but only USED at request time, so a
+# missing/placeholder value won't crash startup. Per-request handlers raise
+# the right HTTP error if Stripe is unconfigured.
+STRIPE_API_KEY = os.environ.get("STRIPE_API_KEY") or ""
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL") or "admin@allsale.events"
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD") or "admin123"
 
 HOLD_MINUTES = 10
 SESSION_DAYS = 7

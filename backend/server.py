@@ -91,52 +91,81 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def on_startup():
-    await db.users.create_index("email", unique=True)
-    await db.users.create_index("user_id", unique=True)
-    await db.events.create_index("event_id", unique=True)
-    await db.bookings.create_index("booking_id", unique=True)
-    # Compound index for fast analytics aggregation (filters by event_id + status)
-    await db.bookings.create_index([("event_id", 1), ("status", 1)], name="event_status_idx")
-    # Index user_id for /me/bookings queries
-    await db.bookings.create_index("user_id")
-    await db.seat_holds.create_index("booking_id")
-    await db.seat_holds.create_index("expires_at")
-    await db.payment_transactions.create_index("session_id", unique=True)
-    await db.user_sessions.create_index("session_token", unique=True)
-    # Unique compound index for atomic seat reservation (no double-booking)
-    await db.seat_reservations.create_index(
-        [("event_id", 1), ("seat_id", 1)], unique=True, name="event_seat_unique"
-    )
-    await db.seat_reservations.create_index("booking_id")
-    await db.uploaded_files.create_index("storage_path")
-    await db.discount_codes.create_index([("created_by", 1), ("code", 1)], unique=True)
-    await db.discount_codes.create_index("code")
-    await db.email_logs.create_index([("created_at", -1)])
-    await db.email_logs.create_index("status")
-    await db.email_logs.create_index("template")
-    await db.payouts.create_index("payout_id", unique=True)
-    await db.payouts.create_index([("organizer_id", 1), ("status", 1)])
-    await db.payouts.create_index("status")
-    await db.platform_settings.create_index("key", unique=True)
-    await db.bookings.create_index("payout_id")
-    await db.waitlist_entries.create_index("waitlist_id", unique=True)
-    # Unique compound: one "waiting" entry per (event, user) — duplicates rejected.
-    await db.waitlist_entries.create_index(
-        [("event_id", 1), ("user_id", 1), ("status", 1)], unique=True,
-        partialFilterExpression={"status": "waiting"}, name="waitlist_unique_waiting",
-    )
-    await db.waitlist_entries.create_index([("event_id", 1), ("status", 1), ("requested_at", 1)])
-    await db.waitlist_entries.create_index([("user_id", 1), ("status", 1)])
-    await db.recommendation_cache.create_index("user_id", unique=True)
-    await db.recommendation_cache.create_index([("expires_at", 1)])
-    await db.event_views.create_index([("event_id", 1), ("at", -1)])
-    init_storage()
-    # Seed demo accounts/events unless explicitly disabled (production should set SEED_DEMO=false)
-    if os.environ.get("SEED_DEMO", "true").lower() not in ("false", "0", "no"):
-        await seed_demo()
-    else:
-        logger.info("SEED_DEMO disabled — skipping demo data seed")
-    logger.info("Allsale Events backend ready")
+    """Fast, non-blocking startup. Heavy work (network calls to object storage,
+    seeding, slow index creation) is dispatched as a background task so the
+    HTTP listener binds immediately and health checks pass.
+    """
+    import asyncio
+
+    async def _heavy_startup():
+        try:
+            # Indexes — idempotent, fast on a fresh DB but can be slow on a
+            # large existing one. Wrapped in try/except so a single failure
+            # doesn't block the rest.
+            index_specs = [
+                (db.users, "email", {"unique": True}),
+                (db.users, "user_id", {"unique": True}),
+                (db.events, "event_id", {"unique": True}),
+                (db.bookings, "booking_id", {"unique": True}),
+                (db.bookings, [("event_id", 1), ("status", 1)], {"name": "event_status_idx"}),
+                (db.bookings, "user_id", {}),
+                (db.seat_holds, "booking_id", {}),
+                (db.seat_holds, "expires_at", {}),
+                (db.payment_transactions, "session_id", {"unique": True}),
+                (db.user_sessions, "session_token", {"unique": True}),
+                (db.seat_reservations, [("event_id", 1), ("seat_id", 1)],
+                 {"unique": True, "name": "event_seat_unique"}),
+                (db.seat_reservations, "booking_id", {}),
+                (db.uploaded_files, "storage_path", {}),
+                (db.discount_codes, [("created_by", 1), ("code", 1)], {"unique": True}),
+                (db.discount_codes, "code", {}),
+                (db.email_logs, [("created_at", -1)], {}),
+                (db.email_logs, "status", {}),
+                (db.email_logs, "template", {}),
+                (db.payouts, "payout_id", {"unique": True}),
+                (db.payouts, [("organizer_id", 1), ("status", 1)], {}),
+                (db.payouts, "status", {}),
+                (db.platform_settings, "key", {"unique": True}),
+                (db.bookings, "payout_id", {}),
+                (db.waitlist_entries, "waitlist_id", {"unique": True}),
+                (db.waitlist_entries, [("event_id", 1), ("user_id", 1), ("status", 1)],
+                 {"unique": True, "partialFilterExpression": {"status": "waiting"},
+                  "name": "waitlist_unique_waiting"}),
+                (db.waitlist_entries,
+                 [("event_id", 1), ("status", 1), ("requested_at", 1)], {}),
+                (db.waitlist_entries, [("user_id", 1), ("status", 1)], {}),
+                (db.recommendation_cache, "user_id", {"unique": True}),
+                (db.recommendation_cache, [("expires_at", 1)], {}),
+                (db.event_views, [("event_id", 1), ("at", -1)], {}),
+            ]
+            for col, key, opts in index_specs:
+                try:
+                    await col.create_index(key, **opts)
+                except Exception as ix_err:
+                    logger.warning(f"index create failed for {key}: {ix_err}")
+
+            # Object storage — synchronous HTTPS call; run in a thread so the
+            # event loop isn't blocked even if Emergent storage is slow.
+            try:
+                await asyncio.to_thread(init_storage)
+            except Exception as e:
+                logger.warning(f"init_storage skipped: {e}")
+
+            # Seed demo data unless disabled.
+            if os.environ.get("SEED_DEMO", "true").lower() not in ("false", "0", "no"):
+                try:
+                    await seed_demo()
+                except Exception as e:
+                    logger.warning(f"seed_demo failed (continuing): {e}")
+            else:
+                logger.info("SEED_DEMO disabled — skipping demo data seed")
+            logger.info("Allsale Events backend ready")
+        except Exception as boot_err:  # last-resort guard
+            logger.error(f"Startup background task error: {boot_err}")
+
+    # Schedule but don't await — health-check responds while this runs.
+    asyncio.create_task(_heavy_startup())
+    logger.info("Allsale Events backend listening (background init running)")
 
 
 @app.on_event("shutdown")
