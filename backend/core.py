@@ -17,9 +17,23 @@ logger = logging.getLogger("aura")
 
 ROOT_DIR = Path(__file__).parent
 
-mongo_url = os.environ["MONGO_URL"]
-mongo_client = AsyncIOMotorClient(mongo_url)
-db = mongo_client[os.environ["DB_NAME"]]
+# Read DB env vars defensively — a missing key here would raise KeyError at
+# import time BEFORE any logging happens, which produces a silent container
+# crash with no diagnostic output. Print to stdout directly so even early
+# failures are visible in container logs.
+import sys as _sys
+mongo_url = os.environ.get("MONGO_URL") or "mongodb://localhost:27017"
+db_name = os.environ.get("DB_NAME") or "test_database"
+print(f"[core] MONGO_URL set: {'yes' if os.environ.get('MONGO_URL') else 'FALLBACK to localhost (env missing)'}", flush=True)
+print(f"[core] DB_NAME: {db_name}", flush=True)
+try:
+    mongo_client = AsyncIOMotorClient(mongo_url, serverSelectionTimeoutMS=5000)
+    db = mongo_client[db_name]
+    print(f"[core] motor client created OK", flush=True)
+except Exception as _db_err:
+    print(f"[core] CRITICAL: failed to init Mongo client: {_db_err}", flush=True)
+    _sys.stdout.flush()
+    raise
 
 # JWT_SECRET should ALWAYS be set in production via env var. Fall back to a
 # deterministic dev value only for local/preview where the env var may be
