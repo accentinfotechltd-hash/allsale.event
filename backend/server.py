@@ -11,13 +11,34 @@ load_dotenv(ROOT_DIR / ".env")
 
 import logging
 import os
+import sys
 
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
 
 # Configure logging BEFORE importing modules that may use logger
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Force stdout so K8s log collector captures it (basicConfig defaults to stderr).
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    stream=sys.stdout,
+    force=True,
+)
 logger = logging.getLogger("aura")
+
+# Flush every log line immediately so we see startup progress even if the
+# process crashes seconds later.
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+sys.stderr.reconfigure(line_buffering=True)  # type: ignore[attr-defined]
+
+# Early boot diagnostics — visible in K8s logs even if a later import crashes.
+logger.info(f"[boot] python {sys.version.split()[0]}")
+logger.info(f"[boot] MONGO_URL set: {'yes' if os.environ.get('MONGO_URL') else 'NO'}")
+logger.info(f"[boot] DB_NAME: {os.environ.get('DB_NAME', '<missing>')}")
+logger.info(f"[boot] JWT_SECRET set: {'yes' if os.environ.get('JWT_SECRET') else 'no'}")
+logger.info(f"[boot] STRIPE_API_KEY set: {'yes' if os.environ.get('STRIPE_API_KEY') else 'no'}")
+logger.info(f"[boot] RESEND_API_KEY set: {'yes' if os.environ.get('RESEND_API_KEY') else 'no'}")
+logger.info(f"[boot] EMERGENT_LLM_KEY set: {'yes' if os.environ.get('EMERGENT_LLM_KEY') else 'no'}")
 
 # Local imports (after dotenv + logging)
 from core import db, mongo_client

@@ -29,6 +29,22 @@ litellm
 stripe
 openai
 anthropic
+# Transitive deps that are required because the deploy script uses
+# pip install --no-dependencies. Listing them explicitly so they're installed.
+dnspython>=2.4.0
+aiohttp>=3.9.0
+jinja2>=3.1.0
+tiktoken>=0.5.0
+tokenizers>=0.15.0
+jsonschema>=4.20.0
+click>=8.1.0
+anyio>=4.0.0
+distro>=1.9.0
+sniffio>=1.3.0
+tqdm>=4.67.0
+httpcore>=1.0.0
+idna>=3.0
+certifi>=2024.0.0
 qrcode==8.2
 httpx==0.28.1
 Pillow==12.2.0
