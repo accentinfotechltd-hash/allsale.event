@@ -17,13 +17,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python deps first for better layer caching.
 # `emergentintegrations` lives on Emergent's private CloudFront index, so we
 # point pip at both the public PyPI (default) AND the Emergent index.
-COPY backend/requirements.txt /app/requirements.txt
+COPY requirements.txt /app/requirements.txt
 RUN pip install --upgrade pip && \
     pip install --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ \
         -r /app/requirements.txt
 
-# Copy backend source
-COPY backend/ /app/
+# Copy backend source (build context IS backend/ when Root Directory=backend)
+COPY . /app/
 
 # Railway injects $PORT at runtime
 ENV PORT=8000

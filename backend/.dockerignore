@@ -1,0 +1,13 @@
+# Keep the Docker build context lean
+.git
+.gitignore
+__pycache__
+*.pyc
+*.pyo
+*.log
+.env
+.env.*
+.venv
+venv/
+tests/
+.pytest_cache
