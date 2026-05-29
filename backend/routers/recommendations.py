@@ -12,8 +12,15 @@ import logging
 import os
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from fastapi import APIRouter, Depends, HTTPException
+try:
+    from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+    _LLM_AVAILABLE = True
+except Exception as _llm_import_err:  # pragma: no cover - hit only when transitive deps missing in prod
+    LlmChat = None  # type: ignore
+    UserMessage = None  # type: ignore
+    _LLM_AVAILABLE = False
+    _LLM_IMPORT_ERROR = str(_llm_import_err)
 
 from core import db, get_current_user, utc_now, event_to_public
 
@@ -32,6 +39,11 @@ def _cache_key(user_id: str) -> str:
 @router.get("/me/recommendations")
 async def my_recommendations(user: dict = Depends(get_current_user)):
     """Return 3-5 personalized event recommendations with a "why" for each."""
+    if not _LLM_AVAILABLE:
+        # Soft-fail: feature unavailable, return empty list so the UI just hides
+        # the "Recommended for you" section instead of erroring out.
+        logger.warning(f"Recommendations disabled — LLM library not available: {_LLM_IMPORT_ERROR}")
+        return {"items": [], "cached": False, "disabled": True}
     cached = await db.recommendation_cache.find_one({"user_id": user["user_id"]}, {"_id": 0})
     if cached and cached.get("expires_at", "") > utc_now().isoformat():
         return {"items": cached.get("items", []), "cached": True}

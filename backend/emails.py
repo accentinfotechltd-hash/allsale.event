@@ -16,7 +16,12 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Optional
 from uuid import uuid4
 
-import resend
+try:
+    import resend  # type: ignore
+    _RESEND_AVAILABLE = True
+except Exception as _resend_import_err:  # pragma: no cover
+    resend = None  # type: ignore
+    _RESEND_AVAILABLE = False
 
 logger = logging.getLogger("aura.emails")
 
@@ -25,7 +30,7 @@ SENDER_EMAIL = os.environ.get("SENDER_EMAIL") or "onboarding@resend.dev"
 APP_PUBLIC_URL = os.environ.get("APP_PUBLIC_URL") or "https://allsale.events"
 SENDER_NAME = "Allsale Events"
 
-if RESEND_API_KEY:
+if _RESEND_AVAILABLE and RESEND_API_KEY:
     resend.api_key = RESEND_API_KEY
 
 
@@ -236,11 +241,11 @@ async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None) ->
     now_iso = datetime.now(timezone.utc).isoformat()
     base = {"log_id": log_id, "template": template, "to": to, "created_at": now_iso, "context_summary": _safe_summary(ctx)}
 
-    if not RESEND_API_KEY:
-        logger.warning(f"[email] RESEND_API_KEY not set — skipped {template} to {to}")
+    if not _RESEND_AVAILABLE or not RESEND_API_KEY:
+        logger.warning(f"[email] resend unavailable or RESEND_API_KEY not set — skipped {template} to {to}")
         if db is not None:
-            await db.email_logs.insert_one({**base, "status": "skipped", "reason": "no_api_key"})
-        return {"status": "skipped", "log_id": log_id, "reason": "no_api_key"}
+            await db.email_logs.insert_one({**base, "status": "skipped", "reason": "resend_unavailable"})
+        return {"status": "skipped", "log_id": log_id, "reason": "resend_unavailable"}
 
     builder = TEMPLATES.get(template)
     if not builder:

@@ -3,9 +3,16 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from emergentintegrations.payments.stripe.checkout import (
-    StripeCheckout, CheckoutSessionRequest,
-)
+try:
+    from emergentintegrations.payments.stripe.checkout import (
+        StripeCheckout, CheckoutSessionRequest,
+    )
+    _STRIPE_AVAILABLE = True
+except Exception as _stripe_import_err:  # pragma: no cover
+    StripeCheckout = None  # type: ignore
+    CheckoutSessionRequest = None  # type: ignore
+    _STRIPE_AVAILABLE = False
+    _STRIPE_IMPORT_ERROR = str(_stripe_import_err)
 
 from core import db, get_current_user, utc_now, gen_qr_data_url, STRIPE_API_KEY, logger
 from models import CheckoutIn
@@ -40,6 +47,8 @@ async def _send_booking_confirmation_email(booking_id: str) -> None:
 
 @router.post("/checkout/session")
 async def checkout_session(payload: CheckoutIn, request: Request, user: dict = Depends(get_current_user)):
+    if not _STRIPE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Payments are temporarily unavailable")
     booking = await db.bookings.find_one({"booking_id": payload.booking_id}, {"_id": 0})
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
@@ -92,6 +101,8 @@ async def checkout_status(session_id: str, user: dict = Depends(get_current_user
     if tx["payment_status"] in ("paid", "expired", "failed"):
         return {"status": tx["status"], "payment_status": tx["payment_status"], "booking_id": tx["booking_id"]}
 
+    if not _STRIPE_AVAILABLE:
+        return {"status": tx.get("status", "initiated"), "payment_status": tx.get("payment_status", "pending"), "booking_id": tx["booking_id"]}
     stripe = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
     try:
         s = await stripe.get_checkout_status(session_id)
@@ -141,6 +152,8 @@ async def checkout_status(session_id: str, user: dict = Depends(get_current_user
 
 @router.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
+    if not _STRIPE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Payments unavailable")
     body = await request.body()
     sig = request.headers.get("Stripe-Signature", "")
     stripe = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
