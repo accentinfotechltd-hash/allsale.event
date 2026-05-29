@@ -60,45 +60,28 @@ def _safe_import_router(module_path: str, attr: str = "router"):
         return None, f"{module_path}: {e}"
 
 
-# Critical routers — must always load (no external lib deps beyond core).
-from routers import auth as auth_router
-from routers import events as events_router
-from routers import bookings as bookings_router
-from routers import uploads as uploads_router
-from routers import admin as admin_router
-from routers import organizer as organizer_router
-from routers import discount_codes as discount_codes_router
-from routers import payouts as payouts_router
-from routers import waitlist as waitlist_router
-from routers import ws_seats as ws_seats_router
-from routers import analytics as analytics_router
-
-# Optional routers — depend on 3rd-party libs (emergentintegrations, resend,
-# litellm) that may fail to install if the build's --no-dependencies install
-# misses a transitive package. Wrap so the backend still boots.
-_payments_router, _payments_err = _safe_import_router("routers.payments")
-_recommendations_router, _recs_err = _safe_import_router("routers.recommendations")
+# All routers loaded via safe wrapper — any module-level ImportError logs
+# clearly and skips just that router instead of crashing the entire app.
+_routers = {}
+for _name in [
+    "auth", "events", "bookings", "payments", "uploads", "admin",
+    "organizer", "discount_codes", "payouts", "waitlist",
+    "recommendations", "ws_seats", "analytics",
+]:
+    r, err = _safe_import_router(f"routers.{_name}")
+    if r is not None:
+        _routers[_name] = r
+        logger.info(f"[boot] router loaded: {_name}")
+    else:
+        logger.error(f"[boot] router SKIPPED: {_name} ({err})")
 
 
 app = FastAPI(title="Allsale Events Ticketing API", version="1.0")
 
-# Mount all routers under /api
+# Mount loaded routers under /api
 api = APIRouter(prefix="/api")
-api.include_router(auth_router.router)
-api.include_router(events_router.router)
-api.include_router(bookings_router.router)
-if _payments_router is not None:
-    api.include_router(_payments_router)
-api.include_router(uploads_router.router)
-api.include_router(admin_router.router)
-api.include_router(organizer_router.router)
-api.include_router(discount_codes_router.router)
-api.include_router(payouts_router.router)
-api.include_router(waitlist_router.router)
-if _recommendations_router is not None:
-    api.include_router(_recommendations_router)
-api.include_router(ws_seats_router.router)
-api.include_router(analytics_router.router)
+for _r in _routers.values():
+    api.include_router(_r)
 
 
 @api.get("/")
