@@ -23,19 +23,40 @@ logger = logging.getLogger("aura")
 from core import db, mongo_client
 from storage import init_storage
 from seed import seed_demo
+
+
+def _safe_import_router(module_path: str, attr: str = "router"):
+    """Try to import a router module; return (router, None) on success or
+    (None, error_msg) on failure. Used so a single optional integration
+    (Stripe, LLM, Resend) failing to import in production doesn't crash
+    the entire backend — the rest of the API stays up.
+    """
+    try:
+        mod = __import__(module_path, fromlist=[attr])
+        return getattr(mod, attr), None
+    except Exception as e:  # pragma: no cover - hit only when deps missing
+        logger.error(f"[boot] router import failed: {module_path} → {e}")
+        return None, f"{module_path}: {e}"
+
+
+# Critical routers — must always load (no external lib deps beyond core).
 from routers import auth as auth_router
 from routers import events as events_router
 from routers import bookings as bookings_router
-from routers import payments as payments_router
 from routers import uploads as uploads_router
 from routers import admin as admin_router
 from routers import organizer as organizer_router
 from routers import discount_codes as discount_codes_router
 from routers import payouts as payouts_router
 from routers import waitlist as waitlist_router
-from routers import recommendations as recommendations_router
 from routers import ws_seats as ws_seats_router
 from routers import analytics as analytics_router
+
+# Optional routers — depend on 3rd-party libs (emergentintegrations, resend,
+# litellm) that may fail to install if the build's --no-dependencies install
+# misses a transitive package. Wrap so the backend still boots.
+_payments_router, _payments_err = _safe_import_router("routers.payments")
+_recommendations_router, _recs_err = _safe_import_router("routers.recommendations")
 
 
 app = FastAPI(title="Allsale Events Ticketing API", version="1.0")
@@ -45,14 +66,16 @@ api = APIRouter(prefix="/api")
 api.include_router(auth_router.router)
 api.include_router(events_router.router)
 api.include_router(bookings_router.router)
-api.include_router(payments_router.router)
+if _payments_router is not None:
+    api.include_router(_payments_router)
 api.include_router(uploads_router.router)
 api.include_router(admin_router.router)
 api.include_router(organizer_router.router)
 api.include_router(discount_codes_router.router)
 api.include_router(payouts_router.router)
 api.include_router(waitlist_router.router)
-api.include_router(recommendations_router.router)
+if _recommendations_router is not None:
+    api.include_router(_recommendations_router)
 api.include_router(ws_seats_router.router)
 api.include_router(analytics_router.router)
 
