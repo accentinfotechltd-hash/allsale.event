@@ -1,0 +1,6 @@
+{
+  "buildCommand": "yarn build",
+  "installCommand": "yarn install --network-timeout 100000",
+  "outputDirectory": "build",
+  "framework": "create-react-app"
+}
