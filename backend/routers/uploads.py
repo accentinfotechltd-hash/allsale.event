@@ -94,18 +94,17 @@ async def upload_image(request: Request, file: UploadFile = File(...), user: dic
         "created_at": utc_now().isoformat(),
     })
 
-    # Build an absolute URL — prefer APP_PUBLIC_URL (set by ops); otherwise
-    # fall back to the host the request came in on. This guarantees the URL
-    # works on Vercel even if APP_PUBLIC_URL isn't configured in Railway.
+    # Build an absolute URL — Railway/Vercel proxies set X-Forwarded-Host
+    # and X-Forwarded-Proto, but uvicorn doesn't trust them by default.
+    # Read them manually so the URL is always the public-facing host.
     rel = f"/api/files/{file_id}"
     env_base = (os.environ.get("APP_PUBLIC_URL") or "").rstrip("/")
     if env_base:
         absolute = f"{env_base}{rel}"
     else:
-        # request.base_url is the FastAPI host (e.g. https://api.allsale.events/).
-        # Strip the trailing slash so we don't end up with `//api/files/...`.
-        host = str(request.base_url).rstrip("/")
-        absolute = f"{host}{rel}"
+        proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+        host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc).split(",")[0].strip()
+        absolute = f"{proto}://{host}{rel}" if host else rel
     return {"url": absolute, "path": file_id, "file_id": file_id}
 
 

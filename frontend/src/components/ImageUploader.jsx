@@ -56,7 +56,24 @@ export default function ImageUploader({ value, onUploaded, label = "Upload image
       />
       {value ? (
         <div className="relative rounded-xl overflow-hidden border" style={{ borderColor: "var(--border)", aspectRatio: aspect }}>
-          <img src={value} alt="" className="w-full h-full object-cover" />
+          <img
+            src={value}
+            alt=""
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              // Image URL is unreachable — show a helpful overlay instead of a silent broken icon
+              e.currentTarget.style.display = "none";
+              const wrap = e.currentTarget.parentElement;
+              if (wrap && !wrap.querySelector(".img-fail")) {
+                const div = document.createElement("div");
+                div.className = "img-fail absolute inset-0 flex items-center justify-center text-xs text-center p-4";
+                div.style.color = "var(--danger)";
+                div.style.background = "rgba(220, 38, 38, 0.05)";
+                div.innerText = "Image saved but preview can't load. URL: " + value;
+                wrap.appendChild(div);
+              }
+            }}
+          />
           <button
             type="button"
             onClick={() => onUploaded("")}
