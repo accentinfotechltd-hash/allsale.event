@@ -61,7 +61,10 @@ export default function ProfileEditPanel() {
       const { data } = await api.post("/uploads", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      setForm((f) => ({ ...f, picture: data.url || data.file_url || "" }));
+      // Build the URL from file_id to bypass any host mis-config server-side.
+      const backend = process.env.REACT_APP_BACKEND_URL;
+      const url = data.file_id ? `${backend}/api/files/${data.file_id}` : (data.url || "");
+      setForm((f) => ({ ...f, picture: url }));
       toast.success("Picture uploaded");
     } catch (err) {
       const d = err?.response?.data?.detail;

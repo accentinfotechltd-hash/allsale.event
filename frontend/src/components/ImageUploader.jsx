@@ -22,7 +22,14 @@ export default function ImageUploader({ value, onUploaded, label = "Upload image
       const fd = new FormData();
       fd.append("file", file);
       const { data } = await api.post("/uploads", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      const absUrl = data.url.startsWith("http") ? data.url : `${BACKEND}${data.url}`;
+      // Always construct the final URL ourselves from file_id + BACKEND so a
+      // mis-configured X-Forwarded-Host on the server can't poison the path.
+      let absUrl = data.url;
+      if (data.file_id) {
+        absUrl = `${BACKEND}/api/files/${data.file_id}`;
+      } else if (!absUrl.startsWith("http")) {
+        absUrl = `${BACKEND}${absUrl}`;
+      }
       onUploaded(absUrl, data.file_id);
       toast.success("Uploaded");
     } catch (e) {
