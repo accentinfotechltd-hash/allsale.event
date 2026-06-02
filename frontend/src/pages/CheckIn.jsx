@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useSearchParams, Link } from "react-router-dom";
 import { Html5Qrcode } from "html5-qrcode";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -10,20 +10,33 @@ const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
 export default function CheckIn() {
   const { eventId } = useParams();
+  const [params] = useSearchParams();
+  const scannerToken = params.get("t") || params.get("token") || null;
   const { user } = useAuth();
   const [stats, setStats] = useState(null);
+  const [tokenContext, setTokenContext] = useState(null); // event meta when using token mode
   const [scannerOn, setScannerOn] = useState(false);
   const [lastResult, setLastResult] = useState(null); // {kind: "success"|"already"|"error", booking?, msg?}
   const [manual, setManual] = useState("");
   const scannerRef = useRef(null);
   const lockedRef = useRef(false);
 
+  const isTokenMode = Boolean(scannerToken);
+
   const loadStats = async () => {
     try {
-      const { data } = await api.get(`/organizer/events/${eventId}/checkin-stats`);
-      setStats(data);
+      if (isTokenMode) {
+        // Token mode: load public stats via the scanner-context endpoint
+        const { data } = await api.get(`/organizer/scanner-context`, { params: { event_id: eventId, token: scannerToken } });
+        setTokenContext(data);
+        setStats(data.stats);
+      } else {
+        const { data } = await api.get(`/organizer/events/${eventId}/checkin-stats`);
+        setStats(data);
+      }
     } catch (e) {
-      toast.error("Could not load stats");
+      if (isTokenMode) toast.error("Invalid or revoked scanner link");
+      else toast.error("Could not load stats");
     }
   };
 
@@ -73,7 +86,9 @@ export default function CheckIn() {
 
   const submitCheckin = async (payload) => {
     try {
-      const { data } = await api.post("/organizer/checkin", { event_id: eventId, ...payload });
+      const body = { event_id: eventId, ...payload };
+      if (isTokenMode) body.scanner_token = scannerToken;
+      const { data } = await api.post("/organizer/checkin", body);
       if (data.already_checked_in) {
         setLastResult({ kind: "already", booking: data.booking });
         toast(`Already checked in: ${data.booking.user_name}`, { description: "Earlier today" });
@@ -131,15 +146,47 @@ export default function CheckIn() {
     } catch { toast.error("Report download failed"); }
   };
 
-  if (!user || (user.role !== "organizer" && user.role !== "admin")) {
-    return <div className="text-center py-20" style={{ color: "var(--text-muted)" }}>Organizer access required.</div>;
+  if (!isTokenMode && (!user || (user.role !== "organizer" && user.role !== "admin"))) {
+    return <div className="text-center py-20" style={{ color: "var(--text-muted)" }}>Organizer access required. <br /><span className="text-sm">Volunteers should use the dedicated scanner link shared by the organizer.</span></div>;
   }
+
+  // Stats shape differs between authed mode (rich) and token mode (compact).
+  // Normalise so the four-tile dashboard renders identically in both.
+  const displayStats = useMemo(() => {
+    if (!stats) return null;
+    if (isTokenMode) {
+      const pct = stats.total ? Math.round((stats.checked_in / stats.total) * 100) : 0;
+      return {
+        total_bookings: stats.total,
+        checked_in_count: stats.checked_in,
+        no_shows_count: stats.remaining,
+        percent: pct,
+      };
+    }
+    return stats;
+  }, [stats, isTokenMode]);
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
-      <Link to={`/organizer/events/${eventId}`} className="inline-flex items-center gap-2 text-sm mb-6" style={{ color: "var(--text-muted)" }} data-testid="back-to-event">
-        <ArrowLeft className="w-4 h-4" /> Back to event analytics
-      </Link>
+      {isTokenMode ? (
+        <div
+          className="mb-6 px-4 py-3 rounded-xl border flex items-center gap-3"
+          style={{ borderColor: "var(--border)", background: "var(--bg-elev)" }}
+          data-testid="token-mode-banner"
+        >
+          <CheckCircle2 className="w-5 h-5" style={{ color: "var(--success)" }} />
+          <div className="flex-1">
+            <div className="text-xs uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Door staff mode</div>
+            <div className="text-sm font-medium">
+              {tokenContext?.label ? `${tokenContext.label} · ` : ""}{tokenContext?.event?.title || "Event"}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <Link to={`/organizer/events/${eventId}`} className="inline-flex items-center gap-2 text-sm mb-6" style={{ color: "var(--text-muted)" }} data-testid="back-to-event">
+          <ArrowLeft className="w-4 h-4" /> Back to event analytics
+        </Link>
+      )}
 
       <div className="flex flex-wrap items-end justify-between gap-4 mb-10">
         <div>
@@ -147,18 +194,20 @@ export default function CheckIn() {
           <h1 className="serif text-5xl">QR scanner</h1>
           <p className="mt-2" style={{ color: "var(--text-muted)" }}>Point your camera at attendee QR codes. Scan is throttled to avoid duplicates.</p>
         </div>
-        <button onClick={downloadReport} className="btn-ghost" data-testid="download-attendance-btn">
-          <Download className="w-4 h-4" /> Attendance report (CSV)
-        </button>
+        {!isTokenMode && (
+          <button onClick={downloadReport} className="btn-ghost" data-testid="download-attendance-btn">
+            <Download className="w-4 h-4" /> Attendance report (CSV)
+          </button>
+        )}
       </div>
 
       {/* Stats */}
-      {stats && (
+      {displayStats && (
         <div className="grid sm:grid-cols-4 gap-3 mb-8">
-          <Stat label="Bookings" value={stats.total_bookings} icon={<Users className="w-4 h-4" />} />
-          <Stat label="Checked in" value={stats.checked_in_count} accent="var(--success)" />
-          <Stat label="No-shows" value={stats.no_shows_count} accent={stats.no_shows_count > 0 ? "var(--text-muted)" : null} />
-          <Stat label="Attendance" value={`${stats.percent}%`} icon={<CheckCircle2 className="w-4 h-4" />} />
+          <Stat label="Bookings" value={displayStats.total_bookings} icon={<Users className="w-4 h-4" />} />
+          <Stat label="Checked in" value={displayStats.checked_in_count} accent="var(--success)" />
+          <Stat label={isTokenMode ? "Remaining" : "No-shows"} value={displayStats.no_shows_count} accent={displayStats.no_shows_count > 0 ? "var(--text-muted)" : null} />
+          <Stat label="Attendance" value={`${displayStats.percent}%`} icon={<CheckCircle2 className="w-4 h-4" />} />
         </div>
       )}
 

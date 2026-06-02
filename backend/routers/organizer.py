@@ -1,6 +1,7 @@
 """Organizer dashboard: events, analytics, drill-down, attendees, CSV export, check-in."""
 import csv
 import io
+import secrets
 from collections import defaultdict
 from typing import Optional
 
@@ -8,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from core import db, get_current_user, require_role, event_to_public, utc_now
+from core import db, get_current_user, get_current_user_optional, require_role, event_to_public, utc_now
 
 router = APIRouter(prefix="/organizer", tags=["organizer"])
 
@@ -17,6 +18,7 @@ class CheckinIn(BaseModel):
     event_id: str
     qr_payload: Optional[str] = None  # e.g. "AURA|bkg_xxxxxxx..."
     booking_id: Optional[str] = None  # manual entry fallback
+    scanner_token: Optional[str] = None  # for volunteer/3rd-party scanners
 
 
 @router.get("/events")
@@ -214,15 +216,34 @@ def _parse_qr(qr: str) -> Optional[str]:
 
 
 @router.post("/checkin")
-async def checkin(payload: CheckinIn, user: dict = Depends(get_current_user)):
+async def checkin(payload: CheckinIn, user: Optional[dict] = Depends(get_current_user_optional)):
     """Scan a QR code and mark the booking as checked in.
-    Idempotent: scanning a checked-in ticket returns the existing record (no error)."""
-    await require_role(user, "organizer", "admin")
+    Idempotent: scanning a checked-in ticket returns the existing record (no error).
+
+    Two ways to authorize:
+      • Logged-in organizer/admin owning the event (Bearer token)
+      • A valid `scanner_token` issued by the organizer for this event
+        (lets door staff / volunteers scan without an account).
+    """
     event = await db.events.find_one({"event_id": payload.event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Not your event")
+
+    actor_id = "scanner-token"
+    if payload.scanner_token:
+        tok = await db.scanner_tokens.find_one({
+            "event_id": payload.event_id, "token": payload.scanner_token, "revoked": {"$ne": True},
+        }, {"_id": 0})
+        if not tok:
+            raise HTTPException(status_code=403, detail="Invalid or revoked scanner token")
+        actor_id = f"token:{tok.get('label') or tok['token'][:8]}"
+    else:
+        if not user:
+            raise HTTPException(status_code=401, detail="Sign in or provide a scanner token")
+        await require_role(user, "organizer", "admin")
+        if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Not your event")
+        actor_id = user["user_id"]
 
     booking_id = payload.booking_id or _parse_qr(payload.qr_payload or "")
     if not booking_id:
@@ -244,7 +265,7 @@ async def checkin(payload: CheckinIn, user: dict = Depends(get_current_user)):
             {"$set": {
                 "checked_in": True,
                 "checked_in_at": now_iso,
-                "checked_in_by": user["user_id"],
+                "checked_in_by": actor_id,
             }},
         )
         booking["checked_in"] = True
@@ -262,6 +283,89 @@ async def checkin(payload: CheckinIn, user: dict = Depends(get_current_user)):
             "quantity": booking.get("quantity"),
             "checked_in_at": booking["checked_in_at"],
         },
+    }
+
+
+# ---------- Scanner tokens (volunteer / 3rd-party door staff) ----------
+
+class ScannerTokenIn(BaseModel):
+    label: Optional[str] = None  # e.g. "Door 1", "Front gate", "Volunteer Sam"
+
+
+@router.post("/events/{event_id}/scanner-tokens")
+async def create_scanner_token(event_id: str, payload: ScannerTokenIn, user: dict = Depends(get_current_user)):
+    """Mint a single-event scanner token. Returns a URL the organizer can share
+    with door staff — they open it on any phone, no login required."""
+    await require_role(user, "organizer", "admin")
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not your event")
+
+    token = secrets.token_urlsafe(24)
+    doc = {
+        "token_id": secrets.token_hex(8),
+        "event_id": event_id,
+        "token": token,
+        "label": (payload.label or "Door scanner").strip()[:80],
+        "created_by": user["user_id"],
+        "created_at": utc_now().isoformat(),
+        "revoked": False,
+    }
+    await db.scanner_tokens.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@router.get("/events/{event_id}/scanner-tokens")
+async def list_scanner_tokens(event_id: str, user: dict = Depends(get_current_user)):
+    await require_role(user, "organizer", "admin")
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not your event")
+    return [
+        t async for t in db.scanner_tokens.find({"event_id": event_id}, {"_id": 0}).sort("created_at", -1)
+    ]
+
+
+@router.delete("/events/{event_id}/scanner-tokens/{token_id}")
+async def revoke_scanner_token(event_id: str, token_id: str, user: dict = Depends(get_current_user)):
+    await require_role(user, "organizer", "admin")
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event or (event["organizer_id"] != user["user_id"] and user.get("role") != "admin"):
+        raise HTTPException(status_code=403, detail="Not your event")
+    await db.scanner_tokens.update_one({"event_id": event_id, "token_id": token_id}, {"$set": {"revoked": True}})
+    return {"ok": True}
+
+
+@router.get("/scanner-context")
+async def scanner_context(event_id: str, token: str):
+    """Resolve a scanner token → event meta + live stats. No login required.
+    Used by the public /scan/{eventId}?t=... page so door staff see what they're scanning for."""
+    tok = await db.scanner_tokens.find_one({
+        "event_id": event_id, "token": token, "revoked": {"$ne": True},
+    }, {"_id": 0})
+    if not tok:
+        raise HTTPException(status_code=403, detail="Invalid or revoked scanner token")
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    total = await db.bookings.count_documents({"event_id": event_id, "status": "paid"})
+    checked = await db.bookings.count_documents({"event_id": event_id, "status": "paid", "checked_in": True})
+    return {
+        "event": {
+            "event_id": event["event_id"],
+            "title": event["title"],
+            "venue": event.get("venue"),
+            "date": event.get("date"),
+            "image_url": event.get("image_url"),
+        },
+        "label": tok.get("label"),
+        "stats": {"total": total, "checked_in": checked, "remaining": max(0, total - checked)},
     }
 
 

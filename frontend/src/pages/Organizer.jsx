@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet } from "lucide-react";
+import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet, ScanLine } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { formatMoney } from "@/lib/currencies";
+import DoorCheckinPanel from "@/components/DoorCheckinPanel";
 
 export default function Organizer() {
   const { user } = useAuth();
@@ -54,6 +55,8 @@ export default function Organizer() {
             <Stat label="Events" value={analytics.events_count} icon={<Calendar />} />
           </div>
 
+          <DoorCheckinPanel events={events} />
+
           <div className="border rounded-2xl p-6 mb-10" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -89,25 +92,37 @@ export default function Organizer() {
               <th className="text-left p-4">Status</th>
               <th className="text-right p-4">Sold</th>
               <th className="text-right p-4">Revenue</th>
+              <th className="text-right p-4">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan="5" className="p-8 text-center" style={{ color: "var(--text-dim)" }}>Loading your events...</td></tr>
+              <tr><td colSpan="6" className="p-8 text-center" style={{ color: "var(--text-dim)" }}>Loading your events...</td></tr>
             ) : events.length === 0 ? (
-              <tr><td colSpan="5" className="p-8 text-center" style={{ color: "var(--text-dim)" }}>No events yet. Create your first one!</td></tr>
+              <tr><td colSpan="6" className="p-8 text-center" style={{ color: "var(--text-dim)" }}>No events yet. Create your first one!</td></tr>
             ) : events.map((e) => {
               const perE = (analytics?.per_event || []).find((x) => x.event_id === e.event_id) || {};
               return (
-                <tr key={e.event_id} className="border-b hover:bg-[color:var(--bg-elev)] transition cursor-pointer" style={{ borderColor: "var(--border)" }} data-testid={`org-event-row-${e.event_id}`} onClick={() => window.location.assign(`/organizer/events/${e.event_id}`)}>
+                <tr key={e.event_id} className="border-b hover:bg-[color:var(--bg-elev)] transition" style={{ borderColor: "var(--border)" }} data-testid={`org-event-row-${e.event_id}`}>
                   <td className="p-4">
-                    <Link to={`/organizer/events/${e.event_id}`} className="hover:text-[color:var(--accent)]" onClick={(ev) => ev.stopPropagation()}>{e.title}</Link>
+                    <Link to={`/organizer/events/${e.event_id}`} className="hover:text-[color:var(--accent)]">{e.title}</Link>
                     <div className="text-xs" style={{ color: "var(--text-dim)" }}>{e.venue} · {e.city}</div>
                   </td>
                   <td className="p-4" style={{ color: "var(--text-muted)" }}>{new Date(e.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</td>
                   <td className="p-4"><span className={`chip ${e.status === "approved" ? "chip-accent" : ""}`}>{e.status}</span></td>
                   <td className="p-4 text-right" style={{ color: "var(--text-muted)" }}>{perE.tickets || 0}</td>
                   <td className="p-4 text-right">{formatMoney(perE.revenue || 0, e.currency)}</td>
+                  <td className="p-4 text-right">
+                    <Link
+                      to={`/organizer/events/${e.event_id}/checkin`}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium"
+                      style={{ background: "var(--accent)", color: "#fff" }}
+                      data-testid={`scan-tickets-${e.event_id}`}
+                      title="Open the QR scanner for this event"
+                    >
+                      <ScanLine className="w-3.5 h-3.5" /> Scan
+                    </Link>
+                  </td>
                 </tr>
               );
             })}

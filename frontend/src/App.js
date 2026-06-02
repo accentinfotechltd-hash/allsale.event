@@ -48,6 +48,9 @@ function AppRouter() {
         <Route path="/organizer/new" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId" element={<RequireOrganizer><OrganizerEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId/checkin" element={<RequireOrganizer><CheckIn /></RequireOrganizer>} />
+        {/* Public scanner — no login required, validated by token query param.
+            Lets door staff / volunteers scan via a shareable link. */}
+        <Route path="/scan/:eventId" element={<CheckIn />} />
         <Route path="/organizer/codes" element={<RequireOrganizer><DiscountCodes /></RequireOrganizer>} />
         <Route path="/organizer/payouts" element={<RequireOrganizer><OrganizerPayouts /></RequireOrganizer>} />
         <Route path="/admin" element={<Admin />} />
