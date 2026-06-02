@@ -81,7 +81,7 @@ async def get_event(event_id: str):
         booked_seats = []
         held_seats = []
         async for r in db.seat_reservations.find(
-            {"event_id": event_id, "status": "booked"}, {"_id": 0, "seat_id": 1},
+            {"event_id": event_id, "status": {"$in": ["booked", "blocked"]}}, {"_id": 0, "seat_id": 1},
         ):
             booked_seats.append(r["seat_id"])
         async for r in db.seat_reservations.find(

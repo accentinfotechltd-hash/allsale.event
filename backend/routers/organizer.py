@@ -134,6 +134,13 @@ async def event_drilldown(event_id: str, user: dict = Depends(get_current_user))
             "category": event["category"],
             "image_url": event.get("image_url"),
             "has_seatmap": event.get("has_seatmap", False),
+            "seat_rows": event.get("seat_rows"),
+            "seat_cols": event.get("seat_cols"),
+            "seat_price": event.get("seat_price"),
+            "aisles": event.get("aisles") or [],
+            "seatmap_sections": event.get("seatmap_sections") or [],
+            "seatmap_curved": event.get("seatmap_curved", False),
+            "currency": event.get("currency", "NZD"),
             "dynamic_pricing": event.get("dynamic_pricing") or {},
         },
         "totals": {
@@ -485,3 +492,141 @@ async def attendance_report_csv(event_id: str, user: dict = Depends(get_current_
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+# -----------------------------------------------------------------------------
+# SEAT BLOCKS — organizer holds seats for sponsors / VIPs / gifts.
+# Implemented as `seat_reservations` documents with status="blocked", so the
+# existing public availability query and unique compound index automatically
+# prevent any double-claim, with zero changes to the booking flow.
+# -----------------------------------------------------------------------------
+from pymongo.errors import DuplicateKeyError
+
+
+class SeatBlockIn(BaseModel):
+    seats: list[str]
+    reason: Optional[str] = "VIP"  # VIP / Sponsor / Gift / Comp / Staff / Other
+    note: Optional[str] = None
+
+
+async def _assert_event_owner(event_id: str, user: dict) -> dict:
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return event
+
+
+@router.get("/events/{event_id}/seat-blocks")
+async def list_seat_blocks(event_id: str, user: dict = Depends(get_current_user)):
+    """Return all seats the organizer has blocked for this event."""
+    await require_role(user, "organizer", "admin")
+    await _assert_event_owner(event_id, user)
+    items = []
+    async for r in db.seat_reservations.find(
+        {"event_id": event_id, "status": "blocked"}, {"_id": 0}
+    ).sort("created_at", -1):
+        items.append({
+            "seat_id": r["seat_id"],
+            "reason": r.get("reason") or "VIP",
+            "note": r.get("note") or "",
+            "created_at": r.get("created_at"),
+            "blocked_by": r.get("blocked_by"),
+        })
+    return {"event_id": event_id, "blocks": items, "count": len(items)}
+
+
+@router.post("/events/{event_id}/seat-blocks")
+async def create_seat_blocks(event_id: str, payload: SeatBlockIn, user: dict = Depends(get_current_user)):
+    """Block seats so the public can't buy them. Useful for sponsors, VIPs, gifts.
+
+    Rejects seats that are aisles, already booked, currently on hold by another
+    buyer, or already blocked. Returns a summary so the UI can toast clearly.
+    """
+    await require_role(user, "organizer", "admin")
+    event = await _assert_event_owner(event_id, user)
+
+    if not event.get("has_seatmap"):
+        raise HTTPException(status_code=400, detail="Seat blocking is only available for seatmap events")
+    seats = [s for s in (payload.seats or []) if s]
+    if not seats:
+        raise HTTPException(status_code=400, detail="No seats provided")
+
+    aisles = set(event.get("aisles") or [])
+    bad_aisles = [s for s in seats if s in aisles]
+    if bad_aisles:
+        raise HTTPException(status_code=400, detail=f"Cannot block aisle markers: {', '.join(bad_aisles)}")
+
+    now_iso = utc_now().isoformat()
+    blocked = []
+    rejected = []
+    for sid in seats:
+        try:
+            await db.seat_reservations.insert_one({
+                "event_id": event_id,
+                "seat_id": sid,
+                "status": "blocked",
+                "reason": payload.reason or "VIP",
+                "note": payload.note or "",
+                "blocked_by": user["user_id"],
+                "blocked_by_name": user.get("name") or user.get("email"),
+                "created_at": now_iso,
+                # blocks never expire — must be explicitly released
+                "expires_at": "9999-12-31T23:59:59+00:00",
+            })
+            blocked.append(sid)
+        except DuplicateKeyError:
+            rejected.append(sid)
+
+    # Tell anyone watching the seatmap so blocked seats grey-out instantly.
+    try:
+        from routers.ws_seats import notify_seats  # local import to avoid cycle on cold start
+        if blocked:
+            await notify_seats(event_id, [{"seat_id": s, "status": "booked"} for s in blocked])
+    except Exception:
+        pass
+
+    return {"blocked": blocked, "rejected": rejected, "count": len(blocked)}
+
+
+@router.delete("/events/{event_id}/seat-blocks/{seat_id}")
+async def release_seat_block(event_id: str, seat_id: str, user: dict = Depends(get_current_user)):
+    """Release a single previously-blocked seat back into public inventory."""
+    await require_role(user, "organizer", "admin")
+    await _assert_event_owner(event_id, user)
+    res = await db.seat_reservations.delete_one({
+        "event_id": event_id, "seat_id": seat_id, "status": "blocked",
+    })
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Block not found")
+
+    try:
+        from routers.ws_seats import notify_seats
+        await notify_seats(event_id, [{"seat_id": seat_id, "status": "available"}])
+    except Exception:
+        pass
+
+    return {"released": seat_id}
+
+
+@router.delete("/events/{event_id}/seat-blocks")
+async def release_all_seat_blocks(event_id: str, user: dict = Depends(get_current_user)):
+    """Release every blocked seat for an event (bulk action)."""
+    await require_role(user, "organizer", "admin")
+    await _assert_event_owner(event_id, user)
+    seat_ids = []
+    async for r in db.seat_reservations.find(
+        {"event_id": event_id, "status": "blocked"}, {"_id": 0, "seat_id": 1}
+    ):
+        seat_ids.append(r["seat_id"])
+    res = await db.seat_reservations.delete_many({"event_id": event_id, "status": "blocked"})
+
+    try:
+        from routers.ws_seats import notify_seats
+        if seat_ids:
+            await notify_seats(event_id, [{"seat_id": s, "status": "available"} for s in seat_ids])
+    except Exception:
+        pass
+
+    return {"released_count": res.deleted_count, "seats": seat_ids}

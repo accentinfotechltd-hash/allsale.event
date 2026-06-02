@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send, Zap, Activity } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { toast } from "sonner";
+import SeatBlocksPanel from "@/components/SeatBlocksPanel";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
@@ -91,6 +92,8 @@ export default function OrganizerEvent() {
       </div>
 
       <VelocityWidget eventId={eventId} />
+
+      <SeatBlocksPanel eventId={eventId} event={event} />
 
       <div className="grid lg:grid-cols-2 gap-6 mb-8">
         {/* By tier */}
