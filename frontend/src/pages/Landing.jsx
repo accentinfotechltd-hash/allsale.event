@@ -42,7 +42,7 @@ export default function Landing() {
     <div>
       {/* HERO */}
       <section className="relative overflow-hidden">
-        <div className="max-w-7xl mx-auto px-6 pt-16 pb-12 grid lg:grid-cols-12 gap-10 items-end">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-10 sm:pt-16 pb-12 grid lg:grid-cols-12 gap-10 items-end">
           <div className="lg:col-span-7 fade-up">
             <div className="chip mb-6">
               <span style={{ background: "var(--accent)", width: 6, height: 6, borderRadius: 99 }} />
@@ -52,33 +52,33 @@ export default function Landing() {
               The night is <em style={{ color: "var(--accent)" }}>yours</em>.
               <br /> Tickets are <em>limited</em>.
             </h1>
-            <p className="text-lg max-w-xl mb-8" style={{ color: "var(--text-muted)" }}>
+            <p className="text-base sm:text-lg max-w-xl mb-8" style={{ color: "var(--text-muted)" }}>
               Discover concerts, comedy, sports, theater and festivals — and lock your seat with a 10-minute hold while you check out. No surprises, no scalpers.
             </p>
             <form
               onSubmit={(e) => { e.preventDefault(); nav(`/events?q=${encodeURIComponent(q)}`); }}
-              className="flex gap-2 max-w-xl"
+              className="flex flex-col sm:flex-row gap-2 max-w-xl"
               data-testid="hero-search-form"
             >
-              <div className="relative flex-1">
+              <div className="relative flex-1 min-w-0">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--text-dim)" }} />
                 <input
                   value={q}
                   onChange={(e) => setQ(e.target.value)}
                   placeholder="Search artists, events, or venues"
-                  className="pl-11 !py-4"
+                  className="pl-11 !py-4 w-full"
                   data-testid="hero-search-input"
                 />
               </div>
-              <button type="submit" className="btn-primary" data-testid="hero-search-submit">
+              <button type="submit" className="btn-primary justify-center" data-testid="hero-search-submit">
                 Search <ArrowRight className="w-4 h-4" />
               </button>
             </form>
 
-            <div className="flex items-center gap-8 mt-10 text-sm" style={{ color: "var(--text-muted)" }}>
-              <div className="flex items-center gap-2"><Zap className="w-4 h-4" style={{ color: "var(--accent)" }} /> Instant e-tickets</div>
-              <div className="flex items-center gap-2"><Award className="w-4 h-4" style={{ color: "var(--accent)" }} /> Verified organizers</div>
-              <div className="flex items-center gap-2"><Calendar className="w-4 h-4" style={{ color: "var(--accent)" }} /> 10-min seat hold</div>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mt-10 text-sm" style={{ color: "var(--text-muted)" }}>
+              <div className="flex items-center gap-2 whitespace-nowrap"><Zap className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> Instant e-tickets</div>
+              <div className="flex items-center gap-2 whitespace-nowrap"><Award className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> Verified organizers</div>
+              <div className="flex items-center gap-2 whitespace-nowrap"><Calendar className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> 10-min seat hold</div>
             </div>
           </div>
 

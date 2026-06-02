@@ -233,31 +233,31 @@ export default function EventDetail() {
   return (
     <div>
       {/* Banner */}
-      <div className="relative h-[420px] overflow-hidden">
+      <div className="relative h-[260px] sm:h-[360px] lg:h-[420px] overflow-hidden">
         <img src={event.banner_url || event.image_url} alt={event.title} className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-[color:var(--bg)] via-black/60 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 max-w-7xl mx-auto px-6 pb-10">
-          <span className="chip chip-accent mb-4">{event.category}</span>
-          <h1 className="serif text-5xl lg:text-7xl leading-[0.95] max-w-3xl" data-testid="event-title">{event.title}</h1>
+        <div className="absolute inset-x-0 bottom-0 max-w-7xl mx-auto px-4 sm:px-6 pb-6 sm:pb-10">
+          <span className="chip chip-accent mb-3 sm:mb-4">{event.category}</span>
+          <h1 className="serif text-4xl sm:text-5xl lg:text-7xl leading-[0.95] max-w-3xl" data-testid="event-title">{event.title}</h1>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-12 grid lg:grid-cols-[1fr_400px] gap-12">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 grid lg:grid-cols-[1fr_400px] gap-8 lg:gap-12">
         {/* Main */}
         <div>
-          <div className="flex flex-wrap gap-5 mb-8 text-sm" style={{ color: "var(--text-muted)" }}>
-            <div className="flex items-center gap-2"><Calendar className="w-4 h-4" style={{ color: "var(--accent)" }} /> {date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}, {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
-            <div className="flex items-center gap-2"><MapPin className="w-4 h-4" style={{ color: "var(--accent)" }} /> {event.venue}, {event.city}</div>
-            <div className="flex items-center gap-2"><User className="w-4 h-4" style={{ color: "var(--accent)" }} /> {event.organizer_name}</div>
+          <div className="flex flex-wrap gap-3 sm:gap-5 mb-6 sm:mb-8 text-sm" style={{ color: "var(--text-muted)" }}>
+            <div className="flex items-center gap-2"><Calendar className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> {date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}, {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+            <div className="flex items-center gap-2"><MapPin className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> {event.venue}, {event.city}</div>
+            <div className="flex items-center gap-2"><User className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> {event.organizer_name}</div>
           </div>
 
-          <p className="text-lg leading-relaxed max-w-3xl mb-12" style={{ color: "var(--text-muted)" }}>{event.description}</p>
+          <p className="text-base sm:text-lg leading-relaxed max-w-3xl mb-10 sm:mb-12" style={{ color: "var(--text-muted)" }}>{event.description}</p>
 
           {event.has_seatmap && (
-            <div className="border rounded-2xl p-6 lg:p-8" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
-              <div className="mb-6">
+            <div className="border rounded-2xl p-4 sm:p-6 lg:p-8" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
+              <div className="mb-5 sm:mb-6">
                 <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>Pick your seats</div>
-                <h2 className="serif text-3xl">Interactive seat map</h2>
+                <h2 className="serif text-2xl sm:text-3xl">Interactive seat map</h2>
                 <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>{formatMoney(event.seat_price, event.currency)} per seat. Updates live every few seconds.</p>
               </div>
               <SeatMap
