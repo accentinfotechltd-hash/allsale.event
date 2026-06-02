@@ -7,6 +7,7 @@ import DemandSparkline from "@/components/DemandSparkline";
 import useEventLiveUpdates from "@/lib/useEventLiveUpdates";
 import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi } from "lucide-react";
 import { toast } from "sonner";
+import { formatMoney } from "@/lib/currencies";
 
 export default function EventDetail() {
   const { eventId } = useParams();
@@ -257,7 +258,7 @@ export default function EventDetail() {
               <div className="mb-6">
                 <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>Pick your seats</div>
                 <h2 className="serif text-3xl">Interactive seat map</h2>
-                <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>${event.seat_price.toFixed(2)} per seat. Updates live every few seconds.</p>
+                <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>{formatMoney(event.seat_price, event.currency)} per seat. Updates live every few seconds.</p>
               </div>
               <SeatMap
                 rows={event.seat_rows}
@@ -326,11 +327,11 @@ export default function EventDetail() {
                           {t.surging && t.effective_price > t.price ? (
                             <>
                               <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--danger)" }}>High demand</div>
-                              <div className="serif text-2xl" style={{ color: "var(--accent)" }}>${t.effective_price}</div>
-                              <div className="text-xs line-through" style={{ color: "var(--text-dim)" }}>${t.price}</div>
+                              <div className="serif text-2xl" style={{ color: "var(--accent)" }}>{formatMoney(t.effective_price, event.currency, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>
+                              <div className="text-xs line-through" style={{ color: "var(--text-dim)" }}>{formatMoney(t.price, event.currency, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>
                             </>
                           ) : (
-                            <div className="serif text-2xl" style={{ color: "var(--accent)" }}>${t.price}</div>
+                            <div className="serif text-2xl" style={{ color: "var(--accent)" }}>{formatMoney(t.price, event.currency, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>
                           )}
                         </div>
                       </div>
@@ -399,12 +400,12 @@ export default function EventDetail() {
               {appliedCode && subtotal > 0 && (
                 <div className="flex justify-between text-sm pt-2" style={{ color: "var(--text-dim)" }}>
                   <span>Subtotal</span>
-                  <span className="line-through">${subtotal.toFixed(2)}</span>
+                  <span className="line-through">{formatMoney(subtotal, event.currency)}</span>
                 </div>
               )}
               <div className="flex items-baseline justify-between pt-1">
                 <span className="text-sm uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Total</span>
-                <span className="serif text-4xl" style={{ color: "var(--accent)" }} data-testid="total-price">${total.toFixed(2)}</span>
+                <span className="serif text-4xl" style={{ color: "var(--accent)" }} data-testid="total-price">{formatMoney(total, event.currency)}</span>
               </div>
             </div>
 

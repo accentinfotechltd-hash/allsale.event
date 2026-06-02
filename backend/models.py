@@ -33,6 +33,7 @@ class EventIn(BaseModel):
     date: str
     image_url: str
     banner_url: Optional[str] = None
+    currency: str = "NZD"  # ISO 4217. Drives event pricing, checkout, payouts.
     tiers: List[Dict[str, Any]] = Field(default_factory=list)
     has_seatmap: bool = False
     seat_rows: int = 0

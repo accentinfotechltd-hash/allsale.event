@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
-import { Calendar, MapPin } from "lucide-react";
+import { MapPin } from "lucide-react";
+import { formatMoney } from "@/lib/currencies";
 
 export default function EventCard({ event, index = 0 }) {
   const date = new Date(event.date);
@@ -7,6 +8,7 @@ export default function EventCard({ event, index = 0 }) {
   const minPrice = event.has_seatmap
     ? event.seat_price
     : Math.min(...(event.tiers || []).map((t) => t.price));
+  const currency = event.currency || "NZD";
 
   return (
     <Link
@@ -40,7 +42,7 @@ export default function EventCard({ event, index = 0 }) {
           </div>
           <div className="text-right">
             <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>from</div>
-            <div className="serif text-2xl leading-none" style={{ color: "var(--accent)" }}>${minPrice}</div>
+            <div className="serif text-2xl leading-none" style={{ color: "var(--accent)" }}>{formatMoney(minPrice, currency, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
           </div>
         </div>
       </div>

@@ -69,10 +69,14 @@ async def checkout_session(payload: CheckoutIn, request: Request, user: dict = D
     webhook_url = f"{host_url}api/webhook/stripe"
     stripe = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
 
+    # Currency is set per-event by the organizer. Stripe expects ISO-4217 lowercase.
+    event = await db.events.find_one({"event_id": booking["event_id"]}, {"_id": 0}) or {}
+    currency = (event.get("currency") or "NZD").lower()
+
     success_url = f"{payload.origin_url}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{payload.origin_url}/checkout/{payload.booking_id}"
     req = CheckoutSessionRequest(
-        amount=float(booking["amount"]), currency="usd",
+        amount=float(booking["amount"]), currency=currency,
         success_url=success_url, cancel_url=cancel_url,
         metadata={
             "booking_id": booking["booking_id"], "event_id": booking["event_id"],
@@ -83,7 +87,7 @@ async def checkout_session(payload: CheckoutIn, request: Request, user: dict = D
 
     await db.payment_transactions.insert_one({
         "session_id": session.session_id, "booking_id": booking["booking_id"],
-        "user_id": user["user_id"], "amount": booking["amount"], "currency": "usd",
+        "user_id": user["user_id"], "amount": booking["amount"], "currency": currency,
         "metadata": req.metadata, "payment_status": "pending", "status": "initiated",
         "created_at": utc_now().isoformat(),
     })

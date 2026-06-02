@@ -153,7 +153,7 @@ async def create_hold(payload: HoldIn, user: dict = Depends(get_current_user)):
         "tier_name": tier_name, "quantity": quantity, "seats": seats,
         "amount": amount, "subtotal": subtotal,
         "discount_code": discount_code, "discount_amount": discount_amount,
-        "currency": "usd", "status": "pending",
+        "currency": (event.get("currency") or "NZD").upper(), "status": "pending",
         "hold_expires_at": expires.isoformat(), "created_at": utc_now().isoformat(),
     }
     await db.bookings.insert_one(booking_doc)

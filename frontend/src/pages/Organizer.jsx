@@ -4,6 +4,7 @@ import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { formatMoney } from "@/lib/currencies";
 
 export default function Organizer() {
   const { user } = useAuth();
@@ -48,7 +49,7 @@ export default function Organizer() {
       {analytics && (
         <>
           <div className="grid sm:grid-cols-3 gap-4 mb-10">
-            <Stat label="Total revenue" value={`$${analytics.total_revenue.toLocaleString()}`} icon={<TrendingUp />} />
+            <Stat label="Total revenue" value={analytics.total_revenue.toLocaleString(undefined, { minimumFractionDigits: 2 })} sub="across all currencies" icon={<TrendingUp />} />
             <Stat label="Tickets sold" value={analytics.tickets_sold.toLocaleString()} icon={<Ticket />} />
             <Stat label="Events" value={analytics.events_count} icon={<Calendar />} />
           </div>
@@ -106,7 +107,7 @@ export default function Organizer() {
                   <td className="p-4" style={{ color: "var(--text-muted)" }}>{new Date(e.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</td>
                   <td className="p-4"><span className={`chip ${e.status === "approved" ? "chip-accent" : ""}`}>{e.status}</span></td>
                   <td className="p-4 text-right" style={{ color: "var(--text-muted)" }}>{perE.tickets || 0}</td>
-                  <td className="p-4 text-right">${(perE.revenue || 0).toFixed(2)}</td>
+                  <td className="p-4 text-right">{formatMoney(perE.revenue || 0, e.currency)}</td>
                 </tr>
               );
             })}
@@ -117,7 +118,7 @@ export default function Organizer() {
   );
 }
 
-function Stat({ label, value, icon }) {
+function Stat({ label, value, sub, icon }) {
   return (
     <div className="border rounded-2xl p-6" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
       <div className="flex items-center justify-between mb-3">
@@ -125,6 +126,7 @@ function Stat({ label, value, icon }) {
         <div style={{ color: "var(--accent)" }}>{icon}</div>
       </div>
       <div className="serif text-4xl" style={{ color: "var(--text)" }}>{value}</div>
+      {sub && <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>{sub}</div>}
     </div>
   );
 }

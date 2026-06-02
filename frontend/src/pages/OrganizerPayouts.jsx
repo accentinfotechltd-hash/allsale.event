@@ -4,6 +4,7 @@ import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { ArrowLeft, Wallet, TrendingUp, Clock, CheckCircle2, XCircle, BanknoteIcon, FileText } from "lucide-react";
 import { toast } from "sonner";
+import { formatMoney } from "@/lib/currencies";
 
 const STATUS_META = {
   requested: { label: "Requested", color: "var(--warn)", bg: "rgba(251,191,36,0.12)", icon: Clock },
@@ -11,8 +12,8 @@ const STATUS_META = {
   rejected: { label: "Rejected", color: "var(--danger)", bg: "rgba(239,68,68,0.12)", icon: XCircle },
 };
 
-function money(v, currency = "USD") {
-  return `$${Number(v || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+function money(v, currency = "NZD") {
+  return formatMoney(v, currency);
 }
 
 function fmtDate(s) {

@@ -6,6 +6,7 @@ import { Plus, Trash2 } from "lucide-react";
 import ImageUploader from "@/components/ImageUploader";
 import SeatDesigner from "@/components/SeatDesigner";
 import DateTimePicker from "@/components/DateTimePicker";
+import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, currencySymbol } from "@/lib/currencies";
 
 const CATEGORIES = [
   { id: "movies", name: "Movies" },
@@ -30,6 +31,7 @@ export default function CreateEvent() {
     date: "",
     image_url: "",
     banner_url: "",
+    currency: DEFAULT_CURRENCY,
     has_seatmap: false,
     seat_rows: 6,
     seat_cols: 10,
@@ -94,6 +96,19 @@ export default function CreateEvent() {
               {CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </Field>
+          <Field label="Currency">
+            <select
+              value={form.currency}
+              onChange={(e) => update("currency", e.target.value)}
+              data-testid="event-currency-select"
+            >
+              {SUPPORTED_CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.flag} {c.code} — {c.name}
+                </option>
+              ))}
+            </select>
+          </Field>
           <Field label="Date & time">
             <DateTimePicker value={form.date} onChange={(v) => update("date", v)} testid="event-datetime" />
           </Field>
@@ -119,7 +134,7 @@ export default function CreateEvent() {
               <div className="grid grid-cols-3 gap-3">
                 <Field label="Rows"><input type="number" min={2} max={26} value={form.seat_rows} onChange={(e) => update("seat_rows", parseInt(e.target.value) || 2)} /></Field>
                 <Field label="Cols"><input type="number" min={4} max={26} value={form.seat_cols} onChange={(e) => update("seat_cols", parseInt(e.target.value) || 4)} /></Field>
-                <Field label="Price / seat"><input type="number" step="0.01" value={form.seat_price} onChange={(e) => update("seat_price", parseFloat(e.target.value) || 0)} /></Field>
+                <Field label={`Price / seat (${form.currency})`}><input type="number" step="0.01" value={form.seat_price} onChange={(e) => update("seat_price", parseFloat(e.target.value) || 0)} /></Field>
               </div>
 
               <Field label="Venue floor-plan (optional)">
@@ -165,7 +180,7 @@ export default function CreateEvent() {
                           <span className="text-sm flex-1 truncate">{s.label}</span>
                           <input
                             type="number" min="0" step="1"
-                            placeholder={`Default: $${form.seat_price}`}
+                            placeholder={`Default: ${currencySymbol(form.currency)}${form.seat_price}`}
                             value={s.price ?? ""}
                             onChange={(e) => {
                               const v = e.target.value === "" ? null : parseFloat(e.target.value);
@@ -201,7 +216,7 @@ export default function CreateEvent() {
               {tiers.map((t, i) => (
                 <div key={i} className="grid grid-cols-[1fr_120px_120px_auto] gap-2">
                   <input placeholder="Name" value={t.name} onChange={(e) => { const n = [...tiers]; n[i].name = e.target.value; setTiers(n); }} />
-                  <input type="number" step="0.01" placeholder="Price" value={t.price} onChange={(e) => { const n = [...tiers]; n[i].price = parseFloat(e.target.value); setTiers(n); }} />
+                  <input type="number" step="0.01" placeholder={`Price (${form.currency})`} value={t.price} onChange={(e) => { const n = [...tiers]; n[i].price = parseFloat(e.target.value); setTiers(n); }} />
                   <input type="number" placeholder="Capacity" value={t.capacity} onChange={(e) => { const n = [...tiers]; n[i].capacity = parseInt(e.target.value); setTiers(n); }} />
                   <button type="button" onClick={() => setTiers((arr) => arr.filter((_, x) => x !== i))} className="px-3 rounded-lg border" style={{ borderColor: "var(--border-strong)" }}><Trash2 className="w-4 h-4" /></button>
                 </div>

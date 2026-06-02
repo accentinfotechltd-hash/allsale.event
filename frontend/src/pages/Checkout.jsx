@@ -4,6 +4,7 @@ import api, { formatApiErrorDetail } from "@/lib/api";
 import Countdown from "@/components/Countdown";
 import { CreditCard, Lock, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
+import { formatMoney } from "@/lib/currencies";
 
 export default function Checkout() {
   const { bookingId } = useParams();
@@ -78,8 +79,8 @@ export default function Checkout() {
         <div className="border rounded-2xl p-6 space-y-5" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
           <div>
             <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--text-dim)" }}>Payable now</div>
-            <div className="serif text-5xl" style={{ color: "var(--accent)" }} data-testid="checkout-total">${booking.amount.toFixed(2)}</div>
-            <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>USD · all fees included</div>
+            <div className="serif text-5xl" style={{ color: "var(--accent)" }} data-testid="checkout-total">{formatMoney(booking.amount, booking.currency || "NZD")}</div>
+            <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>{(booking.currency || "NZD")} · all fees included</div>
           </div>
 
           <button onClick={onPay} disabled={paying || expired} className="btn-primary w-full justify-center" data-testid="pay-stripe-btn">

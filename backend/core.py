@@ -92,6 +92,9 @@ def gen_qr_data_url(payload: str) -> str:
 
 def event_to_public(e: dict) -> dict:
     e.pop("_id", None)
+    # Ensure currency is always present so the frontend can format prices safely
+    if not e.get("currency"):
+        e["currency"] = "NZD"
     return e
 
 
