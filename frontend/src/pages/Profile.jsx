@@ -4,6 +4,7 @@ import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Calendar, MapPin, Download, QrCode, UserCog, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import ProfileEditPanel from "@/components/ProfileEditPanel";
 
 export default function Profile() {
   const { user, setUser } = useAuth();
@@ -51,6 +52,8 @@ export default function Profile() {
         <h1 className="serif text-5xl">{user.name}</h1>
         <p style={{ color: "var(--text-muted)" }}>{user.email} · <span className="capitalize">{user.role}</span></p>
       </div>
+
+      <ProfileEditPanel />
 
       {/* Account type switcher — easy toggle between Organizer and Individual user */}
       {user.role !== "admin" && (

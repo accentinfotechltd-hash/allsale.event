@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon } from "lucide-react";
+import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye } from "lucide-react";
 import { toast } from "sonner";
+import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -129,6 +130,7 @@ function UsersTab({ currentUser }) {
   const [statusFilter, setStatusFilter] = useState("");
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null); // user_id being role-edited
+  const [viewingUserId, setViewingUserId] = useState(null); // drawer drill-down
 
   const load = async () => {
     setLoading(true);
@@ -215,36 +217,38 @@ function UsersTab({ currentUser }) {
           <thead>
             <tr className="border-b text-xs uppercase tracking-widest" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}>
               <th className="text-left p-4">User</th>
+              <th className="text-left p-4 hidden md:table-cell">Phone</th>
               <th className="text-left p-4">Role</th>
-              <th className="text-left p-4">Joined</th>
+              <th className="text-left p-4 hidden lg:table-cell">Joined</th>
               <th className="text-right p-4">Bookings</th>
-              <th className="text-right p-4">Events</th>
+              <th className="text-right p-4 hidden sm:table-cell">Events</th>
               <th className="text-left p-4">Status</th>
               <th className="text-right p-4">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan="7" className="p-10 text-center" style={{ color: "var(--text-dim)" }}>Loading users...</td></tr>
+              <tr><td colSpan="8" className="p-10 text-center" style={{ color: "var(--text-dim)" }}>Loading users...</td></tr>
             ) : users.length === 0 ? (
-              <tr><td colSpan="7" className="p-10 text-center" style={{ color: "var(--text-dim)" }}>No users match these filters.</td></tr>
+              <tr><td colSpan="8" className="p-10 text-center" style={{ color: "var(--text-dim)" }}>No users match these filters.</td></tr>
             ) : users.map((u) => (
               <tr key={u.user_id} className="border-b" style={{ borderColor: "var(--border)", opacity: u.active ? 1 : 0.55 }} data-testid={`user-row-${u.user_id}`}>
                 <td className="p-4">
-                  <div className="flex items-center gap-3">
+                  <button onClick={() => setViewingUserId(u.user_id)} className="flex items-center gap-3 text-left hover:opacity-80 transition" data-testid={`view-user-${u.user_id}`}>
                     {u.picture ? (
-                      <img src={u.picture} alt="" className="w-9 h-9 rounded-full" />
+                      <img src={u.picture} alt="" className="w-9 h-9 rounded-full object-cover" />
                     ) : (
                       <div className="w-9 h-9 rounded-full flex items-center justify-center" style={{ background: "var(--bg-elev)", color: "var(--text-muted)" }}>
                         {u.name.charAt(0).toUpperCase()}
                       </div>
                     )}
                     <div>
-                      <div className="font-medium">{u.name}</div>
+                      <div className="font-medium underline-offset-2 hover:underline">{u.name}</div>
                       <div className="text-xs" style={{ color: "var(--text-dim)" }}>{u.email}</div>
                     </div>
-                  </div>
+                  </button>
                 </td>
+                <td className="p-4 hidden md:table-cell text-sm" style={{ color: "var(--text-muted)" }}>{u.phone || "—"}</td>
                 <td className="p-4">
                   {editing === u.user_id ? (
                     <select
@@ -266,11 +270,11 @@ function UsersTab({ currentUser }) {
                     </button>
                   )}
                 </td>
-                <td className="p-4" style={{ color: "var(--text-muted)" }}>
+                <td className="p-4 hidden lg:table-cell" style={{ color: "var(--text-muted)" }}>
                   {new Date(u.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                 </td>
                 <td className="p-4 text-right" style={{ color: "var(--text-muted)" }}>{u.bookings_count}</td>
-                <td className="p-4 text-right" style={{ color: "var(--text-muted)" }}>{u.events_count}</td>
+                <td className="p-4 text-right hidden sm:table-cell" style={{ color: "var(--text-muted)" }}>{u.events_count}</td>
                 <td className="p-4">
                   {u.active ? (
                     <span className="chip chip-accent" style={{ fontSize: "0.65rem" }}>Active</span>
@@ -282,6 +286,12 @@ function UsersTab({ currentUser }) {
                 </td>
                 <td className="p-4 text-right">
                   <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setViewingUserId(u.user_id)}
+                      className="btn-ghost !py-1 !px-2 text-xs"
+                      title="View details"
+                      data-testid={`view-details-${u.user_id}`}
+                    ><Eye className="w-3 h-3" /></button>
                     <button
                       onClick={() => setEditing(u.user_id)}
                       disabled={u.user_id === currentUser.user_id}
@@ -306,6 +316,14 @@ function UsersTab({ currentUser }) {
         </table>
       </div>
       <p className="text-xs mt-3" style={{ color: "var(--text-dim)" }}>You cannot suspend or change your own role.</p>
+
+      {viewingUserId && (
+        <AdminUserDetailDrawer
+          userId={viewingUserId}
+          onClose={() => setViewingUserId(null)}
+          onUserUpdated={() => load()}
+        />
+      )}
     </div>
   );
 }

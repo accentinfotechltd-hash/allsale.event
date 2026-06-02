@@ -72,7 +72,68 @@ async def me(user: dict = Depends(get_current_user)):
     return {
         "user_id": user["user_id"], "email": user["email"], "name": user["name"],
         "role": user["role"], "picture": user.get("picture"),
+        "phone": user.get("phone"),
+        "notification_prefs": user.get("notification_prefs") or {
+            "email_booking": True, "email_reminders": True, "email_marketing": False,
+        },
     }
+
+
+# ---------- Profile editing ----------
+from pydantic import BaseModel, EmailStr
+import re
+
+
+class ProfileUpdateIn(BaseModel):
+    name: str | None = None
+    email: EmailStr | None = None
+    phone: str | None = None
+    picture: str | None = None  # data URL or hosted URL
+    notification_prefs: dict | None = None
+
+
+_PHONE_RE = re.compile(r"^[+0-9 ()\-]{6,20}$")
+
+
+@router.patch("/me")
+async def update_me(payload: ProfileUpdateIn, user: dict = Depends(get_current_user)):
+    """Edit profile fields. Email change is allowed but must be unique.
+    Phone is validated loosely (digits/+/-/space). All future booking emails
+    automatically route to the new address because email is read at booking time.
+    """
+    update: dict = {}
+    if payload.name is not None:
+        nm = payload.name.strip()
+        if not nm:
+            raise HTTPException(status_code=400, detail="Name cannot be empty")
+        update["name"] = nm
+    if payload.email is not None:
+        new_email = str(payload.email).lower().strip()
+        if new_email != user["email"]:
+            clash = await db.users.find_one({"email": new_email, "user_id": {"$ne": user["user_id"]}})
+            if clash:
+                raise HTTPException(status_code=400, detail="That email is already taken")
+            update["email"] = new_email
+    if payload.phone is not None:
+        ph = payload.phone.strip()
+        if ph and not _PHONE_RE.match(ph):
+            raise HTTPException(status_code=400, detail="Phone format looks invalid")
+        update["phone"] = ph or None
+    if payload.picture is not None:
+        update["picture"] = payload.picture or None
+    if payload.notification_prefs is not None:
+        # whitelist keys to avoid stuffing arbitrary data
+        allowed = {"email_booking", "email_reminders", "email_marketing", "email_cancellations"}
+        prefs = {k: bool(v) for k, v in payload.notification_prefs.items() if k in allowed}
+        update["notification_prefs"] = prefs
+
+    if not update:
+        return {"updated": False, **{k: v for k, v in user.items() if k not in ("_id", "password_hash")}}
+
+    update["profile_updated_at"] = utc_now().isoformat()
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
+    refreshed = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "password_hash": 0})
+    return {"updated": True, **refreshed}
 
 
 # Emergent Google Auth — exchange session_id for session_token, fetch profile
