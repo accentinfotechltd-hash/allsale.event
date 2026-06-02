@@ -219,6 +219,41 @@ def _t_waitlist_spot_opened(ctx: Dict[str, Any]) -> tuple[str, str, str]:
     return subject, html, text
 
 
+def _t_team_invitation(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Sent when an organizer adds someone to their event team.
+
+    Different copy depending on whether the recipient already has an account.
+    """
+    role_label = {
+        "co_organizer": "Co-organizer (full access)",
+        "manager": "Manager (edit + analytics + check-in)",
+        "door_staff": "Door staff (check-in only)",
+    }.get(ctx.get("role"), ctx.get("role", "Team member"))
+    scope_label = "all your events" if ctx.get("scope") == "organization" else ctx.get("event_title", "the event")
+    new_user = bool(ctx.get("new_user"))
+    cta_label = "Create my account" if new_user else "Open my dashboard"
+    cta_url = f"{APP_PUBLIC_URL}/signup?email={ctx.get('email','')}" if new_user else f"{APP_PUBLIC_URL}/organizer"
+
+    if new_user:
+        note_html = f'<p style="color:{TEXT_MUTED};">You will need to create an account with this email first.</p>'
+    else:
+        note_html = f'<p style="color:{TEXT_MUTED};">Just sign in and head to your Organizer dashboard.</p>'
+
+    body = f"""
+    <p style="color:{TEXT};">Hi {ctx.get('name','there')} — <strong>{ctx.get('inviter_name','an organizer')}</strong> has added you as a <strong style="color:{BRAND_COLOR};">{role_label}</strong> on Allsale Events.</p>
+    <p style="color:{TEXT};">You now have access to <strong>{scope_label}</strong>.</p>
+    {note_html}
+    """
+    subject = f"You're on the team for {scope_label}"
+    html = _layout("Team invitation", "Allsale Events", body, cta_label, cta_url)
+    text = _text_fallback([
+        f"{ctx.get('inviter_name','An organizer')} added you as {role_label} on Allsale Events.",
+        f"Access: {scope_label}",
+        f"Sign in / sign up: {cta_url}",
+    ])
+    return subject, html, text
+
+
 TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "booking_confirmation": _t_booking_confirmation,
     "hold_expired": _t_hold_expired,
@@ -226,6 +261,7 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "organizer_event_approved": _t_organizer_event_approved,
     "organizer_payout_issued": _t_organizer_payout_issued,
     "waitlist_spot_opened": _t_waitlist_spot_opened,
+    "team_invitation": _t_team_invitation,
 }
 
 

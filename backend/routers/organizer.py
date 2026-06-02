@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from core import db, get_current_user, get_current_user_optional, require_role, event_to_public, utc_now
+from routers.team import user_can_manage_event
 
 router = APIRouter(prefix="/organizer", tags=["organizer"])
 
@@ -24,8 +25,45 @@ class CheckinIn(BaseModel):
 @router.get("/events")
 async def org_events(user: dict = Depends(get_current_user)):
     await require_role(user, "organizer", "admin")
-    cursor = db.events.find({"organizer_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1)
-    return [event_to_public(e) async for e in cursor]
+    # Owned events
+    owned_ids: set[str] = set()
+    owned_events = []
+    async for e in db.events.find({"organizer_id": user["user_id"]}, {"_id": 0}).sort("created_at", -1):
+        owned_ids.add(e["event_id"])
+        owned_events.append(event_to_public(e))
+
+    # Events granted to this user via team membership (per-event OR via org-wide grant)
+    org_owners: set[str] = set()
+    team_event_ids: set[str] = set()
+    async for tm in db.team_members.find(
+        {"member_user_id": user["user_id"], "status": "active"}, {"_id": 0},
+    ):
+        if tm.get("scope") == "organization" and tm.get("owner_user_id"):
+            org_owners.add(tm["owner_user_id"])
+        elif tm.get("scope") == "event" and tm.get("event_id"):
+            team_event_ids.add(tm["event_id"])
+
+    extra_query: dict = {}
+    if org_owners and team_event_ids:
+        extra_query = {"$or": [
+            {"organizer_id": {"$in": list(org_owners)}},
+            {"event_id": {"$in": list(team_event_ids - owned_ids)}},
+        ]}
+    elif org_owners:
+        extra_query = {"organizer_id": {"$in": list(org_owners)}}
+    elif team_event_ids:
+        extra_query = {"event_id": {"$in": list(team_event_ids - owned_ids)}}
+
+    team_events = []
+    if extra_query:
+        async for e in db.events.find(extra_query, {"_id": 0}).sort("created_at", -1):
+            if e["event_id"] in owned_ids:
+                continue
+            pub = event_to_public(e)
+            pub["_team_role"] = "team"
+            team_events.append(pub)
+
+    return owned_events + team_events
 
 
 @router.get("/analytics")
@@ -72,7 +110,7 @@ async def event_drilldown(event_id: str, user: dict = Depends(get_current_user))
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+    if not await user_can_manage_event(user, event, required="manager"):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     bookings = []
@@ -164,7 +202,7 @@ async def org_attendees(event_id: str, user: dict = Depends(get_current_user)):
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+    if not await user_can_manage_event(user, event, required="manager"):
         raise HTTPException(status_code=403, detail="Forbidden")
     items = []
     async for b in db.bookings.find({"event_id": event_id, "status": "paid"}, {"_id": 0}):
@@ -179,7 +217,7 @@ async def org_attendees_csv(event_id: str, user: dict = Depends(get_current_user
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+    if not await user_can_manage_event(user, event, required="manager"):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     buf = io.StringIO()
@@ -248,7 +286,7 @@ async def checkin(payload: CheckinIn, user: Optional[dict] = Depends(get_current
         if not user:
             raise HTTPException(status_code=401, detail="Sign in or provide a scanner token")
         await require_role(user, "organizer", "admin")
-        if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+        if not await user_can_manage_event(user, event, required="door_staff"):
             raise HTTPException(status_code=403, detail="Not your event")
         actor_id = user["user_id"]
 
@@ -307,7 +345,7 @@ async def create_scanner_token(event_id: str, payload: ScannerTokenIn, user: dic
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+    if not await user_can_manage_event(user, event, required="manager"):
         raise HTTPException(status_code=403, detail="Not your event")
 
     token = secrets.token_urlsafe(24)
@@ -331,7 +369,7 @@ async def list_scanner_tokens(event_id: str, user: dict = Depends(get_current_us
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+    if not await user_can_manage_event(user, event, required="manager"):
         raise HTTPException(status_code=403, detail="Not your event")
     return [
         t async for t in db.scanner_tokens.find({"event_id": event_id}, {"_id": 0}).sort("created_at", -1)
@@ -342,7 +380,9 @@ async def list_scanner_tokens(event_id: str, user: dict = Depends(get_current_us
 async def revoke_scanner_token(event_id: str, token_id: str, user: dict = Depends(get_current_user)):
     await require_role(user, "organizer", "admin")
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
-    if not event or (event["organizer_id"] != user["user_id"] and user.get("role") != "admin"):
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if not await user_can_manage_event(user, event, required="manager"):
         raise HTTPException(status_code=403, detail="Not your event")
     await db.scanner_tokens.update_one({"event_id": event_id, "token_id": token_id}, {"$set": {"revoked": True}})
     return {"ok": True}
@@ -398,7 +438,7 @@ async def checkin_stats(event_id: str, user: dict = Depends(get_current_user)):
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+    if not await user_can_manage_event(user, event, required="door_staff"):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     total_bookings = await db.bookings.count_documents({"event_id": event_id, "status": "paid"})
@@ -444,7 +484,7 @@ async def undo_checkin(event_id: str, booking_id: str, user: dict = Depends(get_
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+    if not await user_can_manage_event(user, event, required="manager"):
         raise HTTPException(status_code=403, detail="Forbidden")
     await db.bookings.update_one(
         {"booking_id": booking_id, "event_id": event_id},
@@ -460,7 +500,7 @@ async def attendance_report_csv(event_id: str, user: dict = Depends(get_current_
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+    if not await user_can_manage_event(user, event, required="manager"):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     bookings = []
@@ -513,7 +553,7 @@ async def _assert_event_owner(event_id: str, user: dict) -> dict:
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
-    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+    if not await user_can_manage_event(user, event, required="manager"):
         raise HTTPException(status_code=403, detail="Forbidden")
     return event
 

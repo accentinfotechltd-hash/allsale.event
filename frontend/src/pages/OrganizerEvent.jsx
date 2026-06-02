@@ -6,6 +6,7 @@ import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, Sca
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { toast } from "sonner";
 import SeatBlocksPanel from "@/components/SeatBlocksPanel";
+import TeamPanel from "@/components/TeamPanel";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
@@ -92,6 +93,8 @@ export default function OrganizerEvent() {
       </div>
 
       <VelocityWidget eventId={eventId} />
+
+      <TeamPanel eventId={eventId} event={event} />
 
       <SeatBlocksPanel eventId={eventId} event={event} />
 

@@ -33,6 +33,12 @@ async def register(payload: RegisterIn, response: Response):
         "auth_provider": "password",
     }
     await db.users.insert_one(doc)
+    # Attach any pending team invitations addressed to this email
+    try:
+        from routers.team import attach_pending_team_invites
+        await attach_pending_team_invites(doc)
+    except Exception:
+        pass
     token = create_access_token(user_id, email)
     set_jwt_cookie(response, token)
     return {
@@ -166,10 +172,17 @@ async def google_session(payload: GoogleSessionIn, response: Response):
     else:
         user_id = f"user_{uuid.uuid4().hex[:12]}"
         role = "attendee"
-        await db.users.insert_one({
+        new_user_doc = {
             "user_id": user_id, "email": email, "name": name, "picture": picture,
             "role": role, "created_at": utc_now().isoformat(), "auth_provider": "google",
-        })
+        }
+        await db.users.insert_one(new_user_doc)
+        # Attach any pending team invitations for this email
+        try:
+            from routers.team import attach_pending_team_invites
+            await attach_pending_team_invites(new_user_doc)
+        except Exception:
+            pass
 
     await db.user_sessions.insert_one({
         "user_id": user_id, "session_token": session_token,
