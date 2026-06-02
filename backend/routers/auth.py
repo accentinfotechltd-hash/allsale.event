@@ -136,3 +136,23 @@ async def become_organizer(user: dict = Depends(get_current_user)):
     )
     refreshed = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "password_hash": 0})
     return {**refreshed, "upgraded": True}
+
+
+@router.post("/switch-to-attendee")
+async def switch_to_attendee(user: dict = Depends(get_current_user)):
+    """Downgrade an organizer back to a regular attendee account.
+
+    Idempotent — calling repeatedly is safe. Admins cannot switch
+    (they remain admin). Past events stay owned by the user and become
+    visible again the moment they switch back via /become-organizer.
+    """
+    if user.get("role") == "admin":
+        return {**{k: v for k, v in user.items() if k not in ("password_hash", "_id")}, "switched": False}
+    if user.get("role") == "attendee":
+        return {**{k: v for k, v in user.items() if k not in ("password_hash", "_id")}, "switched": False}
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {"role": "attendee", "downgraded_at": utc_now().isoformat()}},
+    )
+    refreshed = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "password_hash": 0})
+    return {**refreshed, "switched": True}

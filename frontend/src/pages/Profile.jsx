@@ -2,12 +2,14 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Calendar, MapPin, Download, QrCode } from "lucide-react";
+import { Calendar, MapPin, Download, QrCode, UserCog, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 
 export default function Profile() {
-  const { user } = useAuth();
+  const { user, setUser } = useAuth();
   const [bookings, setBookings] = useState([]);
   const [active, setActive] = useState(null);
+  const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -17,6 +19,20 @@ export default function Profile() {
       } catch { /* noop */ }
     })();
   }, []);
+
+  const switchToAttendee = async () => {
+    if (!window.confirm("Switch to an individual user account?\n\nYou'll lose access to the Organizer dashboard. Your existing events stay safe — switch back any time via 'Host an event'.")) return;
+    setSwitching(true);
+    try {
+      const { data } = await api.post("/auth/switch-to-attendee");
+      setUser((u) => ({ ...u, ...data, role: data.role || "attendee" }));
+      toast.success("You're now an individual user");
+    } catch {
+      toast.error("Could not switch account type");
+    } finally {
+      setSwitching(false);
+    }
+  };
 
   if (!user) return (
     <div className="text-center py-20">
@@ -35,6 +51,48 @@ export default function Profile() {
         <h1 className="serif text-5xl">{user.name}</h1>
         <p style={{ color: "var(--text-muted)" }}>{user.email} · <span className="capitalize">{user.role}</span></p>
       </div>
+
+      {/* Account type switcher — easy toggle between Organizer and Individual user */}
+      {user.role !== "admin" && (
+        <div
+          className="mb-10 p-5 rounded-2xl border flex flex-col sm:flex-row sm:items-center gap-4"
+          style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+          data-testid="account-type-panel"
+        >
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: "rgba(234, 88, 12, 0.1)", color: "var(--accent)" }}>
+            <UserCog className="w-6 h-6" />
+          </div>
+          <div className="flex-1">
+            <div className="text-xs uppercase tracking-[0.2em] mb-1" style={{ color: "var(--text-dim)" }}>Account type</div>
+            <div className="font-medium">
+              {user.role === "organizer" ? "Organizer — you can create and sell tickets" : "Individual user — you can buy tickets to events"}
+            </div>
+            <div className="text-sm mt-0.5" style={{ color: "var(--text-muted)" }}>
+              {user.role === "organizer"
+                ? "Switching back keeps your existing events safe; you can re-enable them anytime."
+                : "Upgrade anytime to host events, manage bookings, and run door check-ins."}
+            </div>
+          </div>
+          {user.role === "organizer" ? (
+            <button
+              onClick={switchToAttendee}
+              disabled={switching}
+              className="btn-ghost !py-2 !px-4 text-sm flex-shrink-0"
+              data-testid="switch-to-attendee-btn"
+            >
+              {switching ? "Switching…" : "Switch to individual user"}
+            </button>
+          ) : (
+            <Link
+              to="/become-organizer"
+              className="btn-primary !py-2 !px-4 text-sm flex-shrink-0 inline-flex items-center gap-2"
+              data-testid="switch-to-organizer-link"
+            >
+              <Sparkles className="w-4 h-4" /> Become organizer
+            </Link>
+          )}
+        </div>
+      )}
 
       <h2 className="serif text-2xl mb-4">My tickets</h2>
       {paid.length === 0 ? (
