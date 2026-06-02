@@ -261,7 +261,7 @@ export default function CheckIn() {
 
           <div className="border rounded-2xl p-6" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
             <div className="serif text-xl mb-3">Recent check-ins</div>
-            {!stats || stats.recent.length === 0 ? (
+            {!stats?.recent || stats.recent.length === 0 ? (
               <p className="text-sm py-6 text-center" style={{ color: "var(--text-dim)" }}>No check-ins yet.</p>
             ) : (
               <div className="space-y-2 max-h-80 overflow-y-auto">

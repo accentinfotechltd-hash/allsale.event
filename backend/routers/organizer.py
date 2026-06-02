@@ -356,6 +356,22 @@ async def scanner_context(event_id: str, token: str):
 
     total = await db.bookings.count_documents({"event_id": event_id, "status": "paid"})
     checked = await db.bookings.count_documents({"event_id": event_id, "status": "paid", "checked_in": True})
+
+    # Recent check-ins (last 20). Door volunteers benefit from seeing this too.
+    recent = []
+    async for b in db.bookings.find(
+        {"event_id": event_id, "status": "paid", "checked_in": True}, {"_id": 0}
+    ).sort("checked_in_at", -1).limit(20):
+        recent.append({
+            "booking_id": b["booking_id"],
+            "user_name": b["user_name"],
+            "user_email": b["user_email"],
+            "seats": b.get("seats") or [],
+            "tier_name": b.get("tier_name"),
+            "quantity": b.get("quantity"),
+            "checked_in_at": b.get("checked_in_at"),
+        })
+
     return {
         "event": {
             "event_id": event["event_id"],
@@ -365,7 +381,7 @@ async def scanner_context(event_id: str, token: str):
             "image_url": event.get("image_url"),
         },
         "label": tok.get("label"),
-        "stats": {"total": total, "checked_in": checked, "remaining": max(0, total - checked)},
+        "stats": {"total": total, "checked_in": checked, "remaining": max(0, total - checked), "recent": recent},
     }
 
 
