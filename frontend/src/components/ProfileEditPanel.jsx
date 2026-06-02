@@ -58,13 +58,14 @@ export default function ProfileEditPanel() {
     const fd = new FormData();
     fd.append("file", file);
     try {
-      const { data } = await api.post("/files/upload", fd, {
+      const { data } = await api.post("/uploads", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      setForm((f) => ({ ...f, picture: data.url || data.image_url || data.file_url || "" }));
+      setForm((f) => ({ ...f, picture: data.url || data.file_url || "" }));
       toast.success("Picture uploaded");
-    } catch {
-      toast.error("Upload failed");
+    } catch (err) {
+      const d = err?.response?.data?.detail;
+      toast.error(typeof d === "string" ? d : "Upload failed");
     }
   };
 

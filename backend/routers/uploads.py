@@ -64,8 +64,12 @@ def _maybe_downscale(contents: bytes, ctype: str) -> bytes:
 
 @router.post("/uploads")
 async def upload_image(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    """Upload an image. Returns a public URL the frontend can embed directly."""
-    await require_role(user, "organizer", "admin")
+    """Upload an image. Returns a public URL the frontend can embed directly.
+
+    Any signed-in user may upload (profile pictures), but file size and type
+    are strictly capped. The returned `url` is absolute so it renders on the
+    live Vercel site, where the frontend domain differs from the API.
+    """
     ext = (os.path.splitext(file.filename or "")[1] or "").lower()
     if ext not in ALLOWED_IMAGE_EXTS:
         raise HTTPException(status_code=400, detail="Only jpg, png, webp allowed")
@@ -80,16 +84,21 @@ async def upload_image(file: UploadFile = File(...), user: dict = Depends(get_cu
 
     await db.uploaded_files.insert_one({
         "file_id": file_id,
-        "storage_path": file_id,  # kept for legacy compatibility with /api/files reads
+        "storage_path": file_id,
         "original_filename": file.filename,
         "content_type": ctype,
         "size": len(contents),
         "etag": etag,
-        "data": contents,  # raw bytes — BSON binary, up to 16MB per doc
+        "data": contents,
         "user_id": user["user_id"],
         "created_at": utc_now().isoformat(),
     })
-    return {"url": f"/api/files/{file_id}", "path": file_id, "file_id": file_id}
+
+    # Build an absolute URL so it works across hosting providers.
+    public_base = os.environ.get("APP_PUBLIC_URL", "").rstrip("/")
+    rel = f"/api/files/{file_id}"
+    absolute = f"{public_base}{rel}" if public_base else rel
+    return {"url": absolute, "path": file_id, "file_id": file_id}
 
 
 @router.get("/files/{path:path}")
