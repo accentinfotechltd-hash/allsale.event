@@ -47,6 +47,40 @@ export default function CreateEvent() {
   });
   const [tiers, setTiers] = useState([{ name: "General", price: 50.0, capacity: 200 }]);
   const [submitting, setSubmitting] = useState(false);
+  const [seatmapFileId, setSeatmapFileId] = useState(null);
+  const [detecting, setDetecting] = useState(false);
+  const [detectResult, setDetectResult] = useState(null);
+
+  const detectSeatmap = async () => {
+    if (!seatmapFileId) {
+      toast.error("Upload a floor-plan image first");
+      return;
+    }
+    setDetecting(true);
+    setDetectResult(null);
+    try {
+      const { data } = await api.post("/organizer/seatmap/detect", { file_id: seatmapFileId });
+      setDetectResult(data);
+      if (data.rows > 0 && data.cols > 0) {
+        setForm((f) => ({
+          ...f,
+          seat_rows: data.rows,
+          seat_cols: data.cols,
+          aisles: data.aisles || [],
+          seatmap_sections: data.sections || [],
+          seatmap_curved: !!data.curved,
+        }));
+        toast.success(`AI detected ${data.rows} × ${data.cols} seats (${Math.round((data.confidence || 0) * 100)}% confidence)`);
+      } else {
+        toast.message("AI could not detect a clear grid — set the layout manually below");
+      }
+    } catch (e) {
+      const d = e?.response?.data?.detail;
+      toast.error(typeof d === "string" ? d : "Detection failed — set the layout manually");
+    } finally {
+      setDetecting(false);
+    }
+  };
 
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -140,11 +174,40 @@ export default function CreateEvent() {
               <Field label="Venue floor-plan (optional)">
                 <ImageUploader
                   value={form.seat_map_image_url}
-                  onUploaded={(url) => update("seat_map_image_url", url)}
+                  onUploaded={(url, fileId) => {
+                    update("seat_map_image_url", url);
+                    setSeatmapFileId(fileId || null);
+                    setDetectResult(null);
+                  }}
                   label="Upload a backdrop showing your venue layout"
                   aspect="16/7"
                   testid="seatmap-uploader"
                 />
+                {form.seat_map_image_url && (
+                  <div className="mt-3 flex items-center justify-between gap-3 flex-wrap p-3 rounded-lg" style={{ background: "var(--bg-elev)" }}>
+                    <div className="text-xs flex-1 min-w-[200px]" style={{ color: "var(--text-muted)" }}>
+                      <strong style={{ color: "var(--accent)" }}>Auto-detect with AI:</strong> let Gemini read your floor-plan and fill in rows, cols, aisles &amp; sections automatically.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={detectSeatmap}
+                      disabled={detecting || !seatmapFileId}
+                      className="btn-primary !py-2 !px-3 text-xs"
+                      data-testid="detect-seatmap-btn"
+                    >
+                      {detecting ? "Detecting…" : seatmapFileId ? "Detect seats with AI" : "Re-upload to detect"}
+                    </button>
+                  </div>
+                )}
+                {detectResult && (
+                  <div className="mt-2 text-xs p-3 rounded-lg border" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }} data-testid="detect-result">
+                    <strong style={{ color: "var(--text)" }}>AI result:</strong> {detectResult.rows} rows × {detectResult.cols} cols ·
+                    {" "}{(detectResult.aisles || []).length} aisles ·
+                    {" "}{(detectResult.sections || []).length} sections ·
+                    {" "}<span style={{ color: detectResult.confidence > 0.7 ? "var(--success)" : "var(--warn)" }}>{Math.round((detectResult.confidence || 0) * 100)}% confidence</span>
+                    {detectResult.notes && <div className="mt-1" style={{ color: "var(--text-dim)" }}>{detectResult.notes}</div>}
+                  </div>
+                )}
               </Field>
 
               <Field label="Draw the seat arrangement">

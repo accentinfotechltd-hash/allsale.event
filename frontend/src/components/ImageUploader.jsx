@@ -23,7 +23,7 @@ export default function ImageUploader({ value, onUploaded, label = "Upload image
       fd.append("file", file);
       const { data } = await api.post("/uploads", fd, { headers: { "Content-Type": "multipart/form-data" } });
       const absUrl = data.url.startsWith("http") ? data.url : `${BACKEND}${data.url}`;
-      onUploaded(absUrl);
+      onUploaded(absUrl, data.file_id);
       toast.success("Uploaded");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Upload failed — try pasting an image URL instead");

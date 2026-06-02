@@ -66,7 +66,7 @@ _routers = {}
 for _name in [
     "auth", "events", "bookings", "payments", "uploads", "admin",
     "organizer", "discount_codes", "payouts", "waitlist",
-    "recommendations", "ws_seats", "analytics", "downloads", "team",
+    "recommendations", "ws_seats", "analytics", "downloads", "team", "seatmap_ai",
 ]:
     r, err = _safe_import_router(f"routers.{_name}")
     if r is not None:
