@@ -178,14 +178,12 @@ async def on_startup():
             except Exception as e:
                 logger.warning(f"init_storage skipped: {e}")
 
-            # Seed demo data unless disabled.
-            if os.environ.get("SEED_DEMO", "true").lower() not in ("false", "0", "no"):
-                try:
-                    await seed_demo()
-                except Exception as e:
-                    logger.warning(f"seed_demo failed (continuing): {e}")
-            else:
-                logger.info("SEED_DEMO disabled — skipping demo data seed")
+            # Always run seed_demo — it always seeds users (admin/organizer/attendee),
+            # and only seeds demo events when SEED_DEMO is explicitly enabled.
+            try:
+                await seed_demo()
+            except Exception as e:
+                logger.warning(f"seed_demo failed (continuing): {e}")
             logger.info("Allsale Events backend ready")
         except Exception as boot_err:  # last-resort guard
             logger.error(f"Startup background task error: {boot_err}")

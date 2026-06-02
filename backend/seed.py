@@ -1,4 +1,5 @@
 """Demo seed: admin, organizer, attendee users + 8 demo events."""
+import os
 import uuid
 from datetime import timedelta
 
@@ -177,6 +178,13 @@ async def seed_demo():
         {"organizer_name": "AURA Productions"},
         {"$set": {"organizer_name": "Allsale Productions"}},
     )
+
+    # Demo events are only inserted when SEED_DEMO is explicitly enabled.
+    # Admin/organizer/attendee users (above) are ALWAYS created so the platform
+    # is usable on a fresh production deployment.
+    if os.environ.get("SEED_DEMO", "true").lower() in ("false", "0", "no"):
+        logger.info("SEED_DEMO disabled — skipping demo events")
+        return
 
     if await db.events.count_documents({}) == 0:
         for i, e in enumerate(DEMO_EVENTS):
