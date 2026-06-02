@@ -262,7 +262,111 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "organizer_payout_issued": _t_organizer_payout_issued,
     "waitlist_spot_opened": _t_waitlist_spot_opened,
     "team_invitation": _t_team_invitation,
+    "event_reminder_24h": lambda ctx: _t_event_reminder_24h(ctx),
+    "weekly_digest": lambda ctx: _t_weekly_digest(ctx),
+    "new_event_announcement": lambda ctx: _t_new_event_announcement(ctx),
+    "admin_blast": lambda ctx: _t_admin_blast(ctx),
 }
+
+
+# ---------------------------------------------------------------------------
+# Upcoming-event templates (defined below TEMPLATES so the dict can reference them)
+# ---------------------------------------------------------------------------
+def _t_event_reminder_24h(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """24h-before reminder for an attendee with a paid booking."""
+    seats = ", ".join(ctx.get("seats") or []) if ctx.get("seats") else ctx.get("tier_name", "General")
+    body = f"""
+    <p style="color:{TEXT};">Hi {ctx.get('user_name','there')} — quick reminder, your event is <strong>tomorrow</strong>.</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+      style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;">
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};">EVENT</td><td style="text-align:right;color:{TEXT};font-weight:600;">{ctx['event_title']}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">WHEN</td><td style="text-align:right;color:{TEXT};padding-top:8px;">{ctx.get('event_when','')}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">VENUE</td><td style="text-align:right;color:{TEXT};padding-top:8px;">{ctx.get('event_venue','')}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">SEATS</td><td style="text-align:right;color:{TEXT};padding-top:8px;">{seats}</td></tr>
+    </table>
+    <p style="margin-top:16px;color:{TEXT_MUTED};">Your QR ticket is in <a href="{APP_PUBLIC_URL}/profile" style="color:{BRAND_COLOR};">My Tickets</a>. Arrive 15 min early for a smooth entry.</p>
+    """
+    subject = f"⏰ Tomorrow: {ctx['event_title']}"
+    html = _layout("See you tomorrow", "Allsale Events reminder", body, "Open my ticket", f"{APP_PUBLIC_URL}/profile")
+    text = _text_fallback([
+        f"Reminder: {ctx['event_title']} is tomorrow.",
+        f"When: {ctx.get('event_when','')}",
+        f"Venue: {ctx.get('event_venue','')}",
+        f"Tickets: {APP_PUBLIC_URL}/profile",
+    ])
+    return subject, html, text
+
+
+def _t_weekly_digest(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Monday-morning digest with the upcoming week's top events for a single user."""
+    items = ctx.get("events") or []
+    rows = "".join(
+        f"""
+        <tr><td style="padding:14px 0;border-bottom:1px solid {BORDER};">
+          <div style="font-size:16px;color:{TEXT};font-weight:600;">{e.get('title','')}</div>
+          <div style="font-size:13px;color:{TEXT_MUTED};margin-top:2px;">{e.get('venue','')} · {e.get('when','')}</div>
+          <a href="{APP_PUBLIC_URL}/events/{e.get('event_id','')}" style="font-size:13px;color:{BRAND_COLOR};text-decoration:none;">View event →</a>
+        </td></tr>
+        """ for e in items[:6]
+    )
+    body = f"""
+    <p style="color:{TEXT};">Hi {ctx.get('user_name','there')} — here's what's on this week.</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:8px;">{rows}</table>
+    <p style="margin-top:18px;font-size:12px;color:{TEXT_MUTED};">You receive this because Marketing notifications are on. Manage in <a href="{APP_PUBLIC_URL}/profile" style="color:{BRAND_COLOR};">your profile</a>.</p>
+    """
+    subject = f"This week on Allsale Events — {len(items)} picks"
+    html = _layout("Your week of live experiences", "Weekly digest", body, "Browse all events", f"{APP_PUBLIC_URL}/events")
+    text = _text_fallback(
+        [f"This week on Allsale Events:"] + [f"- {e.get('title','')} ({e.get('venue','')}, {e.get('when','')}) {APP_PUBLIC_URL}/events/{e.get('event_id','')}" for e in items[:6]],
+    )
+    return subject, html, text
+
+
+def _t_new_event_announcement(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Sent when an organizer announces a new event to their audience."""
+    body = f"""
+    <p style="color:{TEXT};">Hi {ctx.get('user_name','there')} — <strong>{ctx.get('organizer_name','an organizer')}</strong> just dropped a new event.</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+      style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;">
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};">EVENT</td><td style="text-align:right;color:{TEXT};font-weight:600;">{ctx.get('event_title','')}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">WHEN</td><td style="text-align:right;color:{TEXT};padding-top:8px;">{ctx.get('event_when','')}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">VENUE</td><td style="text-align:right;color:{TEXT};padding-top:8px;">{ctx.get('event_venue','')}</td></tr>
+    </table>
+    <p style="margin-top:16px;color:{TEXT_MUTED};">Tickets are <strong style="color:{BRAND_COLOR};">live now</strong>. Snap yours before they sell out.</p>
+    """
+    subject = f"🔥 New from {ctx.get('organizer_name','Allsale')}: {ctx.get('event_title','')}"
+    html = _layout("A new event just dropped", "Allsale Events", body, "Get tickets", f"{APP_PUBLIC_URL}/events/{ctx.get('event_id','')}")
+    text = _text_fallback([
+        f"{ctx.get('organizer_name','An organizer')} just announced {ctx.get('event_title','')}.",
+        f"When: {ctx.get('event_when','')}",
+        f"Venue: {ctx.get('event_venue','')}",
+        f"Book: {APP_PUBLIC_URL}/events/{ctx.get('event_id','')}",
+    ])
+    return subject, html, text
+
+
+def _t_admin_blast(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Admin-authored custom message + optional event card."""
+    event_block = ""
+    if ctx.get("event_id"):
+        event_block = f"""
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+          style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;">
+          <tr><td style="font-size:13px;color:{TEXT_MUTED};">EVENT</td><td style="text-align:right;color:{TEXT};font-weight:600;">{ctx.get('event_title','')}</td></tr>
+          <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">WHEN</td><td style="text-align:right;color:{TEXT};padding-top:8px;">{ctx.get('event_when','')}</td></tr>
+        </table>
+        """
+    body_text = (ctx.get("body") or "").replace("\n", "<br>")
+    body = f"""
+    <p style="color:{TEXT};">Hi {ctx.get('user_name','there')},</p>
+    <p style="color:{TEXT_MUTED};">{body_text}</p>
+    {event_block}
+    """
+    subject = ctx.get("subject") or "Update from Allsale Events"
+    cta_url = f"{APP_PUBLIC_URL}/events/{ctx.get('event_id','')}" if ctx.get("event_id") else f"{APP_PUBLIC_URL}/events"
+    html = _layout(subject, "From the Allsale Events team", body, "Browse events", cta_url)
+    text = _text_fallback([ctx.get("body") or "", cta_url])
+    return subject, html, text
 
 
 # ---------------------------------------------------------------------------

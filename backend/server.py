@@ -190,6 +190,15 @@ async def on_startup():
 
     # Schedule but don't await — health-check responds while this runs.
     asyncio.create_task(_heavy_startup())
+
+    # Background scheduler: hourly reminders + weekly digest.
+    try:
+        from scheduler import scheduler_loop
+        asyncio.create_task(scheduler_loop(db))
+        logger.info("[boot] scheduler started")
+    except Exception as sch_err:
+        logger.error(f"[boot] scheduler failed to start: {sch_err}")
+
     logger.info("Allsale Events backend listening (background init running)")
 
 

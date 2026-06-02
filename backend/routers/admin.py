@@ -246,6 +246,92 @@ async def admin_update_user(user_id: str, payload: UserPatchIn, user: dict = Dep
     return {"updated": True, **refreshed}
 
 
+# ---------- Email blast (admin-only) ----------
+class BlastIn(BaseModel):
+    subject: str
+    body: str  # plain text; rendered with <br>
+    target: str = "marketing_optins"  # marketing_optins | all_attendees | event_attendees
+    event_id: Optional[str] = None  # required when target == event_attendees or to attach a CTA
+
+
+@router.post("/blast")
+async def admin_send_blast(payload: BlastIn, user: dict = Depends(get_current_user)):
+    """Send a custom email to a filtered audience. Returns recipient count."""
+    _admin_only(user)
+    if not payload.subject.strip() or not payload.body.strip():
+        raise HTTPException(status_code=400, detail="Subject and body are required")
+
+    target = payload.target
+    if target not in ("marketing_optins", "all_attendees", "event_attendees"):
+        raise HTTPException(status_code=400, detail="Invalid target")
+    if target == "event_attendees" and not payload.event_id:
+        raise HTTPException(status_code=400, detail="event_id required for event_attendees target")
+
+    event_doc = None
+    if payload.event_id:
+        event_doc = await db.events.find_one({"event_id": payload.event_id}, {"_id": 0})
+        if not event_doc:
+            raise HTTPException(status_code=404, detail="Event not found")
+
+    emails: set[str] = set()
+    user_lookup: dict[str, str] = {}  # email → name
+
+    if target == "marketing_optins":
+        async for u in db.users.find({}, {"_id": 0, "email": 1, "name": 1, "notification_prefs": 1}):
+            prefs = u.get("notification_prefs") or {}
+            if prefs.get("email_marketing") and u.get("email"):
+                emails.add(u["email"])
+                user_lookup[u["email"]] = u.get("name") or u["email"].split("@")[0]
+    elif target == "event_attendees":
+        async for b in db.bookings.find(
+            {"event_id": payload.event_id, "status": "paid"}, {"_id": 0, "user_email": 1, "user_name": 1},
+        ):
+            if b.get("user_email"):
+                emails.add(b["user_email"])
+                user_lookup[b["user_email"]] = b.get("user_name") or b["user_email"].split("@")[0]
+    else:  # all_attendees — anyone who's ever had a paid booking
+        async for b in db.bookings.find({"status": "paid"}, {"_id": 0, "user_email": 1, "user_name": 1}):
+            if b.get("user_email"):
+                emails.add(b["user_email"])
+                user_lookup[b["user_email"]] = b.get("user_name") or b["user_email"].split("@")[0]
+
+    if not emails:
+        return {"sent": 0, "skipped": "no matching recipients"}
+
+    from emails import send_template_fireforget
+    from datetime import datetime as _dt
+    def _fmt_when(iso: str) -> str:
+        try:
+            return _dt.fromisoformat(iso.replace("Z", "+00:00")).strftime("%a, %b %-d · %-I:%M %p")
+        except Exception:
+            return iso or ""
+
+    ctx_base = {
+        "subject": payload.subject,
+        "body": payload.body,
+    }
+    if event_doc:
+        ctx_base.update({
+            "event_id": event_doc["event_id"],
+            "event_title": event_doc.get("title", ""),
+            "event_when": _fmt_when(event_doc.get("date") or ""),
+        })
+
+    sent = 0
+    for email in emails:
+        try:
+            send_template_fireforget(
+                "admin_blast",
+                email,
+                {**ctx_base, "user_name": user_lookup.get(email, "there")},
+                db,
+            )
+            sent += 1
+        except Exception:
+            pass
+    return {"sent": sent, "target": target, "event_id": payload.event_id}
+
+
 # ---------- Email logs (audit trail) ----------
 @router.get("/email-logs")
 async def admin_email_logs(

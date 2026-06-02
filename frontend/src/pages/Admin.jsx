@@ -640,7 +640,9 @@ function SettingsTab() {
   if (!settings) return <div className="p-10 text-center" style={{ color: "var(--text-dim)" }}>Loading…</div>;
 
   return (
-    <div data-testid="admin-settings-tab" className="max-w-2xl">
+    <div data-testid="admin-settings-tab" className="max-w-2xl space-y-6">
+      <BlastPanel />
+
       <div className="border rounded-2xl p-8" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
         <h2 className="serif text-2xl mb-1">Commission & fees</h2>
         <p className="text-sm mb-7" style={{ color: "var(--text-muted)" }}>
@@ -690,6 +692,100 @@ function Row({ label, value, accent, bold }) {
     <div className="flex justify-between">
       <span style={{ color: "var(--text-muted)" }}>{label}</span>
       <span style={{ color: accent || "var(--text)", fontWeight: bold ? 700 : 400 }}>{value}</span>
+    </div>
+  );
+}
+
+
+// ============================================================================
+// BLAST PANEL — admin sends a custom email to a filtered audience
+// ============================================================================
+function BlastPanel() {
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [target, setTarget] = useState("marketing_optins");
+  const [eventId, setEventId] = useState("");
+  const [events, setEvents] = useState([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/admin/events");
+        setEvents(Array.isArray(data) ? data : []);
+      } catch { /* noop */ }
+    })();
+  }, []);
+
+  const send = async (e) => {
+    e.preventDefault();
+    if (!subject.trim() || !body.trim()) return toast.error("Subject and body required");
+    if (target === "event_attendees" && !eventId) return toast.error("Pick an event");
+    if (!window.confirm("Send this email blast?\n\nThis will email every matching user. Cannot be undone.")) return;
+    setBusy(true);
+    try {
+      const { data } = await api.post("/admin/blast", {
+        subject: subject.trim(),
+        body: body.trim(),
+        target,
+        event_id: eventId || null,
+      });
+      if (data.sent === 0) toast.message(data.skipped || "No recipients");
+      else toast.success(`Sent to ${data.sent} recipients`);
+      setSubject("");
+      setBody("");
+    } catch (e) {
+      const d = e?.response?.data?.detail;
+      toast.error(typeof d === "string" ? d : "Blast failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="border rounded-2xl p-8" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }} data-testid="admin-blast-panel">
+      <h2 className="serif text-2xl mb-1">Email blast</h2>
+      <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
+        Send a custom email to a filtered audience. Use sparingly — it's logged.
+      </p>
+      <form onSubmit={send} className="space-y-4">
+        <div>
+          <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>Audience</label>
+          <select value={target} onChange={(e) => setTarget(e.target.value)} className="w-full" data-testid="blast-target-select">
+            <option value="marketing_optins">Users opted-in to promotions</option>
+            <option value="all_attendees">All paying attendees (any event)</option>
+            <option value="event_attendees">Attendees of a specific event</option>
+          </select>
+        </div>
+
+        {target === "event_attendees" && (
+          <div>
+            <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>Event</label>
+            <select value={eventId} onChange={(e) => setEventId(e.target.value)} className="w-full" data-testid="blast-event-select">
+              <option value="">— pick an event —</option>
+              {events.map((e) => (
+                <option key={e.event_id} value={e.event_id}>{e.title} · {new Date(e.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div>
+          <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>Subject</label>
+          <input value={subject} onChange={(e) => setSubject(e.target.value)} className="w-full" placeholder="What's the message?" data-testid="blast-subject-input" />
+        </div>
+
+        <div>
+          <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>Body</label>
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} className="w-full" rows={6} placeholder="Write your message — line breaks preserved." data-testid="blast-body-input" />
+        </div>
+
+        <div className="flex justify-end pt-2">
+          <button type="submit" disabled={busy} className="btn-primary" data-testid="blast-send-btn">
+            {busy ? "Sending…" : "Send blast"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

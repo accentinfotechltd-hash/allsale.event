@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send, Zap, Activity } from "lucide-react";
+import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send, Zap, Activity, Megaphone } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { toast } from "sonner";
 import SeatBlocksPanel from "@/components/SeatBlocksPanel";
@@ -78,6 +78,23 @@ export default function OrganizerEvent() {
           <Link to={`/organizer/events/${eventId}/checkin`} className="btn-ghost" data-testid="open-checkin-btn">
             <ScanLine className="w-4 h-4" /> Door check-in
           </Link>
+          <button
+            onClick={async () => {
+              if (!window.confirm("Email all marketing-opted-in users about this event?\n\nOnly users with promotions turned ON will be emailed. Anyone who already booked is skipped.")) return;
+              try {
+                const { data } = await api.post(`/organizer/events/${eventId}/announce`);
+                if (data.sent === 0) toast.message("No opted-in recipients yet");
+                else toast.success(`Announcement sent to ${data.sent} user${data.sent === 1 ? "" : "s"}`);
+              } catch (e) {
+                const d = e?.response?.data?.detail;
+                toast.error(typeof d === "string" ? d : "Could not send announcement");
+              }
+            }}
+            className="btn-ghost"
+            data-testid="announce-event-btn"
+          >
+            <Megaphone className="w-4 h-4" /> Announce
+          </button>
           <button onClick={downloadCsv} className="btn-primary" data-testid="download-csv-btn">
             <Download className="w-4 h-4" /> Export attendees (CSV)
           </button>

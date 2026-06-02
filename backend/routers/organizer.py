@@ -670,3 +670,72 @@ async def release_all_seat_blocks(event_id: str, user: dict = Depends(get_curren
         pass
 
     return {"released_count": res.deleted_count, "seats": seat_ids}
+
+
+
+# -----------------------------------------------------------------------------
+# Announce event — organizer emails all marketing-opted-in users about this event.
+# -----------------------------------------------------------------------------
+from datetime import datetime as _dt  # noqa: E402
+from emails import send_template_fireforget  # noqa: E402
+
+
+def _fmt_when(iso: str) -> str:
+    try:
+        d = _dt.fromisoformat(iso.replace("Z", "+00:00"))
+        return d.strftime("%a, %b %-d · %-I:%M %p")
+    except Exception:
+        return iso
+
+
+@router.post("/events/{event_id}/announce")
+async def announce_event(event_id: str, user: dict = Depends(get_current_user)):
+    """Email opted-in users a 'new event' announcement.
+
+    Targets users who have `notification_prefs.email_marketing` enabled AND
+    have NOT already booked this event. Returns the recipient count so the
+    UI can show a clean toast.
+    """
+    await require_role(user, "organizer", "admin")
+    event = await _assert_event_owner(event_id, user)
+
+    excluded_user_ids: set[str] = set()
+    async for b in db.bookings.find(
+        {"event_id": event_id, "status": "paid"}, {"_id": 0, "user_id": 1},
+    ):
+        if b.get("user_id"):
+            excluded_user_ids.add(b["user_id"])
+
+    sent = 0
+    payload_base = {
+        "event_id": event_id,
+        "event_title": event.get("title", ""),
+        "event_when": _fmt_when(event.get("date") or ""),
+        "event_venue": event.get("venue", ""),
+        "organizer_name": event.get("organizer_name") or user.get("name") or "Allsale Events",
+    }
+
+    async for u in db.users.find(
+        {"user_id": {"$nin": list(excluded_user_ids)}}, {"_id": 0, "password_hash": 0},
+    ):
+        prefs = u.get("notification_prefs") or {}
+        if not prefs.get("email_marketing", False):
+            continue
+        if not u.get("email"):
+            continue
+        try:
+            send_template_fireforget(
+                "new_event_announcement",
+                u["email"],
+                {**payload_base, "user_name": u.get("name") or u["email"].split("@")[0]},
+                db,
+            )
+            sent += 1
+        except Exception:
+            pass
+
+    await db.events.update_one(
+        {"event_id": event_id},
+        {"$set": {"last_announced_at": utc_now().isoformat(), "last_announced_by": user["user_id"]}},
+    )
+    return {"sent": sent, "event_id": event_id}
