@@ -63,7 +63,7 @@ def _maybe_downscale(contents: bytes, ctype: str) -> bytes:
 
 
 @router.post("/uploads")
-async def upload_image(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+async def upload_image(request: Request, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
     """Upload an image. Returns a public URL the frontend can embed directly.
 
     Any signed-in user may upload (profile pictures), but file size and type
@@ -94,10 +94,18 @@ async def upload_image(file: UploadFile = File(...), user: dict = Depends(get_cu
         "created_at": utc_now().isoformat(),
     })
 
-    # Build an absolute URL so it works across hosting providers.
-    public_base = os.environ.get("APP_PUBLIC_URL", "").rstrip("/")
+    # Build an absolute URL — prefer APP_PUBLIC_URL (set by ops); otherwise
+    # fall back to the host the request came in on. This guarantees the URL
+    # works on Vercel even if APP_PUBLIC_URL isn't configured in Railway.
     rel = f"/api/files/{file_id}"
-    absolute = f"{public_base}{rel}" if public_base else rel
+    env_base = (os.environ.get("APP_PUBLIC_URL") or "").rstrip("/")
+    if env_base:
+        absolute = f"{env_base}{rel}"
+    else:
+        # request.base_url is the FastAPI host (e.g. https://api.allsale.events/).
+        # Strip the trailing slash so we don't end up with `//api/files/...`.
+        host = str(request.base_url).rstrip("/")
+        absolute = f"{host}{rel}"
     return {"url": absolute, "path": file_id, "file_id": file_id}
 
 
