@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send, Zap, Activity, Megaphone } from "lucide-react";
+import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send, Zap, Activity, Megaphone, UserPlus } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { toast } from "sonner";
 import SeatBlocksPanel from "@/components/SeatBlocksPanel";
 import TeamPanel from "@/components/TeamPanel";
+import TransferBookingDialog from "@/components/TransferBookingDialog";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
@@ -15,6 +16,14 @@ export default function OrganizerEvent() {
   const { user } = useAuth();
   const [data, setData] = useState(null);
   const [attendees, setAttendees] = useState([]);
+  const [transferring, setTransferring] = useState(null); // booking being transferred
+
+  const reloadAttendees = async () => {
+    try {
+      const t = await api.get(`/organizer/events/${eventId}/attendees`);
+      setAttendees(t.data);
+    } catch { /* noop */ }
+  };
 
   useEffect(() => {
     (async () => {
@@ -260,6 +269,7 @@ export default function OrganizerEvent() {
                   <th className="text-left py-2">Tier / Seats</th>
                   <th className="text-right py-2">Qty</th>
                   <th className="text-right py-2">Paid</th>
+                  <th className="text-right py-2">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -270,6 +280,17 @@ export default function OrganizerEvent() {
                     <td className="py-3" style={{ color: "var(--text-muted)" }}>{a.seats?.length ? a.seats.join(", ") : a.tier_name}</td>
                     <td className="py-3 text-right">{a.quantity}</td>
                     <td className="py-3 text-right">${a.amount.toFixed(2)}</td>
+                    <td className="py-3 text-right">
+                      <button
+                        onClick={() => setTransferring(a)}
+                        disabled={a.checked_in}
+                        className="btn-ghost !py-1 !px-2 text-xs"
+                        title={a.checked_in ? "Already checked in — cannot transfer" : "Transfer to another attendee"}
+                        data-testid={`transfer-btn-${a.booking_id}`}
+                      >
+                        <UserPlus className="w-3 h-3" /> Transfer
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -286,6 +307,14 @@ export default function OrganizerEvent() {
 
       {/* Dynamic pricing */}
       <DynamicPricingPanel eventId={eventId} event={event} />
+
+      {transferring && (
+        <TransferBookingDialog
+          booking={transferring}
+          onClose={() => setTransferring(null)}
+          onTransferred={() => { setTransferring(null); reloadAttendees(); }}
+        />
+      )}
     </div>
   );
 }

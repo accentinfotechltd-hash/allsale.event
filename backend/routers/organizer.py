@@ -7,10 +7,19 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 from core import db, get_current_user, get_current_user_optional, require_role, event_to_public, utc_now
 from routers.team import user_can_manage_event
+from emails import send_template_fireforget
+from datetime import datetime as _dt_for_fmt
+
+
+def _fmt_when(iso: str) -> str:
+    try:
+        return _dt_for_fmt.fromisoformat((iso or "").replace("Z", "+00:00")).strftime("%a, %b %-d · %-I:%M %p")
+    except Exception:
+        return iso or ""
 
 router = APIRouter(prefix="/organizer", tags=["organizer"])
 
@@ -208,6 +217,113 @@ async def org_attendees(event_id: str, user: dict = Depends(get_current_user)):
     async for b in db.bookings.find({"event_id": event_id, "status": "paid"}, {"_id": 0}):
         items.append(b)
     return items
+
+
+class TransferIn(BaseModel):
+    """Body for re-assigning a paid booking to a different attendee."""
+    email: EmailStr
+    name: Optional[str] = None
+    reason: Optional[str] = None
+
+
+@router.post("/bookings/{booking_id}/transfer")
+async def transfer_booking(booking_id: str, payload: TransferIn, user: dict = Depends(get_current_user)):
+    """Re-assign a paid booking to another attendee (alternative to refund).
+
+    Seats stay the same — only the `user_*` fields and the QR-bearing record
+    are updated. A new QR ticket email is sent to the recipient, and the
+    previous holder gets a notice that their booking has been moved.
+
+    If the target email already belongs to a registered user, the booking is
+    linked to that account (it appears in their My Tickets). Otherwise we
+    keep the email on the booking and they receive the ticket by email.
+    """
+    await require_role(user, "organizer", "admin")
+    booking = await db.bookings.find_one({"booking_id": booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.get("status") != "paid":
+        raise HTTPException(status_code=400, detail="Only paid bookings can be transferred")
+    if booking.get("checked_in"):
+        raise HTTPException(status_code=400, detail="Cannot transfer a booking that has already been checked in")
+
+    event = await db.events.find_one({"event_id": booking["event_id"]}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event missing")
+    if not await user_can_manage_event(user, event, required="manager"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    new_email = str(payload.email).lower().strip()
+    if new_email == booking.get("user_email", "").lower():
+        raise HTTPException(status_code=400, detail="Booking is already under this email")
+
+    target_user = await db.users.find_one({"email": new_email}, {"_id": 0, "password_hash": 0})
+    new_name = (payload.name or "").strip() or (target_user.get("name") if target_user else new_email.split("@")[0])
+    old_email = booking.get("user_email")
+    old_name = booking.get("user_name")
+
+    update = {
+        "user_email": new_email,
+        "user_name": new_name,
+        "user_id": target_user["user_id"] if target_user else booking.get("user_id"),
+        "transferred_at": utc_now().isoformat(),
+        "transferred_by": user["user_id"],
+        "transferred_from_email": old_email,
+        "transferred_reason": payload.reason or None,
+    }
+    await db.bookings.update_one({"booking_id": booking_id}, {"$set": update})
+
+    # Refresh and re-send the confirmation/ticket email to the new holder.
+    refreshed = await db.bookings.find_one({"booking_id": booking_id}, {"_id": 0})
+    try:
+        send_template_fireforget(
+            "booking_confirmation",
+            new_email,
+            {
+                "user_name": new_name,
+                "event_title": refreshed.get("event_title", event.get("title")),
+                "event_when": _fmt_when(refreshed.get("event_date") or event.get("date") or ""),
+                "event_venue": refreshed.get("event_venue") or event.get("venue"),
+                "seats": refreshed.get("seats") or [],
+                "tier_name": refreshed.get("tier_name"),
+                "quantity": refreshed.get("quantity"),
+                "amount": refreshed.get("amount"),
+                "currency": refreshed.get("currency", "NZD"),
+                "qr_payload": refreshed.get("qr_payload"),
+                "booking_id": booking_id,
+            },
+            db,
+        )
+    except Exception:
+        pass
+
+    # Notify the previous holder so they're not surprised.
+    if old_email and old_email.lower() != new_email:
+        try:
+            send_template_fireforget(
+                "admin_blast",
+                old_email,
+                {
+                    "user_name": old_name or "there",
+                    "subject": f"Your booking for {event.get('title')} has been transferred",
+                    "body": (
+                        f"Hi {old_name or 'there'},\n\n"
+                        f"Your booking for \"{event.get('title')}\" has been re-assigned by the organizer to {new_email}. "
+                        f"You no longer hold this ticket. "
+                        + (f"\n\nReason: {payload.reason}" if payload.reason else "")
+                        + "\n\nIf this was unexpected, please reply to the organizer directly."
+                    ),
+                    "event_id": event.get("event_id"),
+                    "event_title": event.get("title"),
+                    "event_when": _fmt_when(event.get("date") or ""),
+                },
+                db,
+            )
+        except Exception:
+            pass
+
+    return {"transferred": True, "booking_id": booking_id, "new_email": new_email, "new_user_id": update["user_id"]}
+
 
 
 @router.get("/events/{event_id}/attendees.csv")
@@ -676,16 +792,6 @@ async def release_all_seat_blocks(event_id: str, user: dict = Depends(get_curren
 # -----------------------------------------------------------------------------
 # Announce event — organizer emails all marketing-opted-in users about this event.
 # -----------------------------------------------------------------------------
-from datetime import datetime as _dt  # noqa: E402
-from emails import send_template_fireforget  # noqa: E402
-
-
-def _fmt_when(iso: str) -> str:
-    try:
-        d = _dt.fromisoformat(iso.replace("Z", "+00:00"))
-        return d.strftime("%a, %b %-d · %-I:%M %p")
-    except Exception:
-        return iso
 
 
 @router.post("/events/{event_id}/announce")
