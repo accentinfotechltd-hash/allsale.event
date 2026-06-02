@@ -21,8 +21,8 @@ export default function Landing() {
           api.get("/events/featured"),
           api.get("/events/categories"),
         ]);
-        setFeatured(f.data);
-        setCats(c.data);
+        setFeatured(Array.isArray(f.data) ? f.data : []);
+        setCats(Array.isArray(c.data) ? c.data : []);
       } catch (e) { console.error(e); }
     })();
   }, []);
@@ -36,7 +36,7 @@ export default function Landing() {
       .finally(() => setRecsLoading(false));
   }, [user?.user_id]);
 
-  const hero = featured[0];
+  const hero = Array.isArray(featured) && featured.length > 0 ? featured[0] : null;
 
   return (
     <div>
@@ -125,7 +125,7 @@ export default function Landing() {
           </Link>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {cats.map((c, i) => (
+          {(Array.isArray(cats) ? cats : []).map((c, i) => (
             <Link
               to={`/events?category=${c.id}`}
               key={c.id}
@@ -165,7 +165,7 @@ export default function Landing() {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              {recs.map((r, i) => (
+              {(Array.isArray(recs) ? recs : []).map((r, i) => (
                 <div key={r.event.event_id} className="relative" data-testid={`rec-${r.event.event_id}`}>
                   <EventCard event={r.event} index={i} />
                   <div className="mt-2 px-1 text-xs italic leading-snug" style={{ color: "var(--text-muted)" }}>
@@ -190,7 +190,7 @@ export default function Landing() {
           </Link>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          {featured.slice(0, 8).map((e, i) => <EventCard key={e.event_id} event={e} index={i} />)}
+          {(Array.isArray(featured) ? featured : []).slice(0, 8).map((e, i) => <EventCard key={e.event_id} event={e} index={i} />)}
         </div>
       </section>
 
