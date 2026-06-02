@@ -4,6 +4,7 @@ import { Toaster } from "sonner";
 import { AuthProvider } from "@/lib/auth";
 
 import Layout from "@/components/Layout";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import Landing from "@/pages/Landing";
 import Events from "@/pages/Events";
 import EventDetail from "@/pages/EventDetail";
@@ -59,7 +60,9 @@ function App() {
     <div className="App">
       <BrowserRouter>
         <AuthProvider>
-          <AppRouter />
+          <ErrorBoundary>
+            <AppRouter />
+          </ErrorBoundary>
           <Toaster theme="dark" position="bottom-right" toastOptions={{ style: { background: "#17171b", border: "1px solid #26262c", color: "#f5f5f4" } }} />
         </AuthProvider>
       </BrowserRouter>

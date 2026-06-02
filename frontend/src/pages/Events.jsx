@@ -18,7 +18,7 @@ export default function Events() {
     (async () => {
       try {
         const c = await api.get("/events/categories");
-        setCats(c.data);
+        setCats(Array.isArray(c.data) ? c.data : []);
       } catch (e) { /* ignore */ }
     })();
   }, []);
@@ -28,7 +28,7 @@ export default function Events() {
     (async () => {
       try {
         const { data } = await api.get("/events", { params: { q, category, city } });
-        setEvents(data);
+        setEvents(Array.isArray(data) ? data : []);
       } finally { setLoading(false); }
     })();
   }, [q, category, city]);
@@ -77,7 +77,7 @@ export default function Events() {
               >
                 All categories
               </button>
-              {cats.map((c) => (
+              {(Array.isArray(cats) ? cats : []).map((c) => (
                 <button
                   key={c.id}
                   onClick={() => updateParam("category", c.id)}
@@ -112,7 +112,7 @@ export default function Events() {
             <div className="text-center py-20" style={{ color: "var(--text-dim)" }}>No events match these filters.</div>
           ) : (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5" data-testid="events-grid">
-              {events.map((e, i) => <EventCard key={e.event_id} event={e} index={i} />)}
+              {(Array.isArray(events) ? events : []).map((e, i) => <EventCard key={e.event_id} event={e} index={i} />)}
             </div>
           )}
         </div>
