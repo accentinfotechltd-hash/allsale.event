@@ -1,23 +1,70 @@
-"""File upload + public serve via Emergent object storage."""
+"""File upload + public serve. Stores binary files in MongoDB so the platform
+works on any hosting provider (Railway, Vercel, self-hosted) without depending
+on an external object store. Files <16MB fit inside a BSON document; we serve
+them via /api/files/<file_id> with ETag-based conditional GET so the browser
+can short-circuit repeat fetches.
+
+NOTE: For very large catalogs, swap MongoDB to Cloudflare R2 / S3 / Cloudinary
+without touching frontend code — just change `put_blob` / `get_blob` below.
+"""
+import hashlib
 import os
 import uuid
-import hashlib
+from io import BytesIO
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
 
 from core import (
-    db, get_current_user, require_role, utc_now,
-    ALLOWED_IMAGE_EXTS, MAX_UPLOAD_BYTES, MIME_TYPES, logger,
+    ALLOWED_IMAGE_EXTS,
+    MAX_UPLOAD_BYTES,
+    MIME_TYPES,
+    db,
+    get_current_user,
+    logger,
+    require_role,
+    utc_now,
 )
-from storage import put_object, get_object, APP_NAME as STORAGE_APP_NAME
 
 router = APIRouter(tags=["uploads"])
+
+# Optional pillow-based downscale: shrinks huge phone photos to <=1600px wide,
+# saving ~80% storage. Skips silently if Pillow isn't installed.
+try:
+    from PIL import Image  # type: ignore
+    _HAS_PIL = True
+except Exception:
+    _HAS_PIL = False
+
+
+def _maybe_downscale(contents: bytes, ctype: str) -> bytes:
+    if not _HAS_PIL or not ctype.startswith("image/"):
+        return contents
+    try:
+        img = Image.open(BytesIO(contents))
+        max_w = 1600
+        if img.width <= max_w:
+            return contents
+        ratio = max_w / float(img.width)
+        new_size = (max_w, int(img.height * ratio))
+        img = img.resize(new_size, Image.LANCZOS)
+        buf = BytesIO()
+        fmt = "JPEG" if ctype in ("image/jpeg", "image/jpg") else ("PNG" if ctype == "image/png" else "WEBP")
+        save_kwargs = {"optimize": True}
+        if fmt == "JPEG":
+            save_kwargs["quality"] = 85
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+        img.save(buf, format=fmt, **save_kwargs)
+        return buf.getvalue()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"Downscale skipped: {exc}")
+        return contents
 
 
 @router.post("/uploads")
 async def upload_image(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    """Upload an image to persistent object storage. Returns public URL."""
+    """Upload an image. Returns a public URL the frontend can embed directly."""
     await require_role(user, "organizer", "admin")
     ext = (os.path.splitext(file.filename or "")[1] or "").lower()
     if ext not in ALLOWED_IMAGE_EXTS:
@@ -26,57 +73,62 @@ async def upload_image(file: UploadFile = File(...), user: dict = Depends(get_cu
     if len(contents) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File too large (max 5MB)")
 
-    storage_path = f"{STORAGE_APP_NAME}/uploads/{user['user_id']}/{uuid.uuid4().hex}{ext}"
     ctype = MIME_TYPES.get(ext, file.content_type or "application/octet-stream")
-    try:
-        result = put_object(storage_path, contents, ctype)
-    except Exception as e:
-        logger.error(f"Storage put failed: {e}")
-        raise HTTPException(status_code=502, detail="Upload failed (storage error)")
-
+    contents = _maybe_downscale(contents, ctype)
+    file_id = uuid.uuid4().hex
     etag = hashlib.md5(contents).hexdigest()
+
     await db.uploaded_files.insert_one({
-        "file_id": uuid.uuid4().hex,
-        "storage_path": result["path"],
+        "file_id": file_id,
+        "storage_path": file_id,  # kept for legacy compatibility with /api/files reads
         "original_filename": file.filename,
         "content_type": ctype,
-        "size": result.get("size", len(contents)),
+        "size": len(contents),
         "etag": etag,
+        "data": contents,  # raw bytes — BSON binary, up to 16MB per doc
         "user_id": user["user_id"],
         "created_at": utc_now().isoformat(),
     })
-    return {"url": f"/api/files/{result['path']}", "path": result["path"]}
+    return {"url": f"/api/files/{file_id}", "path": file_id, "file_id": file_id}
 
 
 @router.get("/files/{path:path}")
 async def get_file(path: str, request: Request):
-    """Public read endpoint with ETag support for conditional GET (304 Not Modified).
-    Event covers and venue floor plans are public assets, so no auth required."""
-    record = await db.uploaded_files.find_one({"storage_path": path}, {"_id": 0})
+    """Public read endpoint with ETag-based conditional GET (304 Not Modified).
+    Event covers and floor plans are public assets — no auth required."""
+    # `path` may be either the new file_id or the legacy nested storage_path.
+    record = await db.uploaded_files.find_one(
+        {"$or": [{"file_id": path}, {"storage_path": path}]},
+        {"_id": 0},
+    )
     if not record:
         raise HTTPException(status_code=404, detail="File not found")
 
-    # ETag-based conditional GET: even when the edge proxy strips Cache-Control,
-    # browsers can revalidate and skip body transfer if ETag matches.
     etag = record.get("etag")
     if etag:
         inm = request.headers.get("if-none-match")
         if inm and inm.strip('"') == etag:
             return Response(status_code=304, headers={"ETag": f'"{etag}"'})
 
-    try:
-        data, ctype = get_object(path)
-    except Exception as e:
-        logger.error(f"Storage get failed for {path}: {e}")
-        raise HTTPException(status_code=404, detail="File not found")
+    data = record.get("data")
+    ctype = record.get("content_type", "application/octet-stream")
+    if not data:
+        # Legacy record without inline bytes — try external storage as a fallback.
+        try:
+            from storage import get_object  # local import: only used for legacy rows
+            data, ctype = get_object(record.get("storage_path", path))
+        except Exception as exc:  # noqa: BLE001
+            logger.error(f"Legacy storage fetch failed for {path}: {exc}")
+            raise HTTPException(status_code=404, detail="File not found") from exc
+
     if not etag:
         etag = hashlib.md5(data).hexdigest()
-        # Backfill the etag so future requests can short-circuit at the 304 check
         await db.uploaded_files.update_one(
-            {"storage_path": path}, {"$set": {"etag": etag}}
+            {"file_id": record.get("file_id", path)},
+            {"$set": {"etag": etag}},
         )
     headers = {
         "Cache-Control": "public, max-age=86400, stale-while-revalidate=604800",
         "ETag": f'"{etag}"',
     }
-    return Response(content=data, media_type=record.get("content_type", ctype), headers=headers)
+    return Response(content=data, media_type=ctype, headers=headers)
