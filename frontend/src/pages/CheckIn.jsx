@@ -146,12 +146,9 @@ export default function CheckIn() {
     } catch { toast.error("Report download failed"); }
   };
 
-  if (!isTokenMode && (!user || (user.role !== "organizer" && user.role !== "admin"))) {
-    return <div className="text-center py-20" style={{ color: "var(--text-muted)" }}>Organizer access required. <br /><span className="text-sm">Volunteers should use the dedicated scanner link shared by the organizer.</span></div>;
-  }
-
   // Stats shape differs between authed mode (rich) and token mode (compact).
   // Normalise so the four-tile dashboard renders identically in both.
+  // NOTE: This hook must be called unconditionally — keep it above any early return.
   const displayStats = useMemo(() => {
     if (!stats) return null;
     if (isTokenMode) {
@@ -165,6 +162,10 @@ export default function CheckIn() {
     }
     return stats;
   }, [stats, isTokenMode]);
+
+  if (!isTokenMode && (!user || (user.role !== "organizer" && user.role !== "admin"))) {
+    return <div className="text-center py-20" style={{ color: "var(--text-muted)" }}>Organizer access required. <br /><span className="text-sm">Volunteers should use the dedicated scanner link shared by the organizer.</span></div>;
+  }
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
