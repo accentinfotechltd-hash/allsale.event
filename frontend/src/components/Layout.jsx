@@ -38,8 +38,8 @@ export default function Layout({ children }) {
       <header className="sticky top-0 z-50 glass border-b" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2 flex items-center gap-3 sm:gap-6">
           <Link to="/" className="inline-flex items-center flex-shrink-0" data-testid="brand-link">
-            <Logo size={56} className="sm:hidden" />
-            <Logo size={72} className="hidden sm:block" />
+            <span className="sm:hidden inline-flex"><Logo size={56} /></span>
+            <span className="hidden sm:inline-flex"><Logo size={72} /></span>
           </Link>
 
           {/* Desktop search */}
