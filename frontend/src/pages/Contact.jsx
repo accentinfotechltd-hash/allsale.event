@@ -8,8 +8,11 @@ import { useState } from "react";
 import api from "@/lib/api";
 import { toast } from "sonner";
 import { Mail, Phone, MapPin, Send, CheckCircle2 } from "lucide-react";
+import useSiteSettings from "@/lib/useSiteSettings";
 
 export default function Contact() {
+  const settings = useSiteSettings();
+  const c = settings.contact || {};
   const [form, setForm] = useState({ name: "", email: "", phone: "", subject: "", message: "" });
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
@@ -39,10 +42,10 @@ export default function Contact() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-16" data-testid="contact-page">
-      <div className="text-xs uppercase tracking-[0.3em] mb-3" style={{ color: "var(--accent)" }}>Contact us</div>
-      <h1 className="serif text-4xl sm:text-5xl lg:text-6xl leading-[1.02] mb-6">Let's talk.</h1>
-      <p className="text-base sm:text-lg max-w-2xl mb-10" style={{ color: "var(--text-muted)" }}>
-        Question, feedback, partnership, or running an event you'd like us to host? Drop a note — a real human reads every message and replies within 24 hours.
+      <div className="text-xs uppercase tracking-[0.3em] mb-3" style={{ color: "var(--accent)" }}>{c.hero_eyebrow || "Contact us"}</div>
+      <h1 className="serif text-4xl sm:text-5xl lg:text-6xl leading-[1.02] mb-6 whitespace-pre-line">{c.hero_title || "Let's talk."}</h1>
+      <p className="text-base sm:text-lg max-w-2xl mb-10 whitespace-pre-line" style={{ color: "var(--text-muted)" }}>
+        {c.hero_subtitle}
       </p>
 
       <div className="grid lg:grid-cols-[1fr_320px] gap-8 lg:gap-12">
@@ -87,12 +90,14 @@ export default function Contact() {
 
         {/* Side info */}
         <div className="space-y-3">
-          <InfoCard icon={<Mail className="w-5 h-5" />} label="Email" value="support@allsale.events" href="mailto:support@allsale.events" />
-          <InfoCard icon={<Phone className="w-5 h-5" />} label="Phone" value="+64 9 555 0100" href="tel:+6495550100" />
-          <InfoCard icon={<MapPin className="w-5 h-5" />} label="Based in" value="Auckland, New Zealand" />
-          <div className="text-xs px-4 py-3 rounded-xl" style={{ background: "var(--bg-elev)", color: "var(--text-muted)" }}>
-            <strong>Organizers:</strong> for payout, refund and Stripe support, please include your event ID so we can resolve faster.
-          </div>
+          <InfoCard icon={<Mail className="w-5 h-5" />} label="Email" value={c.email} href={c.email ? `mailto:${c.email}` : undefined} />
+          <InfoCard icon={<Phone className="w-5 h-5" />} label="Phone" value={c.phone} href={c.phone ? `tel:${c.phone.replace(/\s+/g, "")}` : undefined} />
+          <InfoCard icon={<MapPin className="w-5 h-5" />} label="Based in" value={c.address} />
+          {c.organizer_note && (
+            <div className="text-xs px-4 py-3 rounded-xl" style={{ background: "var(--bg-elev)", color: "var(--text-muted)" }}>
+              {c.organizer_note}
+            </div>
+          )}
         </div>
       </div>
     </div>

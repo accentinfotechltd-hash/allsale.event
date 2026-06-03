@@ -641,6 +641,8 @@ function SettingsTab() {
 
   return (
     <div data-testid="admin-settings-tab" className="max-w-2xl space-y-6">
+      <SiteContentPanel />
+
       <BlastPanel />
 
       <div className="border rounded-2xl p-8" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
@@ -693,6 +695,94 @@ function Row({ label, value, accent, bold }) {
       <span style={{ color: "var(--text-muted)" }}>{label}</span>
       <span style={{ color: accent || "var(--text)", fontWeight: bold ? 700 : 400 }}>{value}</span>
     </div>
+  );
+}
+
+
+// ============================================================================
+// SITE CONTENT PANEL — admin edits About + Contact copy and contact details
+// ============================================================================
+function SiteContentPanel() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [about, setAbout] = useState({});
+  const [contact, setContact] = useState({});
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/site-settings");
+        setAbout(data.about || {});
+        setContact(data.contact || {});
+      } catch { /* noop */ }
+      finally { setLoading(false); }
+    })();
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const { data } = await api.patch("/admin/site-settings", { about, contact });
+      setAbout(data.about || {});
+      setContact(data.contact || {});
+      // Bust the cached settings so visitors see new content on next page load
+      try { localStorage.removeItem("allsale_site_settings_v1"); } catch { /* noop */ }
+      toast.success("Site content updated");
+    } catch {
+      toast.error("Could not save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return null;
+
+  return (
+    <div className="border rounded-2xl p-8" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }} data-testid="site-content-panel">
+      <h2 className="serif text-2xl mb-1">Site content</h2>
+      <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
+        Edit the About page, Contact page hero and contact details (email, phone, address). Changes go live on the next page load.
+      </p>
+
+      <h3 className="font-medium mb-3">About page</h3>
+      <div className="space-y-3 mb-6">
+        <SF label="Eyebrow" v={about.hero_eyebrow} on={(v) => setAbout({ ...about, hero_eyebrow: v })} testid="about-eyebrow" />
+        <SF label="Hero title" v={about.hero_title} on={(v) => setAbout({ ...about, hero_title: v })} multiline rows={2} testid="about-title" />
+        <SF label="Hero subtitle" v={about.hero_subtitle} on={(v) => setAbout({ ...about, hero_subtitle: v })} multiline rows={4} testid="about-subtitle" />
+        <SF label="Story title" v={about.story_title} on={(v) => setAbout({ ...about, story_title: v })} testid="about-story-title" />
+        <SF label="Story body" v={about.story_body} on={(v) => setAbout({ ...about, story_body: v })} multiline rows={6} testid="about-story-body" />
+      </div>
+
+      <h3 className="font-medium mb-3">Contact page</h3>
+      <div className="space-y-3 mb-6">
+        <SF label="Eyebrow" v={contact.hero_eyebrow} on={(v) => setContact({ ...contact, hero_eyebrow: v })} testid="contact-eyebrow" />
+        <SF label="Hero title" v={contact.hero_title} on={(v) => setContact({ ...contact, hero_title: v })} testid="contact-title" />
+        <SF label="Hero subtitle" v={contact.hero_subtitle} on={(v) => setContact({ ...contact, hero_subtitle: v })} multiline rows={3} testid="contact-subtitle" />
+        <SF label="Email" v={contact.email} on={(v) => setContact({ ...contact, email: v })} testid="contact-email" />
+        <SF label="Phone" v={contact.phone} on={(v) => setContact({ ...contact, phone: v })} testid="contact-phone" />
+        <SF label="Address" v={contact.address} on={(v) => setContact({ ...contact, address: v })} testid="contact-address" />
+        <SF label="Organizer note" v={contact.organizer_note} on={(v) => setContact({ ...contact, organizer_note: v })} multiline rows={2} testid="contact-orgnote" />
+      </div>
+
+      <div className="flex justify-end">
+        <button onClick={save} disabled={saving} className="btn-primary" data-testid="save-site-content-btn">
+          {saving ? "Saving…" : "Save changes"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SF({ label, v, on, multiline, rows, testid }) {
+  return (
+    <label className="block">
+      <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--text-dim)" }}>{label}</div>
+      {multiline ? (
+        <textarea value={v || ""} onChange={(e) => on(e.target.value)} rows={rows || 3} className="w-full" data-testid={testid} />
+      ) : (
+        <input value={v || ""} onChange={(e) => on(e.target.value)} className="w-full" data-testid={testid} />
+      )}
+    </label>
   );
 }
 

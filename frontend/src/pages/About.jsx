@@ -5,6 +5,7 @@
  */
 import { Link } from "react-router-dom";
 import { Sparkles, Ticket, ShieldCheck, Globe2, ArrowRight } from "lucide-react";
+import useSiteSettings from "@/lib/useSiteSettings";
 
 const PILLARS = [
   { icon: Ticket, title: "Built for organizers", text: "From a single VIP gala to a 5,000-seat festival — design your own seat layout, run instant QR check-in, and pay out to your bank with one click." },
@@ -13,14 +14,16 @@ const PILLARS = [
 ];
 
 export default function About() {
+  const settings = useSiteSettings();
+  const about = settings.about || {};
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10 sm:py-16" data-testid="about-page">
-      <div className="text-xs uppercase tracking-[0.3em] mb-3" style={{ color: "var(--accent)" }}>About us</div>
-      <h1 className="serif text-4xl sm:text-5xl lg:text-6xl leading-[1.02] mb-6">
-        Live experiences,<br /> sold the human way.
+      <div className="text-xs uppercase tracking-[0.3em] mb-3" style={{ color: "var(--accent)" }}>{about.hero_eyebrow || "About us"}</div>
+      <h1 className="serif text-4xl sm:text-5xl lg:text-6xl leading-[1.02] mb-6 whitespace-pre-line">
+        {about.hero_title}
       </h1>
-      <p className="text-base sm:text-lg max-w-2xl mb-10" style={{ color: "var(--text-muted)" }}>
-        Allsale Events is a tickets &amp; events platform built in Auckland for the next generation of organizers — the local bhajan night, the touring comic, the cinema reopening with a curated lineup. We obsess over two things: <strong>seat-level accuracy</strong> and <strong>organizer payout speed</strong>.
+      <p className="text-base sm:text-lg max-w-2xl mb-10 whitespace-pre-line" style={{ color: "var(--text-muted)" }}>
+        {about.hero_subtitle}
       </p>
 
       <div className="grid sm:grid-cols-3 gap-4 sm:gap-6 mb-16">
@@ -36,15 +39,9 @@ export default function About() {
       </div>
 
       <div className="rounded-2xl border p-6 sm:p-10 mb-16" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
-        <h2 className="serif text-3xl mb-3">Why we built it</h2>
-        <p className="text-sm sm:text-base mb-3" style={{ color: "var(--text-muted)" }}>
-          The first time we tried to run a sold-out community event, the existing platforms were either too expensive, too clunky, or both. Worse — we had no way to <em>actually see</em> which seats were taken in real-time.
-        </p>
-        <p className="text-sm sm:text-base mb-3" style={{ color: "var(--text-muted)" }}>
-          So we built Allsale Events: <strong>10-minute atomic seat holds</strong>, custom layouts with aisle gaps and section colours, AI that reads your venue diagram and builds the seat map automatically, QR-scanner door-check-in on any phone, and Stripe payouts that hit organizers within 24 hours.
-        </p>
-        <p className="text-sm sm:text-base" style={{ color: "var(--text-muted)" }}>
-          We're a small team and we read every contact-form message. If something can be better, tell us.
+        <h2 className="serif text-3xl mb-3">{about.story_title}</h2>
+        <p className="text-sm sm:text-base whitespace-pre-line" style={{ color: "var(--text-muted)" }}>
+          {about.story_body}
         </p>
       </div>
 
