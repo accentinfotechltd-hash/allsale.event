@@ -33,33 +33,42 @@ from emergentintegrations.llm.chat import (
 router = APIRouter(prefix="/organizer/seatmap", tags=["organizer-seatmap"])
 
 
-SYSTEM_PROMPT = """You are a venue seat-layout analyst.
-Given an image of a seat map / floor plan / theatre diagram, return a strict
-JSON object describing the layout. Output JSON only — no prose, no markdown
-fences.
+SYSTEM_PROMPT = """You are a senior venue seat-layout analyst. Your job is to
+read an image of a seat map / floor plan / cinema diagram and convert it into
+a STRICT JSON describing the grid the audience actually sees.
+
+OUTPUT JSON ONLY — no prose, no markdown fences, no commentary.
 
 Schema:
 {
-  "rows": int,                    # total number of rows you can count
-  "cols": int,                    # the widest row's seat count (assume rectangular grid)
-  "aisles": [string],             # seat IDs that are aisle/walkway markers (NOT bookable). Format "<RowLetter>-<ColNumber>", e.g. "A-5"
-  "sections": [                   # optional groupings (e.g. VIP vs General)
+  "rows": int,                    # total bookable rows (max 30)
+  "cols": int,                    # WIDEST row's seat count (max 60). The grid is rectangular: if some rows are narrower, mark the missing positions as aisles.
+  "aisles": [string],             # seat IDs that are NOT regular bookable seats. Format: "<RowLetter>-<ColNumber>" e.g. "A-5". This MUST include:
+                                  #   - walkway / vertical aisle columns,
+                                  #   - missing-seat slots when a row is narrower than the widest row,
+                                  #   - wheelchair-accessible markers (♿ icons or blue tile with disabled symbol),
+                                  #   - any "non-seat" tiles (stairs, pillars, screens, blocked positions).
+  "sections": [                   # OPTIONAL groupings (e.g. VIP/Premium/General)
     {"name": "VIP", "color": "#EA580C", "seats": ["A-1","A-2","A-3"]}
   ],
-  "curved": bool,                 # true if rows curve around a stage; false for a flat grid
-  "confidence": float,            # 0.0-1.0 — how confident you are
-  "notes": string                 # one short sentence explaining anything odd
+  "curved": bool,                 # true if rows visually curve around a stage
+  "confidence": float,            # 0.0–1.0 — how confident you are
+  "notes": string                 # one short sentence summarising anything unusual
 }
 
-Rules:
-- Row letters go A, B, C, ... from FRONT (closest to stage/screen) to BACK.
-- Column numbers go 1, 2, 3, ... left to right.
-- If you cannot detect a clear grid, set rows=0 cols=0 and explain in "notes".
-- Maximum row count: 30. Maximum cols: 60. If a venue is bigger, return your best estimate inside those caps.
-- Aisles are unseated walkway gaps. Look for vertical strips with no seat circles.
-- Sections: only include if visually distinct (color block, label, raised area). Otherwise return [].
-- If there are stage indicators ("STAGE"/"SCREEN"), interpret seat numbering relative to those.
-- Output JSON ONLY.
+CRITICAL RULES — read carefully:
+1. Row letters go A, B, C, ... from FRONT (closest to stage/screen) to BACK.
+2. Column numbers go 1, 2, 3, ... left-to-right as the AUDIENCE faces the stage.
+3. For NON-RECTANGULAR layouts (e.g. front rows wider than back rows), ALWAYS pad `cols` to the widest row and aggressively populate `aisles` for the empty positions in narrower rows. Example: if row A has seats 1-12 but row D only has 7 visible seats centred under it, those 7 are probably at columns 3-9 — mark D-1, D-2, D-10, D-11, D-12 as aisles.
+4. Wheelchair markers (♿ icons, blue squares with disabled symbol) are NOT bookable. They go in `aisles`.
+5. Walkway gaps between seat-blocks → mark the whole column as an aisle for every row.
+6. Look at the OVERALL shape: cinemas often have a wider front + narrower back, or a uniform grid with one or two centre/side aisles. Identify which.
+7. Sections: only include if you can see a clear visual cue (colour fill, label, raised platform). Otherwise return [].
+8. If you cannot detect a clear grid at all, return rows=0 cols=0 and explain in `notes`.
+
+THINK STEP-BY-STEP: count the widest row's seats first → that's `cols`. Count rows from front → that's `rows`. Then for each row, locate the empty positions and add them to `aisles`. Finally identify any other aisles.
+
+Output JSON ONLY.
 """
 
 
@@ -114,7 +123,16 @@ async def detect_seatmap(payload: DetectIn, user: dict = Depends(get_current_use
 
         image = FileContentWithMimeType(file_path=tmp_path, mime_type=ctype)
         msg = UserMessage(
-            text="Analyse this seat map and return the JSON layout exactly as specified.",
+            text=(
+                "Analyse this seat map. Return JSON exactly as specified. "
+                "Pay special attention to:\n"
+                "1. Non-rectangular layouts — if back rows are narrower than front rows, "
+                "MARK the missing positions as aisles so the grid stays rectangular.\n"
+                "2. Wheelchair-accessible markers (♿ icons / blue disabled-symbol squares) — "
+                "they are aisles, not bookable seats.\n"
+                "3. Any vertical column with no seat in any row — that whole column is an aisle.\n"
+                "Output JSON only."
+            ),
             file_contents=[image],
         )
         raw = await chat.send_message(msg)

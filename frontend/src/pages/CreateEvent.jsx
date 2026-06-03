@@ -187,7 +187,7 @@ export default function CreateEvent() {
                 {form.seat_map_image_url && (
                   <div className="mt-3 flex items-center justify-between gap-3 flex-wrap p-3 rounded-lg" style={{ background: "var(--bg-elev)" }}>
                     <div className="text-xs flex-1 min-w-[200px]" style={{ color: "var(--text-muted)" }}>
-                      <strong style={{ color: "var(--accent)" }}>Auto-detect with AI:</strong> let Gemini read your floor-plan and fill in rows, cols, aisles &amp; sections automatically.
+                      <strong style={{ color: "var(--accent)" }}>Auto-detect with AI:</strong> let Gemini read your floor-plan and fill in rows, cols, aisles &amp; sections automatically. <em>Works best for clear rectangular grids. For complex venues, click below then fine-tune the layout manually.</em>
                     </div>
                     <button
                       type="button"
@@ -196,7 +196,7 @@ export default function CreateEvent() {
                       className="btn-primary !py-2 !px-3 text-xs"
                       data-testid="detect-seatmap-btn"
                     >
-                      {detecting ? "Detecting…" : seatmapFileId ? "Detect seats with AI" : "Re-upload to detect"}
+                      {detecting ? "Detecting…" : (detectResult ? "Re-detect" : (seatmapFileId ? "Detect seats with AI" : "Re-upload to detect"))}
                     </button>
                   </div>
                 )}
