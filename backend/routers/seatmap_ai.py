@@ -78,6 +78,65 @@ class DetectIn(BaseModel):
     event_id: Optional[str] = None  # required when apply=True
 
 
+class DescribeIn(BaseModel):
+    """Plain-English layout description. Used as a fallback when vision fails."""
+    text: str
+
+
+@router.post("/describe")
+async def describe_layout(payload: DescribeIn, user: dict = Depends(get_current_user)):
+    """Turn an organizer's English description into the same structured JSON
+    that /detect returns. Vastly more reliable than vision for tricky venues.
+
+    Example input:
+      "9 rows. Rows A-C have 12 seats. Rows D-I have 9 seats centred under them.
+       Wheelchair positions at C-1 and C-11."
+    """
+    await require_role(user, "organizer", "admin")
+    text = (payload.text or "").strip()
+    if len(text) < 12:
+        raise HTTPException(status_code=400, detail="Describe your layout in at least a sentence")
+    if len(text) > 4000:
+        raise HTTPException(status_code=400, detail="Description too long (max 4000 chars)")
+
+    key = os.environ.get("EMERGENT_LLM_KEY")
+    if not key:
+        raise HTTPException(status_code=500, detail="LLM key not configured")
+
+    try:
+        chat = LlmChat(
+            api_key=key,
+            session_id=f"seatmap_text_{uuid.uuid4().hex[:10]}",
+            system_message=SYSTEM_PROMPT,
+        ).with_model("gemini", "gemini-2.5-pro")
+        raw = await chat.send_message(UserMessage(
+            text=(
+                "The organizer describes their venue below. Convert this into the JSON "
+                "schema from your system prompt. If they describe asymmetric rows, "
+                "pick `cols` = widest row count and mark missing positions in narrower "
+                "rows as aisles. Pay attention to seat ranges like 'C-1 to C-12'.\n\n"
+                f"DESCRIPTION:\n{text}\n\nOutput JSON only."
+            ),
+        ))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"LLM failed: {exc}") from exc
+
+    try:
+        parsed = json.loads(_strip_json(raw if isinstance(raw, str) else str(raw)))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not parse output: {exc}") from exc
+
+    return {
+        "rows": max(0, min(30, int(parsed.get("rows", 0) or 0))),
+        "cols": max(0, min(60, int(parsed.get("cols", 0) or 0))),
+        "aisles": [str(a) for a in (parsed.get("aisles") or []) if isinstance(a, str)],
+        "sections": parsed.get("sections") if isinstance(parsed.get("sections"), list) else [],
+        "curved": bool(parsed.get("curved", False)),
+        "confidence": float(parsed.get("confidence", 0.9) or 0.9),
+        "notes": str(parsed.get("notes", "") or "")[:280],
+    }
+
+
 def _strip_json(s: str) -> str:
     """Strip ``` fences a stubborn model might add even after we asked nicely."""
     s = s.strip()

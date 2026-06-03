@@ -51,33 +51,51 @@ export default function CreateEvent() {
   const [seatmapFileId, setSeatmapFileId] = useState(null);
   const [detecting, setDetecting] = useState(false);
   const [detectResult, setDetectResult] = useState(null);
+  const [describeText, setDescribeText] = useState("");
+  const [showDescribe, setShowDescribe] = useState(false);
+
+  const applyAiResult = (data) => {
+    setDetectResult(data);
+    if (data.rows > 0 && data.cols > 0) {
+      setForm((f) => ({
+        ...f,
+        seat_rows: data.rows,
+        seat_cols: data.cols,
+        aisles: data.aisles || [],
+        seatmap_sections: data.sections || [],
+        seatmap_curved: !!data.curved,
+      }));
+      toast.success(`Layout set: ${data.rows} × ${data.cols} seats, ${(data.aisles || []).length} aisles (${Math.round((data.confidence || 0) * 100)}% confidence)`);
+    } else {
+      toast.message("Couldn't build a clear grid — please tweak the layout below");
+    }
+  };
 
   const detectSeatmap = async () => {
-    if (!seatmapFileId) {
-      toast.error("Upload a floor-plan image first");
-      return;
-    }
+    if (!seatmapFileId) { toast.error("Upload a floor-plan image first"); return; }
     setDetecting(true);
     setDetectResult(null);
     try {
       const { data } = await api.post("/organizer/seatmap/detect", { file_id: seatmapFileId });
-      setDetectResult(data);
-      if (data.rows > 0 && data.cols > 0) {
-        setForm((f) => ({
-          ...f,
-          seat_rows: data.rows,
-          seat_cols: data.cols,
-          aisles: data.aisles || [],
-          seatmap_sections: data.sections || [],
-          seatmap_curved: !!data.curved,
-        }));
-        toast.success(`AI detected ${data.rows} × ${data.cols} seats (${Math.round((data.confidence || 0) * 100)}% confidence)`);
-      } else {
-        toast.message("AI could not detect a clear grid — set the layout manually below");
-      }
+      applyAiResult(data);
     } catch (e) {
       const d = e?.response?.data?.detail;
-      toast.error(typeof d === "string" ? d : "Detection failed — set the layout manually");
+      toast.error(typeof d === "string" ? d : "Detection failed — try the 'Describe in words' option below");
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  const describeSeatmap = async () => {
+    if (!describeText.trim()) { toast.error("Type a description first"); return; }
+    setDetecting(true);
+    setDetectResult(null);
+    try {
+      const { data } = await api.post("/organizer/seatmap/describe", { text: describeText.trim() });
+      applyAiResult(data);
+    } catch (e) {
+      const d = e?.response?.data?.detail;
+      toast.error(typeof d === "string" ? d : "AI couldn't parse — try simpler wording");
     } finally {
       setDetecting(false);
     }
@@ -185,19 +203,53 @@ export default function CreateEvent() {
                   testid="seatmap-uploader"
                 />
                 {form.seat_map_image_url && (
-                  <div className="mt-3 flex items-center justify-between gap-3 flex-wrap p-3 rounded-lg" style={{ background: "var(--bg-elev)" }}>
-                    <div className="text-xs flex-1 min-w-[200px]" style={{ color: "var(--text-muted)" }}>
-                      <strong style={{ color: "var(--accent)" }}>Auto-detect with AI:</strong> let Gemini read your floor-plan and fill in rows, cols, aisles &amp; sections automatically. <em>Works best for clear rectangular grids. For complex venues, click below then fine-tune the layout manually.</em>
+                  <div className="mt-3 p-3 rounded-lg space-y-3" style={{ background: "var(--bg-elev)" }}>
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div className="text-xs flex-1 min-w-[200px]" style={{ color: "var(--text-muted)" }}>
+                        <strong style={{ color: "var(--accent)" }}>Option 1 — Auto-detect from image:</strong> let Gemini read your floor-plan. Works best for clear rectangular grids.
+                      </div>
+                      <button
+                        type="button"
+                        onClick={detectSeatmap}
+                        disabled={detecting || !seatmapFileId}
+                        className="btn-primary !py-2 !px-3 text-xs"
+                        data-testid="detect-seatmap-btn"
+                      >
+                        {detecting ? "Working…" : (detectResult ? "Re-detect" : (seatmapFileId ? "Detect seats with AI" : "Re-upload to detect"))}
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={detectSeatmap}
-                      disabled={detecting || !seatmapFileId}
-                      className="btn-primary !py-2 !px-3 text-xs"
-                      data-testid="detect-seatmap-btn"
-                    >
-                      {detecting ? "Detecting…" : (detectResult ? "Re-detect" : (seatmapFileId ? "Detect seats with AI" : "Re-upload to detect"))}
-                    </button>
+                    <div className="border-t pt-3" style={{ borderColor: "var(--border)" }}>
+                      <button
+                        type="button"
+                        onClick={() => setShowDescribe((s) => !s)}
+                        className="text-xs underline-offset-2 hover:underline"
+                        style={{ color: "var(--accent)" }}
+                        data-testid="toggle-describe-btn"
+                      >
+                        {showDescribe ? "Hide" : "Option 2 — Describe your layout in words (more reliable for asymmetric venues)"}
+                      </button>
+                      {showDescribe && (
+                        <div className="mt-2 space-y-2">
+                          <textarea
+                            value={describeText}
+                            onChange={(e) => setDescribeText(e.target.value)}
+                            rows={4}
+                            className="w-full"
+                            placeholder={"e.g.\n9 rows: A through I.\nRows A and B have 14 seats each.\nRow C has 13 seats; wheelchair markers at C-1, C-13, C-14 (mark as aisles).\nRows D to I have 9 seats each, centred under the front rows (so columns 1, 2, 11-14 should be aisles for those rows)."}
+                            data-testid="describe-text-input"
+                          />
+                          <button
+                            type="button"
+                            onClick={describeSeatmap}
+                            disabled={detecting || describeText.trim().length < 12}
+                            className="btn-primary !py-2 !px-3 text-xs"
+                            data-testid="describe-submit-btn"
+                          >
+                            {detecting ? "Building layout…" : "Generate layout from description"}
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
                 {detectResult && (
@@ -210,6 +262,29 @@ export default function CreateEvent() {
                   </div>
                 )}
               </Field>
+
+              {/* AI describe-in-words is also available WITHOUT an image */}
+              {!form.seat_map_image_url && (
+                <Field label="No floor-plan image? Describe your layout in words">
+                  <textarea
+                    value={describeText}
+                    onChange={(e) => setDescribeText(e.target.value)}
+                    rows={3}
+                    className="w-full"
+                    placeholder={"e.g. 6 rows × 10 cols. Centre aisle after column 5 (so column 6 is an aisle in every row)."}
+                    data-testid="describe-text-input-noimg"
+                  />
+                  <button
+                    type="button"
+                    onClick={describeSeatmap}
+                    disabled={detecting || describeText.trim().length < 12}
+                    className="btn-primary !py-2 !px-3 text-xs mt-2"
+                    data-testid="describe-submit-btn-noimg"
+                  >
+                    {detecting ? "Building…" : "Generate layout"}
+                  </button>
+                </Field>
+              )}
 
               <Field label="Draw the seat arrangement">
                 <div className="mb-3 flex items-center gap-2 text-sm">
