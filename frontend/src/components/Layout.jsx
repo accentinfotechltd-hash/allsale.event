@@ -175,8 +175,8 @@ export default function Layout({ children }) {
           <div>
             <div className="text-xs uppercase tracking-widest mb-3" style={{ color: "var(--text-dim)" }}>Company</div>
             <ul className="space-y-2 text-sm">
-              <li style={{ color: "var(--text-muted)" }}>About</li>
-              <li style={{ color: "var(--text-muted)" }}>Contact</li>
+              <li><Link to="/about" style={{ color: "var(--text-muted)" }} data-testid="footer-about-link">About</Link></li>
+              <li><Link to="/contact" style={{ color: "var(--text-muted)" }} data-testid="footer-contact-link">Contact</Link></li>
             </ul>
           </div>
         </div>

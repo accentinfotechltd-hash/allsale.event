@@ -23,6 +23,8 @@ import CheckIn from "@/pages/CheckIn";
 import Admin from "@/pages/Admin";
 import AuthCallback from "@/pages/AuthCallback";
 import BecomeOrganizer from "@/pages/BecomeOrganizer";
+import About from "@/pages/About";
+import Contact from "@/pages/Contact";
 import RequireOrganizer from "@/components/RequireOrganizer";
 
 function AppRouter() {
@@ -44,6 +46,8 @@ function AppRouter() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/become-organizer" element={<BecomeOrganizer />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/contact" element={<Contact />} />
         <Route path="/organizer" element={<RequireOrganizer><Organizer /></RequireOrganizer>} />
         <Route path="/organizer/new" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId" element={<RequireOrganizer><OrganizerEvent /></RequireOrganizer>} />
