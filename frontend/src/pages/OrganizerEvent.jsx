@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send, Zap, Activity, Megaphone, UserPlus } from "lucide-react";
+import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send, Zap, Activity, Megaphone, UserPlus, Pencil, Trash2 } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { toast } from "sonner";
 import SeatBlocksPanel from "@/components/SeatBlocksPanel";
@@ -103,6 +103,28 @@ export default function OrganizerEvent() {
             data-testid="announce-event-btn"
           >
             <Megaphone className="w-4 h-4" /> Announce
+          </button>
+          <Link to={`/organizer/events/${eventId}/edit`} className="btn-ghost" data-testid="edit-event-btn">
+            <Pencil className="w-4 h-4" /> Edit
+          </Link>
+          <button
+            onClick={async () => {
+              if (!window.confirm(`Delete "${event.title}"?\n\nThis permanently removes the event and ALL of its bookings, holds, seat blocks, scanner tokens and team grants. This cannot be undone.`)) return;
+              try {
+                const { data } = await api.delete(`/events/${eventId}`);
+                const cascadeTotal = Object.values(data.cascade || {}).reduce((a, b) => a + b, 0);
+                toast.success(`Deleted — cleaned up ${cascadeTotal} related record${cascadeTotal === 1 ? "" : "s"}`);
+                window.location.href = "/organizer";
+              } catch (e) {
+                const d = e?.response?.data?.detail;
+                toast.error(typeof d === "string" ? d : "Could not delete");
+              }
+            }}
+            className="btn-ghost"
+            data-testid="delete-event-btn"
+            style={{ color: "var(--danger)" }}
+          >
+            <Trash2 className="w-4 h-4" /> Delete
           </button>
           <button onClick={downloadCsv} className="btn-primary" data-testid="download-csv-btn">
             <Download className="w-4 h-4" /> Export attendees (CSV)

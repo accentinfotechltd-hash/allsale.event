@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet, ScanLine } from "lucide-react";
+import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet, ScanLine, Pencil, Trash2 } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { formatMoney } from "@/lib/currencies";
 import DoorCheckinPanel from "@/components/DoorCheckinPanel";
+import { toast } from "sonner";
 
 export default function Organizer() {
   const { user } = useAuth();
@@ -13,15 +14,29 @@ export default function Organizer() {
   const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [e, a] = await Promise.all([api.get("/organizer/events"), api.get("/organizer/analytics")]);
-        setEvents(e.data);
-        setAnalytics(a.data);
-      } catch { /* noop */ } finally { setLoading(false); }
-    })();
-  }, []);
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [e, a] = await Promise.all([api.get("/organizer/events"), api.get("/organizer/analytics")]);
+      setEvents(e.data);
+      setAnalytics(a.data);
+    } catch { /* noop */ } finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const deleteEvent = async (e) => {
+    if (!window.confirm(`Delete "${e.title}"?\n\nThis permanently removes the event and ALL of its bookings, holds, seat blocks, scanner tokens and team grants. This cannot be undone.`)) return;
+    try {
+      const { data } = await api.delete(`/events/${e.event_id}`);
+      const cascadeTotal = Object.values(data.cascade || {}).reduce((a, b) => a + b, 0);
+      toast.success(`Deleted "${data.title}" — cleaned up ${cascadeTotal} related record${cascadeTotal === 1 ? "" : "s"}`);
+      load();
+    } catch (err) {
+      const d = err?.response?.data?.detail;
+      toast.error(typeof d === "string" ? d : "Could not delete");
+    }
+  };
 
   if (!user || (user.role !== "organizer" && user.role !== "admin")) {
     return <div className="text-center py-20" style={{ color: "var(--text-muted)" }}>Organizer access required.</div>;
@@ -113,15 +128,35 @@ export default function Organizer() {
                   <td className="p-4 text-right" style={{ color: "var(--text-muted)" }}>{perE.tickets || 0}</td>
                   <td className="p-4 text-right">{formatMoney(perE.revenue || 0, e.currency)}</td>
                   <td className="p-4 text-right">
-                    <Link
-                      to={`/organizer/events/${e.event_id}/checkin`}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium"
-                      style={{ background: "var(--accent)", color: "#fff" }}
-                      data-testid={`scan-tickets-${e.event_id}`}
-                      title="Open the QR scanner for this event"
-                    >
-                      <ScanLine className="w-3.5 h-3.5" /> Scan
-                    </Link>
+                    <div className="flex items-center gap-1.5 justify-end flex-wrap">
+                      <Link
+                        to={`/organizer/events/${e.event_id}/edit`}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs border"
+                        style={{ borderColor: "var(--border)", color: "var(--text)" }}
+                        data-testid={`edit-event-${e.event_id}`}
+                        title="Edit event details"
+                      >
+                        <Pencil className="w-3 h-3" /> Edit
+                      </Link>
+                      <button
+                        onClick={() => deleteEvent(e)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs border"
+                        style={{ borderColor: "var(--border)", color: "var(--danger)" }}
+                        data-testid={`delete-event-${e.event_id}`}
+                        title="Delete event"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                      <Link
+                        to={`/organizer/events/${e.event_id}/checkin`}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium"
+                        style={{ background: "var(--accent)", color: "#fff" }}
+                        data-testid={`scan-tickets-${e.event_id}`}
+                        title="Open the QR scanner for this event"
+                      >
+                        <ScanLine className="w-3.5 h-3.5" /> Scan
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               );

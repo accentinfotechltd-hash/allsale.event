@@ -50,6 +50,7 @@ function AppRouter() {
         <Route path="/contact" element={<Contact />} />
         <Route path="/organizer" element={<RequireOrganizer><Organizer /></RequireOrganizer>} />
         <Route path="/organizer/new" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
+        <Route path="/organizer/events/:eventId/edit" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId" element={<RequireOrganizer><OrganizerEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId/checkin" element={<RequireOrganizer><CheckIn /></RequireOrganizer>} />
         {/* Public scanner — no login required, validated by token query param.

@@ -166,6 +166,86 @@ async def create_event(payload: EventIn, user: dict = Depends(get_current_user))
     return event_to_public(doc)
 
 
+@router.patch("/events/{event_id}")
+async def update_event(event_id: str, payload: dict, user: dict = Depends(get_current_user)):
+    """Edit an event. Owner, admin or team members with manager+ rights can edit.
+
+    Body is a partial dict of EventIn-compatible fields. Unknown keys are
+    silently dropped to keep this forgiving for the frontend.
+    """
+    from routers.team import user_can_manage_event
+    await require_role(user, "organizer", "admin")
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if not await user_can_manage_event(user, event, required="manager"):
+        raise HTTPException(status_code=403, detail="Not your event")
+
+    EDITABLE = {
+        "title", "description", "category", "venue", "city", "date",
+        "image_url", "banner_url", "tiers",
+        "has_seatmap", "seat_rows", "seat_cols", "seat_price",
+        "aisles", "seat_map_image_url",
+        "seatmap_curved", "seatmap_numbering_rtl", "seatmap_sections",
+        "seatmap_backdrop_opacity", "seatmap_backdrop_offset_y",
+        "seatmap_backdrop_offset_x", "seatmap_backdrop_scale",
+        "currency",
+    }
+    update = {k: v for k, v in (payload or {}).items() if k in EDITABLE}
+    if not update:
+        raise HTTPException(status_code=400, detail="No editable fields provided")
+    update["updated_at"] = utc_now().isoformat()
+    update["updated_by"] = user["user_id"]
+
+    await db.events.update_one({"event_id": event_id}, {"$set": update})
+    refreshed = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    return event_to_public(refreshed)
+
+
+@router.delete("/events/{event_id}")
+async def delete_event(event_id: str, user: dict = Depends(get_current_user)):
+    """Delete an event AND all of its bookings, holds, seat-blocks, scanner tokens,
+    team grants. Only the owner or an admin can delete.
+
+    NOTE: We refuse to delete events that already have paid bookings unless the
+    caller is an admin — the organizer must refund first, or escalate to admin.
+    """
+    await require_role(user, "organizer", "admin")
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    is_owner = event.get("organizer_id") == user["user_id"]
+    is_admin = user.get("role") == "admin"
+    if not (is_owner or is_admin):
+        raise HTTPException(status_code=403, detail="Only the event owner or an admin can delete")
+
+    paid_count = await db.bookings.count_documents({"event_id": event_id, "status": "paid"})
+    if paid_count > 0 and not is_admin:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot delete — {paid_count} paid booking(s) exist. Refund first or ask an admin.",
+        )
+
+    # Cascade-clean any artefacts so the DB doesn't hoard orphans
+    cascade = {
+        "bookings": await db.bookings.delete_many({"event_id": event_id}),
+        "seat_reservations": await db.seat_reservations.delete_many({"event_id": event_id}),
+        "seat_holds": await db.seat_holds.delete_many({"event_id": event_id}),
+        "scanner_tokens": await db.scanner_tokens.delete_many({"event_id": event_id}),
+        "team_members_event": await db.team_members.delete_many({"event_id": event_id, "scope": "event"}),
+        "waitlist": await db.waitlist.delete_many({"event_id": event_id}),
+        "discount_codes": await db.discount_codes.delete_many({"event_id": event_id}),
+    }
+    await db.events.delete_one({"event_id": event_id})
+
+    return {
+        "deleted": event_id,
+        "title": event.get("title"),
+        "cascade": {k: r.deleted_count for k, r in cascade.items()},
+    }
+
+
+
 class DynamicPricingIn(BaseModel):
     enabled: bool
     surge_threshold_pct: float = Field(default=30.0, ge=5, le=90)

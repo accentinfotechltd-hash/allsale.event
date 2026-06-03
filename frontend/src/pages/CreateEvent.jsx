@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { toast } from "sonner";
 import { Plus, Trash2 } from "lucide-react";
@@ -22,6 +22,8 @@ const CATEGORIES = [
 
 export default function CreateEvent() {
   const nav = useNavigate();
+  const { eventId } = useParams();
+  const isEdit = !!eventId;
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -48,6 +50,43 @@ export default function CreateEvent() {
   });
   const [tiers, setTiers] = useState([{ name: "General", price: 50.0, capacity: 200 }]);
   const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(isEdit);
+
+  // Load existing event when in edit mode
+  useEffect(() => {
+    if (!isEdit) return;
+    (async () => {
+      try {
+        const { data } = await api.get(`/events/${eventId}`);
+        setForm({
+          title: data.title || "",
+          description: data.description || "",
+          category: data.category || "music",
+          venue: data.venue || "",
+          city: data.city || "",
+          // Trim the timezone suffix for the datetime-local input
+          date: data.date ? data.date.slice(0, 16) : "",
+          image_url: data.image_url || "",
+          banner_url: data.banner_url || "",
+          currency: data.currency || DEFAULT_CURRENCY,
+          has_seatmap: !!data.has_seatmap,
+          seat_rows: data.seat_rows || 6,
+          seat_cols: data.seat_cols || 10,
+          seat_price: data.seat_price || 50,
+          aisles: data.aisles || [],
+          seat_map_image_url: data.seat_map_image_url || "",
+          seatmap_curved: !!data.seatmap_curved,
+          seatmap_numbering_rtl: !!data.seatmap_numbering_rtl,
+          seatmap_sections: data.seatmap_sections || [],
+        });
+        if (Array.isArray(data.tiers) && data.tiers.length) setTiers(data.tiers);
+      } catch {
+        toast.error("Could not load event");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [isEdit, eventId]);
   const [seatmapFileId, setSeatmapFileId] = useState(null);
   const [detecting, setDetecting] = useState(false);
   const [detectResult, setDetectResult] = useState(null);
@@ -113,9 +152,15 @@ export default function CreateEvent() {
         date: new Date(form.date).toISOString(),
         tiers: form.has_seatmap ? [] : tiers,
       };
-      const { data } = await api.post("/events", payload);
-      toast.success("Event submitted! Pending approval.");
-      nav(`/events/${data.event_id}`);
+      if (isEdit) {
+        const { data } = await api.patch(`/events/${eventId}`, payload);
+        toast.success("Event updated");
+        nav(`/organizer/events/${data.event_id}`);
+      } else {
+        const { data } = await api.post("/events", payload);
+        toast.success("Event submitted! Pending approval.");
+        nav(`/events/${data.event_id}`);
+      }
     } catch (err) {
       toast.error(formatApiErrorDetail(err?.response?.data?.detail) || "Failed");
     } finally { setSubmitting(false); }
@@ -124,9 +169,12 @@ export default function CreateEvent() {
   return (
     <div className="max-w-3xl mx-auto px-6 py-12">
       <div className="mb-8">
-        <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>New event</div>
-        <h1 className="serif text-5xl">Set the stage</h1>
+        <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>{isEdit ? "Edit event" : "New event"}</div>
+        <h1 className="serif text-5xl">{isEdit ? "Update the details" : "Set the stage"}</h1>
       </div>
+      {loading ? (
+        <div className="py-10 text-center" style={{ color: "var(--text-dim)" }}>Loading…</div>
+      ) : (
       <form onSubmit={onSubmit} className="space-y-6" data-testid="create-event-form">
         <Field label="Cover photo">
           <ImageUploader
@@ -378,9 +426,10 @@ export default function CreateEvent() {
         )}
 
         <button type="submit" disabled={submitting} className="btn-primary" data-testid="submit-event-btn">
-          {submitting ? "Submitting..." : "Submit for approval"}
+          {submitting ? (isEdit ? "Saving..." : "Submitting...") : (isEdit ? "Save changes" : "Submit for approval")}
         </button>
       </form>
+      )}
     </div>
   );
 }
