@@ -20,6 +20,7 @@ export default function SeatMap({
   aisles = [],
   sections = [],
   curved = false,
+  numberingRtl = false,  // cinemas in India/ME often number seats right→left
   backdropUrl = null,
   backdropOpacity = 0.4,
   backdropOffsetY = 0,
@@ -62,7 +63,11 @@ export default function SeatMap({
             <div className="flex items-center gap-1.5">
               <div className="w-6 text-xs font-mono text-center" style={{ color: "var(--text-dim)" }}>{LETTERS[r]}</div>
               {Array.from({ length: cols }).map((_, c) => {
-                const id = `${LETTERS[r]}-${c + 1}`;
+                // If RTL numbering is on, the visual column from the left
+                // (c=0) maps to seat number `cols` and decreases — so seat #1
+                // is the rightmost seat (matches Indian/ME cinema convention).
+                const seatNumber = numberingRtl ? cols - c : c + 1;
+                const id = `${LETTERS[r]}-${seatNumber}`;
                 if (aisleSet.has(id)) {
                   return <div key={id} className="w-7 h-7" aria-hidden="true" />;
                 }

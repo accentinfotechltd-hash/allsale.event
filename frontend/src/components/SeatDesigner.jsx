@@ -17,6 +17,7 @@ export default function SeatDesigner({
   aisles = [],
   sections = [],
   curved = false,
+  numberingRtl = false,
   backdropUrl = null,
   backdropOpacity = 0.4,
   backdropOffsetY = 0,
@@ -180,7 +181,8 @@ export default function SeatDesigner({
               <div className="flex items-center justify-center" style={{ gap: seatGap }}>
                 <div className="w-5 text-[10px] font-mono text-center" style={{ color: "var(--text-dim)" }}>{LETTERS[r]}</div>
                 {Array.from({ length: cols }).map((_, c) => {
-                  const id = `${LETTERS[r]}-${c + 1}`;
+                  const seatNumber = numberingRtl ? cols - c : c + 1;
+                  const id = `${LETTERS[r]}-${seatNumber}`;
                   const isAisle = aisleSet.has(id);
                   const dy = curveOffset(r, c);
                   return (

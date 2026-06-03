@@ -269,6 +269,7 @@ export default function EventDetail() {
                 aisles={event.aisles || []}
                 sections={event.seatmap_sections || []}
                 curved={!!event.seatmap_curved}
+                numberingRtl={!!event.seatmap_numbering_rtl}
                 backdropUrl={event.seat_map_image_url}
                 backdropOpacity={event.seatmap_backdrop_opacity ?? 0.4}
                 backdropOffsetY={event.seatmap_backdrop_offset_y ?? 0}

@@ -152,6 +152,7 @@ async def create_event(payload: EventIn, user: dict = Depends(get_current_user))
         "aisles": payload.aisles,
         "seat_map_image_url": payload.seat_map_image_url,
         "seatmap_curved": payload.seatmap_curved,
+        "seatmap_numbering_rtl": payload.seatmap_numbering_rtl,
         "seatmap_sections": payload.seatmap_sections,
         "seatmap_backdrop_opacity": payload.seatmap_backdrop_opacity,
         "seatmap_backdrop_offset_y": payload.seatmap_backdrop_offset_y,

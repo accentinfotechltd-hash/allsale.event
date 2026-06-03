@@ -39,6 +39,7 @@ export default function CreateEvent() {
     aisles: [],
     seat_map_image_url: "",
     seatmap_curved: false,
+    seatmap_numbering_rtl: false,
     seatmap_sections: [],
     seatmap_backdrop_opacity: 0.4,
     seatmap_backdrop_offset_y: 0,
@@ -211,12 +212,25 @@ export default function CreateEvent() {
               </Field>
 
               <Field label="Draw the seat arrangement">
+                <div className="mb-3 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    id="seatmap_numbering_rtl"
+                    checked={form.seatmap_numbering_rtl}
+                    onChange={(e) => update("seatmap_numbering_rtl", e.target.checked)}
+                    data-testid="numbering-rtl-toggle"
+                  />
+                  <label htmlFor="seatmap_numbering_rtl" style={{ color: "var(--text-muted)" }}>
+                    Number seats <strong>right to left</strong> (e.g. seat #1 is on the right — standard for many Indian/ME cinemas)
+                  </label>
+                </div>
                 <SeatDesigner
                   rows={form.seat_rows}
                   cols={form.seat_cols}
                   aisles={form.aisles}
                   sections={form.seatmap_sections}
                   curved={form.seatmap_curved}
+                  numberingRtl={form.seatmap_numbering_rtl}
                   backdropUrl={form.seat_map_image_url}
                   backdropOpacity={form.seatmap_backdrop_opacity}
                   backdropOffsetY={form.seatmap_backdrop_offset_y}

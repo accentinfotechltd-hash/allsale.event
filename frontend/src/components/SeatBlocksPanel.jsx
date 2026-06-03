@@ -168,6 +168,7 @@ export default function SeatBlocksPanel({ eventId, event }) {
             aisles={event.aisles || []}
             sections={event.seatmap_sections || []}
             curved={event.seatmap_curved}
+            numberingRtl={!!event.seatmap_numbering_rtl}
             onToggle={onToggle}
           />
           <div className="text-xs mt-3 flex flex-wrap gap-4" style={{ color: "var(--text-dim)" }}>

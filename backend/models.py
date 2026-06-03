@@ -43,6 +43,7 @@ class EventIn(BaseModel):
     seat_map_image_url: Optional[str] = None
     # Theatre-style enhancements (all optional; existing events unaffected)
     seatmap_curved: bool = False  # render rows as curved arc
+    seatmap_numbering_rtl: bool = False  # number seats right-to-left (cinemas in India/ME)
     seatmap_sections: List[Dict[str, Any]] = Field(default_factory=list)
     # List of {after_row: int (0-indexed, e.g. 4 means break after row E), label: str}
     seatmap_backdrop_opacity: float = 0.4  # 0.0–1.0
