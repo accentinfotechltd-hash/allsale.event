@@ -12,6 +12,7 @@ export default function Checkout() {
   const [booking, setBooking] = useState(null);
   const [paying, setPaying] = useState(false);
   const [expired, setExpired] = useState(false);
+  const [stripeMode, setStripeMode] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -22,6 +23,15 @@ export default function Checkout() {
         toast.error(formatApiErrorDetail(e?.response?.data?.detail) || "Booking not found");
         nav("/events");
       }
+    })();
+    // Query backend so we show the truthful Stripe mode (test/live) under the
+    // Pay button rather than a hardcoded string. The endpoint is public-safe;
+    // it returns just `{configured, mode}` with no secrets.
+    (async () => {
+      try {
+        const { data } = await api.get("/payments/mode");
+        setStripeMode(data?.mode || null);
+      } catch { /* silent — fall back to nothing instead of a wrong label */ }
     })();
   }, [bookingId, nav]);
 
@@ -89,8 +99,9 @@ export default function Checkout() {
             {!paying && !expired && <ArrowRight className="w-4 h-4" />}
           </button>
 
-          <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-dim)" }}>
-            <Lock className="w-3 h-3" /> Secured by Stripe · Test mode
+          <div className="flex items-center gap-2 text-xs" style={{ color: "var(--text-dim)" }} data-testid="stripe-mode-label">
+            <Lock className="w-3 h-3" /> Secured by Stripe
+            {stripeMode === "live" || stripeMode === "live (restricted)" ? null : stripeMode ? <span> · {stripeMode === "test" ? "Test mode" : stripeMode}</span> : null}
           </div>
 
           {expired && (

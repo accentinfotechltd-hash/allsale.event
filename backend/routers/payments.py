@@ -22,6 +22,28 @@ from routers.ws_seats import notify_seats, notify_tier_refresh
 router = APIRouter(tags=["payments"])
 
 
+@router.get("/payments/mode")
+async def payments_mode():
+    """Public endpoint used by the checkout UI to display the truthful Stripe
+    mode under the "Pay" button. Returns just `{configured, mode}` — no key
+    material, no admin-only fields. Safe to call without auth.
+    """
+    if not STRIPE_API_KEY:
+        return {"configured": False, "mode": None}
+    prefix = STRIPE_API_KEY[:8]
+    if prefix.startswith("sk_live"):
+        mode = "live"
+    elif prefix.startswith("sk_test"):
+        mode = "test"
+    elif prefix.startswith("rk_live"):
+        mode = "live (restricted)"
+    elif prefix.startswith("rk_test"):
+        mode = "test (restricted)"
+    else:
+        mode = "unknown"
+    return {"configured": True, "mode": mode}
+
+
 @router.get("/payments/health")
 async def payments_health(user: dict = Depends(get_current_user)):
     """Admin-only sanity probe — verifies which Stripe environment the
