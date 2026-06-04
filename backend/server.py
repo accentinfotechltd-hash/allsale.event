@@ -105,11 +105,31 @@ app.include_router(api)
 # CORS: production should set CORS_ORIGINS as a comma-separated list of origins
 # (e.g. "https://events.allsale.co.nz,https://www.allsale.co.nz"). Falls back
 # to "*" for local dev / preview environments.
+#
+# We *always* allow the canonical Allsale Events domains regardless of what's
+# in the env var so a half-configured Railway deploy can't lock real users
+# out — and Vercel preview deploys (`*.vercel.app`) match the regex below.
 _origins_env = os.environ.get("CORS_ORIGINS", "*")
 _origins = [o.strip() for o in _origins_env.split(",") if o.strip()] or ["*"]
+_ALWAYS_ALLOWED = [
+    "https://www.allsale.events",
+    "https://allsale.events",
+    "https://www.allsale.co.nz",
+    "https://allsale.co.nz",
+]
+for o in _ALWAYS_ALLOWED:
+    if o not in _origins and "*" not in _origins:
+        _origins.append(o)
+# Regex catches every Vercel preview URL (https://<branch>-<proj>.vercel.app)
+# and any subdomain of allsale.events / allsale.co.nz the user might add later.
+_origin_regex = os.environ.get(
+    "CORS_ORIGIN_REGEX",
+    r"^https://([a-z0-9-]+\.)*(allsale\.(events|co\.nz)|vercel\.app)$",
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
+    allow_origin_regex=_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
