@@ -22,6 +22,40 @@ from routers.ws_seats import notify_seats, notify_tier_refresh
 router = APIRouter(tags=["payments"])
 
 
+@router.get("/payments/health")
+async def payments_health(user: dict = Depends(get_current_user)):
+    """Admin-only sanity probe — verifies which Stripe environment the
+    backend is running in (test vs live) so the launch checklist can confirm
+    the live key was picked up after a Railway redeploy.
+
+    Returns mode by inspecting the API key prefix: `sk_test_...` → test,
+    `sk_live_...` → live. Never returns the key itself.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    if not STRIPE_API_KEY:
+        return {"configured": False, "mode": None, "available": _STRIPE_AVAILABLE}
+    prefix = STRIPE_API_KEY[:8]
+    if prefix.startswith("sk_live"):
+        mode = "live"
+    elif prefix.startswith("sk_test"):
+        mode = "test"
+    elif prefix.startswith("rk_live"):
+        mode = "live (restricted)"
+    elif prefix.startswith("rk_test"):
+        mode = "test (restricted)"
+    else:
+        mode = "unknown"
+    return {
+        "configured": True,
+        "mode": mode,
+        "available": _STRIPE_AVAILABLE,
+        "key_prefix": prefix,
+    }
+
+
+
+
 async def _send_booking_confirmation_email(booking_id: str) -> None:
     """Fetch fresh booking + event and queue confirmation email (non-blocking)."""
     booking = await db.bookings.find_one({"booking_id": booking_id}, {"_id": 0})
