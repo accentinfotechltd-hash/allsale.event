@@ -316,3 +316,12 @@ See `/app/memory/test_credentials.md`
 - ✅ **Admin UI panel** added to Settings tab — dropdown of approved events, 220-char blurb textarea with counter, badge override input, live preview card, "Clear" button, and a save flow that confirms via toast.
 - ✅ Verified end-to-end via curl (5 backend tests) + screenshot (the chip, blurb, and orange-bordered hero all render correctly on https://seathold.preview.emergentagent.com/).
 
+
+
+## Iteration 23 (2026-06-04) — Live launch on www.allsale.events
+- ✅ **Custom domain LIVE**: `https://www.allsale.events` serving production via Vercel + Railway. DNS upgraded to project-specific Vercel records (`4db50d8aa4cfd9b4.vercel-dns-017.com` CNAME + `76.76.21.93` A) — no more "DNS Change Recommended" warning.
+- ✅ **CORS hardened**: hardcoded allowlist for `*.allsale.events`, `*.allsale.co.nz`, and any `*.vercel.app` preview via regex, so a half-configured `CORS_ORIGINS` env var can't lock real users out again.
+- ✅ **Admin password reset endpoint** `POST /api/auth/admin-reset` — gated by `ADMIN_RESET_TOKEN` env var (idempotent, returns clear `{ok, reason}` diagnostics). Used to recover the prod admin login.
+- ✅ **Stripe Test → Live**: `STRIPE_API_KEY` swapped to `sk_live_...` on Railway. Verified via `GET /api/payments/health` returning `mode: "live"`.
+- ✅ **Payments health probe** `GET /api/payments/health` (admin-only) — sanity-check endpoint that reports test/live/restricted mode from the key prefix. Never echoes the key itself.
+- ⏳ Pending: $1 end-to-end test charge to verify real payment flow + email confirmation + QR ticket render.
