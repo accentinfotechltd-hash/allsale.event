@@ -449,7 +449,7 @@ async def admin_email_diagnostics(user: dict = Depends(get_current_user)):
     _admin_only(user)
     import os as _os
     try:
-        from emails import RESEND_API_KEY, SENDER_EMAIL, APP_PUBLIC_URL, _RESEND_AVAILABLE
+        from emails import RESEND_API_KEY, SENDER_EMAIL, REPLY_TO_EMAIL, APP_PUBLIC_URL, _RESEND_AVAILABLE
     except Exception as exc:  # pragma: no cover
         return {"ok": False, "reason": f"emails module not importable: {exc}"}
 
@@ -484,6 +484,7 @@ async def admin_email_diagnostics(user: dict = Depends(get_current_user)):
         "api_key_prefix": key_prefix,
         "sender_email": SENDER_EMAIL,
         "sender_is_sandbox": sender_is_sandbox,
+        "reply_to_email": REPLY_TO_EMAIL or None,
         "app_public_url": APP_PUBLIC_URL,
         "stats": {"sent": sent, "failed": failed, "skipped": skipped},
         "recent_logs": recent_logs,

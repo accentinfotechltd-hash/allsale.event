@@ -27,6 +27,11 @@ logger = logging.getLogger("aura.emails")
 
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY") or ""
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL") or "onboarding@resend.dev"
+# Reply-To address: where replies to ticket / confirmation / support emails
+# land. We send FROM our verified domain (required by Resend / spam filters)
+# but customers' "Reply" button hits this human-monitored mailbox — typically
+# a Gmail address the support team checks daily.
+REPLY_TO_EMAIL = os.environ.get("REPLY_TO_EMAIL") or ""
 APP_PUBLIC_URL = os.environ.get("APP_PUBLIC_URL") or "https://allsale.events"
 SENDER_NAME = "Allsale Events"
 
@@ -409,6 +414,11 @@ async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None) ->
         "html": html,
         "text": text,
     }
+    if REPLY_TO_EMAIL:
+        # Resend / Gmail render this as the address customers' Reply button
+        # targets. Lets us send FROM a verified domain while keeping support
+        # in a shared Gmail inbox.
+        params["reply_to"] = [REPLY_TO_EMAIL]
 
     try:
         result = await asyncio.to_thread(resend.Emails.send, params)
