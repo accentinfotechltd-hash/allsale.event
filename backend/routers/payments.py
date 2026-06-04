@@ -179,6 +179,108 @@ async def checkout_session(payload: CheckoutIn, request: Request, user: dict = D
     return {"url": session.url, "session_id": session.session_id}
 
 
+async def _finalize_paid_booking(booking_id: str, session_id: str | None = None) -> bool:
+    """Mark a booking as paid, free seat holds, generate QR, email confirmation.
+    Idempotent — safe to call multiple times. Returns True if this call
+    actually flipped the booking from pending → paid (and therefore did the
+    fulfilment work), False if it was already paid (and we skipped).
+    """
+    result = await db.bookings.update_one(
+        {"booking_id": booking_id, "status": {"$ne": "paid"}},
+        {"$set": {"status": "paid", "paid_at": utc_now().isoformat()}},
+    )
+    if result.modified_count == 0:
+        return False
+    await db.seat_holds.delete_many({"booking_id": booking_id})
+    await db.seat_reservations.update_many(
+        {"booking_id": booking_id},
+        {"$set": {"status": "booked", "expires_at": None}},
+    )
+    qr_payload = f"AURA|{booking_id}"
+    await db.bookings.update_one(
+        {"booking_id": booking_id},
+        {"$set": {"qr_code": gen_qr_data_url(qr_payload)}},
+    )
+    if session_id:
+        await db.payment_transactions.update_one(
+            {"session_id": session_id},
+            {"$set": {"payment_status": "paid", "status": "complete"}},
+        )
+    await _send_booking_confirmation_email(booking_id)
+    logger.info(f"[booking_paid] {booking_id} — confirmation email queued")
+    # Live broadcast — seats went from held → booked.
+    booking_doc = await db.bookings.find_one({"booking_id": booking_id}, {"_id": 0})
+    if booking_doc:
+        seats = booking_doc.get("seats") or []
+        if seats:
+            await notify_seats(
+                booking_doc["event_id"],
+                [{"seat_id": s, "status": "booked"} for s in seats],
+            )
+        else:
+            await notify_tier_refresh(booking_doc["event_id"])
+    return True
+
+
+@router.post("/admin/payments/reconcile")
+async def admin_reconcile_payments(user: dict = Depends(get_current_user)):
+    """Admin tool: queries Stripe for every still-pending checkout session and
+    fulfils any that have actually been paid. Use this when the live webhook
+    hasn't been configured yet OR when a webhook delivery has failed — Stripe
+    is the source of truth, so we re-pull each session's status and fulfil
+    locally if Stripe says it's paid.
+
+    Returns a summary so the admin UI can show what was fixed.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    if not _STRIPE_AVAILABLE or not STRIPE_API_KEY:
+        raise HTTPException(status_code=503, detail="Stripe not configured")
+
+    stripe = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
+    # Pull every transaction we still believe is pending OR initiated. We cap
+    # at 200 so a runaway DB doesn't time out the request.
+    pending = await db.payment_transactions.find(
+        {"payment_status": {"$nin": ["paid", "expired", "failed", "refunded"]}},
+        {"_id": 0, "session_id": 1, "booking_id": 1, "user_id": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(200).to_list(200)
+
+    fulfilled: list[dict] = []
+    still_pending: list[str] = []
+    errors: list[dict] = []
+
+    for tx in pending:
+        sid = tx.get("session_id")
+        bkg = tx.get("booking_id")
+        if not sid:
+            continue
+        try:
+            s = await stripe.get_checkout_status(sid)
+            new_pay = s.payment_status
+            await db.payment_transactions.update_one(
+                {"session_id": sid},
+                {"$set": {"status": s.status, "payment_status": new_pay, "updated_at": utc_now().isoformat()}},
+            )
+            if new_pay == "paid":
+                did_fulfil = await _finalize_paid_booking(bkg, session_id=sid)
+                fulfilled.append({"booking_id": bkg, "session_id": sid, "newly_fulfilled": did_fulfil})
+            else:
+                still_pending.append(sid)
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"session_id": sid, "booking_id": bkg, "error": str(exc)[:200]})
+            logger.warning(f"Reconcile: stripe lookup failed for {sid}: {exc}")
+
+    return {
+        "ok": True,
+        "scanned": len(pending),
+        "fulfilled_count": sum(1 for f in fulfilled if f["newly_fulfilled"]),
+        "already_paid_count": sum(1 for f in fulfilled if not f["newly_fulfilled"]),
+        "still_pending_count": len(still_pending),
+        "errors": errors,
+        "fulfilled": fulfilled,
+    }
+
+
 @router.get("/checkout/status/{session_id}")
 async def checkout_status(session_id: str, user: dict = Depends(get_current_user)):
     tx = await db.payment_transactions.find_one({"session_id": session_id}, {"_id": 0})
@@ -210,31 +312,7 @@ async def checkout_status(session_id: str, user: dict = Depends(get_current_user
     )
 
     if new_pay == "paid" and tx["payment_status"] != "paid":
-        result = await db.bookings.update_one(
-            {"booking_id": tx["booking_id"], "status": {"$ne": "paid"}},
-            {"$set": {"status": "paid", "paid_at": utc_now().isoformat()}},
-        )
-        if result.modified_count > 0:
-            await db.seat_holds.delete_many({"booking_id": tx["booking_id"]})
-            await db.seat_reservations.update_many(
-                {"booking_id": tx["booking_id"]},
-                {"$set": {"status": "booked", "expires_at": None}},
-            )
-            qr_payload = f"AURA|{tx['booking_id']}"
-            await db.bookings.update_one(
-                {"booking_id": tx["booking_id"]},
-                {"$set": {"qr_code": gen_qr_data_url(qr_payload)}},
-            )
-            await _send_booking_confirmation_email(tx["booking_id"])
-            logger.info(f"[booking_paid] {tx['booking_id']} — confirmation email queued")
-            # Live broadcast — seats went from held → booked
-            booking_doc = await db.bookings.find_one({"booking_id": tx["booking_id"]}, {"_id": 0})
-            if booking_doc:
-                seats = booking_doc.get("seats") or []
-                if seats:
-                    await notify_seats(booking_doc["event_id"], [{"seat_id": s, "status": "booked"} for s in seats])
-                else:
-                    await notify_tier_refresh(booking_doc["event_id"])
+        await _finalize_paid_booking(tx["booking_id"], session_id=session_id)
 
     return {"status": new_status, "payment_status": new_pay, "booking_id": tx["booking_id"]}
 
@@ -256,24 +334,5 @@ async def stripe_webhook(request: Request):
     if evt.payment_status == "paid" and evt.session_id:
         booking_id = (evt.metadata or {}).get("booking_id")
         if booking_id:
-            result = await db.bookings.update_one(
-                {"booking_id": booking_id, "status": {"$ne": "paid"}},
-                {"$set": {"status": "paid", "paid_at": utc_now().isoformat()}},
-            )
-            if result.modified_count > 0:
-                await db.seat_holds.delete_many({"booking_id": booking_id})
-                await db.seat_reservations.update_many(
-                    {"booking_id": booking_id},
-                    {"$set": {"status": "booked", "expires_at": None}},
-                )
-                qr_payload = f"AURA|{booking_id}"
-                await db.bookings.update_one(
-                    {"booking_id": booking_id},
-                    {"$set": {"qr_code": gen_qr_data_url(qr_payload)}},
-                )
-                await db.payment_transactions.update_one(
-                    {"session_id": evt.session_id},
-                    {"$set": {"payment_status": "paid", "status": "complete"}},
-                )
-                await _send_booking_confirmation_email(booking_id)
+            await _finalize_paid_booking(booking_id, session_id=evt.session_id)
     return {"ok": True}

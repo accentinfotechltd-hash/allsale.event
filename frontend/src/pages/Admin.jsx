@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles } from "lucide-react";
+import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
 
@@ -645,6 +645,8 @@ function SettingsTab() {
 
       <EditorPickPanel />
 
+      <StripeReconcilePanel />
+
       <BlastPanel />
 
       <DemoDataPanel />
@@ -1048,6 +1050,80 @@ function BlastPanel() {
   );
 }
 
+
+
+// ============================================================================
+// STRIPE RECONCILE PANEL — sweep pending checkout sessions and fulfil any
+// that have actually been paid (used while live webhook is being set up, or
+// to recover from webhook delivery failures).
+// ============================================================================
+function StripeReconcilePanel() {
+  const [busy, setBusy] = useState(false);
+  const [report, setReport] = useState(null);
+
+  const run = async () => {
+    setBusy(true);
+    try {
+      const { data } = await api.post("/admin/payments/reconcile");
+      setReport(data);
+      if (data.fulfilled_count > 0) {
+        toast.success(`Fulfilled ${data.fulfilled_count} paid booking${data.fulfilled_count === 1 ? "" : "s"}`);
+      } else {
+        toast(`Scanned ${data.scanned} pending session${data.scanned === 1 ? "" : "s"} — nothing new to fulfil`);
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Reconcile failed");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div
+      className="border rounded-2xl p-8"
+      style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+      data-testid="reconcile-panel"
+    >
+      <h2 className="serif text-2xl mb-1 flex items-center gap-2">
+        <RefreshCw className="w-5 h-5" style={{ color: "var(--accent)" }} /> Reconcile Stripe payments
+      </h2>
+      <p className="text-sm mb-5" style={{ color: "var(--text-muted)" }}>
+        Re-pull every pending checkout session from Stripe and finalise any that have actually been paid — issues the e-ticket, sends the confirmation email, and frees the seat hold. Use this when the live webhook hasn't been configured yet, or any time a customer's payment succeeded but their ticket didn't arrive.
+      </p>
+      <button
+        type="button"
+        onClick={run}
+        disabled={busy}
+        className="btn-primary"
+        data-testid="reconcile-btn"
+      >
+        <RefreshCw className={`w-4 h-4 ${busy ? "animate-spin" : ""}`} /> {busy ? "Reconciling…" : "Reconcile now"}
+      </button>
+      {report && (
+        <div className="mt-5 text-sm space-y-2" data-testid="reconcile-report">
+          <div style={{ color: "var(--success)" }}>
+            ✓ Scanned {report.scanned} pending · Fulfilled {report.fulfilled_count} new · {report.already_paid_count} already paid · {report.still_pending_count} still pending · {report.errors?.length || 0} errors
+          </div>
+          {(report.fulfilled || []).filter((f) => f.newly_fulfilled).length > 0 && (
+            <ul className="text-xs space-y-1" style={{ color: "var(--text-dim)" }}>
+              {report.fulfilled.filter((f) => f.newly_fulfilled).map((f) => (
+                <li key={f.session_id}>✓ Fulfilled booking {f.booking_id}</li>
+              ))}
+            </ul>
+          )}
+          {(report.errors || []).length > 0 && (
+            <details className="text-xs" style={{ color: "var(--text-dim)" }}>
+              <summary className="cursor-pointer">{report.errors.length} error{report.errors.length === 1 ? "" : "s"} (click to expand)</summary>
+              <ul className="mt-2 space-y-1">
+                {report.errors.slice(0, 10).map((e, i) => (
+                  <li key={i} className="truncate">{e.booking_id || e.session_id}: {e.error}</li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 
 // ============================================================================
