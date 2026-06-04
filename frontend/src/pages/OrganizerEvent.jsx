@@ -68,8 +68,17 @@ export default function OrganizerEvent() {
   }
   if (!data) return <div className="text-center py-20" style={{ color: "var(--text-dim)" }}>Loading analytics...</div>;
 
-  const { event, totals, tiers, days, hours, codes } = data;
-  const maxHourTickets = Math.max(...hours.map(h => h.tickets), 1);
+  // Backend may omit any of these arrays for a brand-new event; default to []
+  // so downstream `.map()` / spread calls don't blow up the page.
+  const {
+    event,
+    totals,
+    tiers = [],
+    days = [],
+    hours = [],
+    codes = [],
+  } = data;
+  const maxHourTickets = Math.max(...(hours || []).map((h) => h.tickets || 0), 1);
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-12">
@@ -403,6 +412,8 @@ function WaitlistPanel({ eventId }) {
   };
 
   if (!wl) return null;
+  const wlItems = Array.isArray(wl.items) ? wl.items : [];
+  const wlCounts = wl.counts || { waiting: 0, offered: 0, claimed: 0 };
 
   return (
     <Panel
@@ -413,20 +424,20 @@ function WaitlistPanel({ eventId }) {
           {wl.sold_out && <span className="px-2 py-0.5 rounded-full text-xs" style={{ background: "rgba(239,68,68,0.12)", color: "var(--danger)" }}>Sold out</span>}
         </span>
       }
-      sub={`${wl.counts.waiting} waiting · ${wl.counts.offered} offered · ${wl.counts.claimed} claimed`}
+      sub={`${wlCounts.waiting} waiting · ${wlCounts.offered} offered · ${wlCounts.claimed} claimed`}
     >
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm" style={{ color: "var(--text-muted)" }}>
-          {wl.counts.waiting > 0
+          {wlCounts.waiting > 0
             ? "Click Offer next to release the next held capacity to the head of the queue."
             : "No one waiting yet — the join button appears for attendees once the event is sold out."}
         </div>
-        <button onClick={offerNext} disabled={offering || wl.counts.waiting === 0} className="btn-primary" data-testid="offer-next-btn">
+        <button onClick={offerNext} disabled={offering || wlCounts.waiting === 0} className="btn-primary" data-testid="offer-next-btn">
           <Send className="w-4 h-4" /> {offering ? "Offering…" : "Offer next"}
         </button>
       </div>
 
-      {wl.items.length === 0 ? (
+      {wlItems.length === 0 ? (
         <Empty>No waitlist entries yet.</Empty>
       ) : (
         <div className="overflow-x-auto">
@@ -441,7 +452,7 @@ function WaitlistPanel({ eventId }) {
               </tr>
             </thead>
             <tbody>
-              {wl.items.map((e) => {
+              {wlItems.map((e) => {
                 const meta = WL_STATUS[e.status] || { label: e.status, color: "var(--text-muted)", bg: "transparent" };
                 return (
                   <tr key={e.waitlist_id} className="border-b" style={{ borderColor: "var(--border)" }} data-testid={`waitlist-row-${e.waitlist_id}`}>

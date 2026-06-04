@@ -286,3 +286,13 @@ Build an Eventbrite / BookMyShow-style ticketing platform. Originally proposed i
 
 ## Test Credentials
 See `/app/memory/test_credentials.md`
+
+## Iteration 20 (2026-06-04) — Upload hardening + Error visibility
+- ✅ **Profile picture / image upload bug fix**: backend `/api/uploads` now sniffs magic bytes when the filename extension is missing (mobile share-sheets often strip extensions) and transcodes **iPhone HEIC/HEIF photos → JPEG** on the server. Added `pillow-heif` to requirements.
+- ✅ **Clearer upload errors**: backend returns string-only `detail` messages ("Unsupported image format. Please upload a JPG, PNG, WEBP or HEIC file.", "File too large — please pick an image under 5 MB."). Frontend `ProfileEditPanel.onPicture` now surfaces the real HTTP status (413/401/Network) when the server can't respond, and resets the file input so retry works.
+- ✅ **Frontend accept widened**: `<input accept="image/jpeg,image/png,image/webp,image/heic,image/heif">` in ProfileEditPanel and ImageUploader.
+- ✅ **ErrorBoundary upgraded**: crash page now shows the current route, the error message, the component stack, AND a "Copy crash report" button that puts a full diagnostic blob on the clipboard so users (or support) can paste it back to us.
+- ✅ **Defensive guards** in places where the user reported a `Cannot read properties of undefined (reading 'length')` crash: `OrganizerEvent.jsx` destructures `tiers/days/hours/codes` with array defaults; `WaitlistPanel` falls back to `[]`/`{waiting:0,...}` when API omits fields; `EventDetail.jsx` WS handlers (`onSnapshot`/`onTier`) skip the tiers re-map when `prev.tiers` is missing (seatmap-only events).
+- ✅ Verified via curl: normal JPG ✓, extension-less JPG (magic sniff) ✓, HEIC → JPEG transcode ✓, plain-text rejected with friendly message ✓.
+
+

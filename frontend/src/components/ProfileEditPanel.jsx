@@ -51,8 +51,8 @@ export default function ProfileEditPanel() {
   const onPicture = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 2_000_000) {
-      toast.error("Picture must be under 2 MB");
+    if (file.size > 5_000_000) {
+      toast.error("Picture must be under 5 MB");
       return;
     }
     const fd = new FormData();
@@ -67,8 +67,16 @@ export default function ProfileEditPanel() {
       setForm((f) => ({ ...f, picture: url }));
       toast.success("Picture uploaded");
     } catch (err) {
+      // Surface the real reason — network / 413 / unsupported format / etc.
       const d = err?.response?.data?.detail;
-      toast.error(typeof d === "string" ? d : "Upload failed");
+      const status = err?.response?.status;
+      let msg = typeof d === "string" ? d : null;
+      if (!msg && status === 413) msg = "Picture too large — try one under 5 MB.";
+      if (!msg && status === 401) msg = "Please sign in again, then retry.";
+      if (!msg && err?.message?.includes("Network")) msg = "Network hiccup — check your connection and retry.";
+      toast.error(msg || `Upload failed${status ? ` (HTTP ${status})` : ""} — try a smaller JPG or PNG.`);
+      // Reset the input so picking the same file again still re-triggers onChange.
+      e.target.value = "";
     }
   };
 
@@ -132,7 +140,7 @@ export default function ProfileEditPanel() {
             </div>
             <label className="btn-ghost !py-2 !px-4 text-sm cursor-pointer">
               <ImageIcon className="w-4 h-4" /> Upload picture
-              <input type="file" accept="image/*" onChange={onPicture} className="hidden" data-testid="profile-picture-input" />
+              <input type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" onChange={onPicture} className="hidden" data-testid="profile-picture-input" />
             </label>
             {form.picture && (
               <button onClick={() => setForm((f) => ({ ...f, picture: "" }))} className="text-xs" style={{ color: "var(--text-dim)" }} data-testid="remove-picture-btn">Remove</button>

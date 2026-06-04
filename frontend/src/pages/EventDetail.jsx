@@ -113,7 +113,7 @@ export default function EventDetail() {
         sold_out: typeof snap.sold_out === "boolean" ? snap.sold_out : prev.sold_out,
         tier_status: snap.tier_status?.length ? snap.tier_status : prev.tier_status,
         surging: typeof snap.surging === "boolean" ? snap.surging : prev.surging,
-        tiers: snap.tier_status?.length
+        tiers: snap.tier_status?.length && Array.isArray(prev.tiers)
           ? prev.tiers.map((t) => {
               const ts = snap.tier_status.find((s) => s.name === t.name);
               return ts ? { ...t, effective_price: ts.effective_price, surging: ts.surging } : t;
@@ -142,10 +142,12 @@ export default function EventDetail() {
         ...prev,
         sold_out, surging,
         tier_status,
-        tiers: prev.tiers.map((t) => {
-          const ts = tier_status.find((s) => s.name === t.name);
-          return ts ? { ...t, effective_price: ts.effective_price, surging: ts.surging } : t;
-        }),
+        tiers: Array.isArray(prev.tiers)
+          ? prev.tiers.map((t) => {
+              const ts = (tier_status || []).find((s) => s.name === t.name);
+              return ts ? { ...t, effective_price: ts.effective_price, surging: ts.surging } : t;
+            })
+          : prev.tiers,
       } : prev);
     },
   });

@@ -36,30 +36,75 @@ try:
 except Exception:
     _HAS_PIL = False
 
+# iPhone-friendly HEIC/HEIF support — registers extra Pillow openers so
+# `Image.open(...)` can decode .heic photos transparently. We then transcode
+# them to JPEG before storing, since browsers can't render HEIC directly.
+try:
+    from pillow_heif import register_heif_opener  # type: ignore
+    register_heif_opener()
+    _HAS_HEIF = True
+except Exception:
+    _HAS_HEIF = False
 
-def _maybe_downscale(contents: bytes, ctype: str) -> bytes:
+
+def _sniff_image_type(blob: bytes) -> str:
+    """Best-effort magic-byte detection. Returns 'jpg' / 'png' / 'webp' /
+    'heic' / 'heif' / '' (unknown). Used when the upload arrives with a
+    missing or generic extension (common from mobile share sheets)."""
+    if len(blob) < 12:
+        return ""
+    if blob[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if blob[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if blob[:4] == b"RIFF" and blob[8:12] == b"WEBP":
+        return "webp"
+    # ISO Base Media File Format — covers heic/heif/avif/mp4
+    if blob[4:8] == b"ftyp":
+        brand = blob[8:12]
+        if brand in (b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis"):
+            return "heic"
+        if brand in (b"mif1", b"msf1", b"heif"):
+            return "heif"
+    return ""
+
+
+def _maybe_downscale(contents: bytes, ctype: str) -> tuple[bytes, str]:
+    """Returns (contents, content_type) — may transcode HEIC→JPEG and/or
+    downscale large images. content_type may change if a transcode happened."""
     if not _HAS_PIL or not ctype.startswith("image/"):
-        return contents
+        return contents, ctype
     try:
         img = Image.open(BytesIO(contents))
+        # If HEIC/HEIF, force a JPEG output so browsers can render it.
+        is_heif = ctype in ("image/heic", "image/heif") or (img.format or "").upper() in ("HEIF", "HEIC")
         max_w = 1600
-        if img.width <= max_w:
-            return contents
-        ratio = max_w / float(img.width)
-        new_size = (max_w, int(img.height * ratio))
-        img = img.resize(new_size, Image.LANCZOS)
+        needs_resize = img.width > max_w
+        if not is_heif and not needs_resize:
+            return contents, ctype
+        if needs_resize:
+            ratio = max_w / float(img.width)
+            new_size = (max_w, int(img.height * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
         buf = BytesIO()
-        fmt = "JPEG" if ctype in ("image/jpeg", "image/jpg") else ("PNG" if ctype == "image/png" else "WEBP")
+        if is_heif:
+            fmt, out_ctype = "JPEG", "image/jpeg"
+        elif ctype in ("image/jpeg", "image/jpg"):
+            fmt, out_ctype = "JPEG", "image/jpeg"
+        elif ctype == "image/png":
+            fmt, out_ctype = "PNG", "image/png"
+        else:
+            fmt, out_ctype = "WEBP", "image/webp"
         save_kwargs = {"optimize": True}
         if fmt == "JPEG":
             save_kwargs["quality"] = 85
             if img.mode != "RGB":
                 img = img.convert("RGB")
         img.save(buf, format=fmt, **save_kwargs)
-        return buf.getvalue()
+        return buf.getvalue(), out_ctype
     except Exception as exc:  # noqa: BLE001
-        logger.warning(f"Downscale skipped: {exc}")
-        return contents
+        logger.warning(f"Downscale/transcode skipped: {exc}")
+        return contents, ctype
 
 
 @router.post("/uploads")
@@ -69,16 +114,43 @@ async def upload_image(request: Request, file: UploadFile = File(...), user: dic
     Any signed-in user may upload (profile pictures), but file size and type
     are strictly capped. The returned `url` is absolute so it renders on the
     live Vercel site, where the frontend domain differs from the API.
-    """
-    ext = (os.path.splitext(file.filename or "")[1] or "").lower()
-    if ext not in ALLOWED_IMAGE_EXTS:
-        raise HTTPException(status_code=400, detail="Only jpg, png, webp allowed")
-    contents = await file.read()
-    if len(contents) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="File too large (max 5MB)")
 
-    ctype = MIME_TYPES.get(ext, file.content_type or "application/octet-stream")
-    contents = _maybe_downscale(contents, ctype)
+    Mobile share-sheets sometimes drop the file extension or hand us a HEIC
+    photo straight from the iOS Photo library. We sniff the magic bytes and
+    transcode HEIC → JPEG so the upload works regardless of source.
+    """
+    contents = await file.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="The file is empty — please choose another image.")
+    if len(contents) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large — please pick an image under 5 MB.")
+
+    ext = (os.path.splitext(file.filename or "")[1] or "").lower()
+    sniffed = _sniff_image_type(contents)
+    # If the extension is missing, normalise from the sniffed magic bytes.
+    if ext not in ALLOWED_IMAGE_EXTS and ext not in (".heic", ".heif"):
+        if sniffed in {"jpg", "png", "webp"}:
+            ext = f".{sniffed}" if sniffed != "jpg" else ".jpg"
+        elif sniffed in {"heic", "heif"}:
+            ext = f".{sniffed}"
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported image format. Please upload a JPG, PNG, WEBP or HEIC file.",
+            )
+
+    # HEIC/HEIF — accept but only if Pillow can transcode it.
+    if ext in (".heic", ".heif"):
+        if not _HAS_HEIF:
+            raise HTTPException(
+                status_code=400,
+                detail="HEIC images aren't supported on this server. Please pick a JPG or PNG.",
+            )
+        ctype = "image/heic" if ext == ".heic" else "image/heif"
+    else:
+        ctype = MIME_TYPES.get(ext, file.content_type or "application/octet-stream")
+
+    contents, ctype = _maybe_downscale(contents, ctype)
     file_id = uuid.uuid4().hex
     etag = hashlib.md5(contents).hexdigest()
 
