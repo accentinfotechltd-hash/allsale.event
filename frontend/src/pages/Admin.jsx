@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw } from "lucide-react";
+import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send } from "lucide-react";
 import { toast } from "sonner";
 import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
 
@@ -647,6 +647,8 @@ function SettingsTab() {
 
       <StripeReconcilePanel />
 
+      <EmailDiagnosticsPanel />
+
       <BlastPanel />
 
       <DemoDataPanel />
@@ -1050,6 +1052,143 @@ function BlastPanel() {
   );
 }
 
+
+
+// ============================================================================
+// EMAIL DIAGNOSTICS PANEL — admin can see Resend config, send a test email,
+// and resend a booking confirmation when a customer's ticket email didn't
+// land. Wired to /api/admin/email/{diagnostics,send-test,resend-booking}.
+// ============================================================================
+function EmailDiagnosticsPanel() {
+  const [diag, setDiag] = useState(null);
+  const [testTo, setTestTo] = useState("");
+  const [busyTest, setBusyTest] = useState(false);
+  const [resendBookingId, setResendBookingId] = useState("");
+  const [busyResend, setBusyResend] = useState(false);
+
+  const load = async () => {
+    try {
+      const { data } = await api.get("/admin/email/diagnostics");
+      setDiag(data);
+    } catch { /* noop */ }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const sendTest = async () => {
+    if (!testTo || !testTo.includes("@")) {
+      toast.error("Enter a valid email address");
+      return;
+    }
+    setBusyTest(true);
+    try {
+      const { data } = await api.post("/admin/email/send-test", { to: testTo });
+      if (data.ok) {
+        toast.success(`Sent to ${data.to} — check the inbox (and spam)`);
+      } else {
+        toast.error(`Send failed: ${data.reason || "unknown error"}`);
+      }
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Send failed");
+    } finally { setBusyTest(false); }
+  };
+
+  const resend = async () => {
+    if (!resendBookingId.startsWith("bkg_")) {
+      toast.error("Booking ID must start with 'bkg_'");
+      return;
+    }
+    setBusyResend(true);
+    try {
+      const { data } = await api.post("/admin/email/resend-booking", { booking_id: resendBookingId.trim() });
+      toast.success(`Queued for ${data.to}`);
+      setResendBookingId("");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Resend failed");
+    } finally { setBusyResend(false); }
+  };
+
+  const stat = (label, value, status) => (
+    <div className="flex items-center justify-between py-1 text-sm">
+      <span style={{ color: "var(--text-muted)" }}>{label}</span>
+      <span className="flex items-center gap-2 font-mono text-xs">
+        {status === "ok" && <span style={{ color: "var(--success)" }}>✓</span>}
+        {status === "warn" && <span style={{ color: "var(--accent)" }}>⚠</span>}
+        {status === "err" && <span style={{ color: "var(--danger)" }}>✗</span>}
+        {value}
+      </span>
+    </div>
+  );
+
+  return (
+    <div
+      className="border rounded-2xl p-8"
+      style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+      data-testid="email-diagnostics-panel"
+    >
+      <h2 className="serif text-2xl mb-1 flex items-center gap-2">
+        <Mail className="w-5 h-5" style={{ color: "var(--accent)" }} /> Email delivery
+      </h2>
+      <p className="text-sm mb-5" style={{ color: "var(--text-muted)" }}>
+        Verify the production Resend config, send yourself a diagnostic email, and resend booking confirmations to customers whose tickets didn't arrive.
+      </p>
+
+      {diag && (
+        <div className="mb-5 p-4 rounded-xl" style={{ background: "var(--bg)", border: "1px solid var(--border)" }} data-testid="email-diag-stats">
+          {stat("Resend SDK", diag.resend_available ? "available" : "missing", diag.resend_available ? "ok" : "err")}
+          {stat("API key", diag.api_key_set ? `set (${diag.api_key_prefix}…)` : "MISSING", diag.api_key_set ? "ok" : "err")}
+          {stat("From", diag.sender_email, diag.sender_is_sandbox ? "warn" : "ok")}
+          {stat("Reply-To", diag.reply_to_email || "—", diag.reply_to_email ? "ok" : "warn")}
+          {stat("App URL", diag.app_public_url, diag.app_public_url?.includes("allsale.events") ? "ok" : "warn")}
+          {stat("Sent / Failed / Skipped", `${diag.stats?.sent || 0} / ${diag.stats?.failed || 0} / ${diag.stats?.skipped || 0}`, diag.stats?.sent > diag.stats?.failed ? "ok" : "warn")}
+          <button type="button" onClick={load} className="text-xs mt-2 underline" style={{ color: "var(--text-dim)" }} data-testid="email-diag-refresh">
+            Refresh
+          </button>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        <div>
+          <div className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>Send a test email</div>
+          <div className="flex gap-2">
+            <input
+              type="email"
+              value={testTo}
+              onChange={(e) => setTestTo(e.target.value)}
+              placeholder="you@gmail.com"
+              className="flex-1"
+              data-testid="email-test-to-input"
+            />
+            <button type="button" onClick={sendTest} disabled={busyTest || !testTo} className="btn-primary" data-testid="email-test-send-btn">
+              <Send className="w-4 h-4" /> {busyTest ? "Sending…" : "Send test"}
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <div className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>Resend a booking confirmation</div>
+          <div className="flex gap-2">
+            <input
+              value={resendBookingId}
+              onChange={(e) => setResendBookingId(e.target.value)}
+              placeholder="bkg_xxxxxxxxxxxx"
+              className="flex-1 font-mono"
+              data-testid="email-resend-booking-input"
+            />
+            <button type="button" onClick={resend} disabled={busyResend || !resendBookingId.startsWith("bkg_")} className="btn-primary" data-testid="email-resend-booking-btn">
+              <RotateCcw className="w-4 h-4" /> {busyResend ? "Resending…" : "Resend"}
+            </button>
+          </div>
+          <p className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
+            Find the booking ID on Admin → Bookings or in the Stripe charge metadata.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 
 // ============================================================================

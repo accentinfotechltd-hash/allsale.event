@@ -522,3 +522,80 @@ async def admin_resend_booking_confirmation(
         "to": booking.get("user_email"),
         "message": "Confirmation email queued. Check /admin/email-logs in ~10 sec for delivery status.",
     }
+
+
+class _SendTestIn(BaseModel):
+    to: str
+    subject: str | None = None
+
+
+@router.post("/email/send-test")
+async def admin_email_send_test(payload: _SendTestIn, user: dict = Depends(get_current_user)):
+    """Send a tiny diagnostic email to verify the production Resend setup
+    without paying for a real ticket. The response surfaces the underlying
+    Resend response (including error message) so we can pinpoint config
+    issues from a single click in the admin UI.
+    """
+    _admin_only(user)
+    if not payload.to or "@" not in payload.to:
+        raise HTTPException(status_code=400, detail="Invalid 'to' email")
+
+    from emails import (
+        RESEND_API_KEY, SENDER_EMAIL, REPLY_TO_EMAIL, SENDER_NAME,
+        _RESEND_AVAILABLE, resend as _resend_sdk, _layout,
+    )
+    if not _RESEND_AVAILABLE or not RESEND_API_KEY or _resend_sdk is None:
+        return {"ok": False, "reason": "Resend SDK or API key missing"}
+
+    import asyncio
+    subject = payload.subject or "Allsale Events — email delivery test"
+    html = _layout(
+        title=subject,
+        preheader="If you can read this, your transactional emails are working.",
+        body_html=(
+            "<p style='font-family:Helvetica,Arial,sans-serif;color:#F5F5F0;"
+            "font-size:15px;line-height:1.6;'>This is a diagnostic test email "
+            "sent from the Allsale Events admin panel. If it landed in your "
+            "inbox, the Resend integration is configured correctly and "
+            "customers will start receiving booking confirmations.</p>"
+        ),
+    )
+    text = "Allsale Events — email delivery test. If you can read this, transactional emails are working."
+
+    params = {
+        "from": f"{SENDER_NAME} <{SENDER_EMAIL}>",
+        "to": [payload.to],
+        "subject": subject,
+        "html": html,
+        "text": text,
+    }
+    if REPLY_TO_EMAIL:
+        params["reply_to"] = [REPLY_TO_EMAIL]
+
+    try:
+        result = await asyncio.to_thread(_resend_sdk.Emails.send, params)
+        email_id = result.get("id") if isinstance(result, dict) else None
+        await db.email_logs.insert_one({
+            "log_id": f"test_{utc_now().isoformat()}",
+            "template": "admin_test",
+            "to": payload.to,
+            "status": "sent",
+            "subject": subject,
+            "resend_id": email_id,
+            "created_at": utc_now().isoformat(),
+            "triggered_by": user["user_id"],
+        })
+        return {"ok": True, "to": payload.to, "from": params["from"], "reply_to": REPLY_TO_EMAIL or None, "resend_id": email_id}
+    except Exception as exc:
+        reason = str(exc)[:500]
+        await db.email_logs.insert_one({
+            "log_id": f"test_{utc_now().isoformat()}",
+            "template": "admin_test",
+            "to": payload.to,
+            "status": "failed",
+            "reason": reason,
+            "subject": subject,
+            "created_at": utc_now().isoformat(),
+            "triggered_by": user["user_id"],
+        })
+        return {"ok": False, "to": payload.to, "from": params["from"], "reason": reason}
