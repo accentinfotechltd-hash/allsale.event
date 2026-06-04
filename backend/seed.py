@@ -145,6 +145,26 @@ async def seed_demo():
             "password_hash": hash_password(ADMIN_PASSWORD), "picture": None,
             "created_at": utc_now().isoformat(), "auth_provider": "password",
         })
+    # One-shot admin password reset triggered by a Railway env var.
+    # Workflow: set ADMIN_PASSWORD_RESET=<your_new_password> on Railway, redeploy
+    # once, sign in, then DELETE the env var (so the password isn't sitting in
+    # plaintext in your dashboard). The check is idempotent — running it twice
+    # with the same value is a no-op apart from re-hashing.
+    reset_pw = os.environ.get("ADMIN_PASSWORD_RESET", "").strip()
+    if reset_pw:
+        await db.users.update_one(
+            {"email": ADMIN_EMAIL},
+            {"$set": {
+                "password_hash": hash_password(reset_pw),
+                "password_reset_at": utc_now().isoformat(),
+                "auth_provider": "password",  # ensure password login is allowed
+            }},
+        )
+        logger.warning(
+            "[seed] ADMIN_PASSWORD_RESET env var detected — admin password "
+            "was reset. REMOVE the env var on Railway now to clear the "
+            "plaintext from your dashboard."
+        )
     # Backfill admin display name for legacy seeds
     await db.users.update_one(
         {"email": ADMIN_EMAIL, "name": "AURA Admin"},
