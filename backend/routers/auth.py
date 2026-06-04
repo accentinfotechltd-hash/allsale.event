@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from pydantic import BaseModel
 
 from core import (
     db, get_current_user, hash_password, verify_password, utc_now,
@@ -63,6 +64,73 @@ async def login(payload: LoginIn, response: Response):
     }
 
 
+
+# ---------- One-shot admin password reset (env-var-gated) ----------
+# When a deployment loses track of its admin password, the operator can set the
+# environment variable `ADMIN_RESET_TOKEN` to a random string on Railway, then
+# POST to this endpoint with that token + a new password. The endpoint never
+# echoes the token back, and replies with a clear, debuggable JSON result so
+# we can tell whether the env var is missing, the token mismatched, or the
+# admin user record is in an unexpected state.
+#
+# Disable after use by deleting the `ADMIN_RESET_TOKEN` env var on Railway —
+# the endpoint will then fail closed for everyone.
+import os as _os
+from models import LoginIn as _LoginIn  # noqa: F401 (avoid duplicate import shadow)
+
+
+class _AdminResetIn(BaseModel):
+    token: str
+    new_password: str
+    email: str | None = None  # defaults to ADMIN_EMAIL env / "admin@allsale.events"
+
+
+@router.post("/admin-reset")
+async def admin_reset(payload: _AdminResetIn):
+    """Reset the admin password using a server-side shared secret token.
+
+    Returns one of:
+    - `{ok: true, ...}` on success
+    - `{ok: false, reason: "..."}` with a human-readable diagnosis otherwise.
+    Always responds with HTTP 200 so the frontend / curl can read the
+    `reason` field reliably (no CORS or status-code juggling needed).
+    """
+    server_token = (_os.environ.get("ADMIN_RESET_TOKEN") or "").strip()
+    if not server_token:
+        return {"ok": False, "reason": "ADMIN_RESET_TOKEN env var is not set on the server"}
+    if len(server_token) < 8:
+        return {"ok": False, "reason": "ADMIN_RESET_TOKEN must be at least 8 characters"}
+    if not payload.token or payload.token.strip() != server_token:
+        return {"ok": False, "reason": "Token mismatch — paste the exact value from Railway"}
+    if not payload.new_password or len(payload.new_password) < 6:
+        return {"ok": False, "reason": "new_password must be at least 6 characters"}
+    admin_email = (
+        (payload.email or "").lower().strip()
+        or (_os.environ.get("ADMIN_EMAIL") or "admin@allsale.events").lower().strip()
+    )
+    admin = await db.users.find_one({"email": admin_email})
+    if not admin:
+        return {"ok": False, "reason": f"No admin user found for {admin_email}"}
+    if admin.get("role") != "admin":
+        return {"ok": False, "reason": f"User {admin_email} is not an admin"}
+    await db.users.update_one(
+        {"email": admin_email},
+        {"$set": {
+            "password_hash": hash_password(payload.new_password),
+            "password_reset_at": utc_now().isoformat(),
+            "auth_provider": "password",
+        }},
+    )
+    return {
+        "ok": True,
+        "email": admin_email,
+        "message": "Password updated. Sign in now, then REMOVE the ADMIN_RESET_TOKEN env var on Railway.",
+    }
+
+
+
+
+
 @router.post("/logout")
 async def logout(response: Response, request: Request):
     sess = request.cookies.get("session_token")
@@ -86,7 +154,7 @@ async def me(user: dict = Depends(get_current_user)):
 
 
 # ---------- Profile editing ----------
-from pydantic import BaseModel, EmailStr
+from pydantic import EmailStr
 import re
 
 
