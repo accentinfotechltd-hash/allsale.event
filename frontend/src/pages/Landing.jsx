@@ -11,18 +11,21 @@ export default function Landing() {
   const [cats, setCats] = useState([]);
   const [recs, setRecs] = useState([]);
   const [recsLoading, setRecsLoading] = useState(false);
+  const [liveCount, setLiveCount] = useState(null);
   const [q, setQ] = useState("");
   const nav = useNavigate();
 
   useEffect(() => {
     (async () => {
       try {
-        const [f, c] = await Promise.all([
+        const [f, c, s] = await Promise.all([
           api.get("/events/featured"),
           api.get("/events/categories"),
+          api.get("/events/stats/public").catch(() => ({ data: { live_events: 0 } })),
         ]);
         setFeatured(Array.isArray(f.data) ? f.data : []);
         setCats(Array.isArray(c.data) ? c.data : []);
+        setLiveCount(typeof s?.data?.live_events === "number" ? s.data.live_events : 0);
       } catch (e) { console.error(e); }
     })();
   }, []);
@@ -44,9 +47,15 @@ export default function Landing() {
       <section className="relative overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-10 sm:pt-16 pb-12 grid lg:grid-cols-12 gap-10 items-end">
           <div className="lg:col-span-7 fade-up">
-            <div className="chip mb-6">
+            <div className="chip mb-6" data-testid="live-event-count">
               <span style={{ background: "var(--accent)", width: 6, height: 6, borderRadius: 99 }} />
-              <span>Live · 124 events on sale</span>
+              <span>
+                {liveCount === null
+                  ? "Live · loading…"
+                  : liveCount === 0
+                    ? "Be the first to host"
+                    : `Live · ${liveCount} event${liveCount === 1 ? "" : "s"} on sale`}
+              </span>
             </div>
             <h1 className="serif text-5xl sm:text-6xl lg:text-7xl leading-[0.95] mb-6">
               The night is <em style={{ color: "var(--accent)" }}>yours</em>.

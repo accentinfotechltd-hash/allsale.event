@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye } from "lucide-react";
+import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
 
@@ -645,6 +645,8 @@ function SettingsTab() {
 
       <BlastPanel />
 
+      <DemoDataPanel />
+
       <div className="border rounded-2xl p-8" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
         <h2 className="serif text-2xl mb-1">Commission & fees</h2>
         <p className="text-sm mb-7" style={{ color: "var(--text-muted)" }}>
@@ -880,3 +882,67 @@ function BlastPanel() {
   );
 }
 
+
+
+// ============================================================================
+// DEMO DATA WIPE PANEL — one-shot cleanup of the seed events / demo accounts.
+// ============================================================================
+function DemoDataPanel() {
+  const [busy, setBusy] = useState(false);
+  const [report, setReport] = useState(null);
+
+  const wipe = async () => {
+    if (!window.confirm(
+      "Remove the 10 seed demo events (Dune, Hamilton, AllBlacks, etc.) plus the "
+      + "demo organizer/attendee accounts?\n\nReal events and real users created "
+      + "by your own organizers are NOT touched. This action cannot be undone."
+    )) return;
+    setBusy(true);
+    try {
+      const { data } = await api.post("/admin/wipe-demo-data");
+      setReport(data);
+      toast.success(`Removed ${data.events_removed} demo event${data.events_removed === 1 ? "" : "s"} and ${data.users_removed} demo user${data.users_removed === 1 ? "" : "s"}`);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Wipe failed");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div
+      className="border rounded-2xl p-8"
+      style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+      data-testid="demo-data-panel"
+    >
+      <h2 className="serif text-2xl mb-1 flex items-center gap-2">
+        <Trash2 className="w-5 h-5" style={{ color: "var(--danger)" }} /> Demo data cleanup
+      </h2>
+      <p className="text-sm mb-5" style={{ color: "var(--text-muted)" }}>
+        Wipe the sample events shipped with a fresh install (Dune, Hamilton, AllBlacks,
+        etc.) and the demo organizer/attendee accounts. Real events you've created
+        and real users that have signed up are left alone.
+      </p>
+      <button
+        type="button"
+        onClick={wipe}
+        disabled={busy}
+        className="btn-ghost"
+        style={{ borderColor: "var(--danger)", color: "var(--danger)" }}
+        data-testid="wipe-demo-btn"
+      >
+        <Trash2 className="w-4 h-4" /> {busy ? "Wiping…" : "Wipe demo data"}
+      </button>
+      {report && (
+        <div className="mt-5 text-sm space-y-1" data-testid="wipe-demo-report">
+          <div style={{ color: "var(--success)" }}>
+            ✓ Removed {report.events_removed} event{report.events_removed === 1 ? "" : "s"}, {report.users_removed} user{report.users_removed === 1 ? "" : "s"}.
+          </div>
+          {report.cascade && (
+            <div className="text-xs" style={{ color: "var(--text-dim)" }}>
+              Cascade: {report.cascade.bookings} bookings · {report.cascade.holds} holds · {report.cascade.reservations} reservations · {report.cascade.scanner_tokens} scanner tokens · {report.cascade.waitlist} waitlist · {report.cascade.discount_codes} codes
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}

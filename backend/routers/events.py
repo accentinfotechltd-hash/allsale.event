@@ -71,6 +71,20 @@ async def event_categories():
     ]
 
 
+@router.get("/events/stats/public")
+async def public_event_stats():
+    """Cheap public counter used by the landing-page hero chip
+    ("Live · N events on sale"). Counts only approved + future events so the
+    number always represents tickets a visitor can actually buy right now.
+    """
+    now_iso = utc_now().isoformat()
+    live_count = await db.events.count_documents({
+        "status": {"$in": ["approved", "published"]},
+        "date": {"$gte": now_iso},
+    })
+    return {"live_events": live_count}
+
+
 @router.get("/events/{event_id}")
 async def get_event(event_id: str):
     e = await db.events.find_one({"event_id": event_id}, {"_id": 0})

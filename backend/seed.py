@@ -151,7 +151,8 @@ async def seed_demo():
         {"$set": {"name": "Allsale Events Admin"}},
     )
     org = await db.users.find_one({"email": "organizer@allsale.events"})
-    if not org:
+    seed_demo_enabled = os.environ.get("SEED_DEMO", "false").lower() not in ("false", "0", "no")
+    if not org and seed_demo_enabled:
         org_id = f"user_{uuid.uuid4().hex[:12]}"
         await db.users.insert_one({
             "user_id": org_id, "email": "organizer@allsale.events",
@@ -159,13 +160,15 @@ async def seed_demo():
             "password_hash": hash_password("organizer123"), "picture": None,
             "created_at": utc_now().isoformat(), "auth_provider": "password",
         })
-    else:
+    elif org:
         org_id = org["user_id"]
         # Keep organizer display name in sync with rebrand
         if org.get("name") == "AURA Productions":
             await db.users.update_one({"user_id": org_id}, {"$set": {"name": "Allsale Productions"}})
+    else:
+        org_id = None
 
-    if not await db.users.find_one({"email": "attendee@allsale.events"}):
+    if not await db.users.find_one({"email": "attendee@allsale.events"}) and seed_demo_enabled:
         await db.users.insert_one({
             "user_id": f"user_{uuid.uuid4().hex[:12]}",
             "email": "attendee@allsale.events", "name": "Demo Attendee", "role": "attendee",
@@ -180,10 +183,10 @@ async def seed_demo():
     )
 
     # Demo events are only inserted when SEED_DEMO is explicitly enabled.
-    # Admin/organizer/attendee users (above) are ALWAYS created so the platform
-    # is usable on a fresh production deployment.
-    if os.environ.get("SEED_DEMO", "true").lower() in ("false", "0", "no"):
-        logger.info("SEED_DEMO disabled — skipping demo events")
+    # Admin user is ALWAYS created so the platform is usable on a fresh
+    # production deployment; demo organizer/attendee + events stay off by default.
+    if not seed_demo_enabled:
+        logger.info("SEED_DEMO disabled — skipping demo events + demo users")
         return
 
     if await db.events.count_documents({}) == 0:

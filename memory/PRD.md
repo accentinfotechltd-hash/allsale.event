@@ -296,3 +296,13 @@ See `/app/memory/test_credentials.md`
 - ✅ Verified via curl: normal JPG ✓, extension-less JPG (magic sniff) ✓, HEIC → JPEG transcode ✓, plain-text rejected with friendly message ✓.
 
 
+
+## Iteration 21 (2026-06-04) — Demo data wipe + real live counter
+- ✅ **New admin endpoint** `POST /api/admin/wipe-demo-data` (admin-only) — removes the 10 seed events (Dune, Hamilton, AllBlacks, etc.) by exact title match plus the demo `organizer@allsale.events` / `attendee@allsale.events` users. Cascades cleanly through bookings, holds, reservations, scanner tokens, team grants, discount codes, waitlist entries and event views. Real organizer events and real signed-up users are untouched.
+- ✅ **Admin UI panel** added to the Settings tab: "Demo data cleanup" card with red destructive button + cascade report showing exactly how many records were removed (`data-testid="wipe-demo-btn"`).
+- ✅ **Public stats endpoint** `GET /api/events/stats/public` → `{live_events: <count>}` — counts approved + future events only.
+- ✅ **Landing hero chip** swapped from hard-coded `"Live · 124 events on sale"` → real `liveCount` from the public stats endpoint. Falls back to `"Be the first to host"` when the platform is empty (`data-testid="live-event-count"`).
+- ✅ **Seed defaults flipped**: `SEED_DEMO` now defaults to **false** so future deployments never re-create demo events or demo users. Admin user is still always created on a fresh DB.
+- ✅ Smoke-tested end-to-end via curl (local dev DB: 2 demo users removed, real events unaffected) + screenshot (chip now shows "Live · 5 events on sale" instead of the fake 124).
+
+

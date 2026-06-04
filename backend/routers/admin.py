@@ -58,6 +58,84 @@ async def admin_feature(event_id: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
+# ---------- Demo data wipe (one-shot cleanup) ----------
+# Hard-coded list of titles that ship with `seed.py`. Used so we can target the
+# exact demo events for deletion without nuking anything the organizer has
+# created themselves. Keep this list in sync with `backend/seed.py:DEMO_EVENTS`.
+_DEMO_EVENT_TITLES = {
+    "Dune: Part Three — IMAX Premiere",
+    "Studio Ghibli Retrospective — Spirited Away (35mm)",
+    "Midnight Echoes — Live in Concert",
+    "Stand-Up Saturday: The Roast",
+    "AllBlacks vs Wallabies — Bledisloe Cup",
+    "Hamilton — The Musical",
+    "Future//Stack — Devs Conference 2026",
+    "Ceramics Studio Weekend",
+    "Splendour Open Air Festival",
+    "Modernism Reframed — Art Exhibit",
+}
+_DEMO_USER_EMAILS = {"organizer@allsale.events", "attendee@allsale.events"}
+
+
+@router.post("/wipe-demo-data")
+async def admin_wipe_demo_data(user: dict = Depends(get_current_user)):
+    """One-shot cleanup of seeded demo events + demo users.
+
+    Only removes records that match the exact titles / emails shipped in
+    `seed.py`. Real events and real users created by the organizer are
+    completely untouched. Cascading cleanup mirrors `DELETE /api/events/{id}`
+    so we don't leave orphaned bookings / holds / scanner tokens behind.
+    """
+    _admin_only(user)
+
+    # 1) Find every event matching the demo titles.
+    demo_events = await db.events.find(
+        {"title": {"$in": list(_DEMO_EVENT_TITLES)}}, {"_id": 0, "event_id": 1, "title": 1},
+    ).to_list(50)
+    demo_event_ids = [e["event_id"] for e in demo_events]
+    cascade_counts = {
+        "events": 0, "bookings": 0, "holds": 0, "reservations": 0,
+        "scanner_tokens": 0, "team_grants": 0, "discount_codes": 0,
+        "waitlist": 0, "views": 0,
+    }
+
+    if demo_event_ids:
+        # Cascade in the same order as the regular DELETE /events/{id} handler.
+        cascade_counts["bookings"] = (await db.bookings.delete_many(
+            {"event_id": {"$in": demo_event_ids}})).deleted_count
+        cascade_counts["holds"] = (await db.seat_holds.delete_many(
+            {"event_id": {"$in": demo_event_ids}})).deleted_count
+        cascade_counts["reservations"] = (await db.seat_reservations.delete_many(
+            {"event_id": {"$in": demo_event_ids}})).deleted_count
+        cascade_counts["scanner_tokens"] = (await db.scanner_tokens.delete_many(
+            {"event_id": {"$in": demo_event_ids}})).deleted_count
+        cascade_counts["team_grants"] = (await db.team_members_event.delete_many(
+            {"event_id": {"$in": demo_event_ids}})).deleted_count
+        cascade_counts["discount_codes"] = (await db.discount_codes.delete_many(
+            {"event_id": {"$in": demo_event_ids}})).deleted_count
+        cascade_counts["waitlist"] = (await db.waitlist_entries.delete_many(
+            {"event_id": {"$in": demo_event_ids}})).deleted_count
+        cascade_counts["views"] = (await db.event_views.delete_many(
+            {"event_id": {"$in": demo_event_ids}})).deleted_count
+        cascade_counts["events"] = (await db.events.delete_many(
+            {"event_id": {"$in": demo_event_ids}})).deleted_count
+
+    # 2) Remove the demo user accounts (admin stays).
+    users_deleted = (await db.users.delete_many(
+        {"email": {"$in": list(_DEMO_USER_EMAILS)}})).deleted_count
+
+    return {
+        "ok": True,
+        "events_removed": cascade_counts["events"],
+        "users_removed": users_deleted,
+        "cascade": cascade_counts,
+        "demo_event_titles_matched": [e["title"] for e in demo_events],
+    }
+
+
+# ---------- Public stats (used by the landing-page hero chip) ----------
+
+
 # ---------- User management ----------
 class RoleIn(BaseModel):
     role: str  # attendee | organizer | admin
