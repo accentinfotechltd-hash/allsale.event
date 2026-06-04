@@ -436,3 +436,88 @@ async def admin_email_logs(
     failed = await db.email_logs.count_documents({"status": "failed"})
     skipped = await db.email_logs.count_documents({"status": "skipped"})
     return {"items": items, "stats": {"sent": sent, "failed": failed, "skipped": skipped}}
+
+
+
+@router.get("/email/diagnostics")
+async def admin_email_diagnostics(user: dict = Depends(get_current_user)):
+    """Reports the runtime config the email system is using so the admin can
+    tell at a glance whether emails will work in production.
+
+    Never returns the API key itself — only whether it's set and its prefix.
+    """
+    _admin_only(user)
+    import os as _os
+    try:
+        from emails import RESEND_API_KEY, SENDER_EMAIL, APP_PUBLIC_URL, _RESEND_AVAILABLE
+    except Exception as exc:  # pragma: no cover
+        return {"ok": False, "reason": f"emails module not importable: {exc}"}
+
+    key_set = bool(RESEND_API_KEY)
+    # `re_xxxxxx` is the Resend live-key prefix; warn if it's blank or odd.
+    key_prefix = RESEND_API_KEY[:4] if key_set else None
+
+    # A "sandbox" sender (anything @resend.dev) means Resend will reject
+    # delivery to anything other than the verified account owner's email.
+    # That's why test bookings can succeed but the customer never receives anything.
+    sender_is_sandbox = SENDER_EMAIL.endswith("@resend.dev")
+
+    recent_logs = []
+    async for log in db.email_logs.find({}, {"_id": 0}).sort("created_at", -1).limit(10):
+        recent_logs.append({
+            "template": log.get("template"),
+            "to": log.get("to"),
+            "status": log.get("status"),
+            "reason": log.get("reason"),
+            "subject": log.get("subject"),
+            "created_at": log.get("created_at"),
+        })
+
+    sent = await db.email_logs.count_documents({"status": "sent"})
+    failed = await db.email_logs.count_documents({"status": "failed"})
+    skipped = await db.email_logs.count_documents({"status": "skipped"})
+
+    return {
+        "ok": _RESEND_AVAILABLE and key_set,
+        "resend_available": _RESEND_AVAILABLE,
+        "api_key_set": key_set,
+        "api_key_prefix": key_prefix,
+        "sender_email": SENDER_EMAIL,
+        "sender_is_sandbox": sender_is_sandbox,
+        "app_public_url": APP_PUBLIC_URL,
+        "stats": {"sent": sent, "failed": failed, "skipped": skipped},
+        "recent_logs": recent_logs,
+    }
+
+
+class _ResendBookingIn(BaseModel):
+    booking_id: str
+
+
+@router.post("/email/resend-booking")
+async def admin_resend_booking_confirmation(
+    payload: _ResendBookingIn,
+    user: dict = Depends(get_current_user),
+):
+    """Manually resend the booking confirmation email for a given booking_id.
+    Used by admin support when a customer reports their email never arrived
+    (spam folder, bounce, address typo, etc.).
+    """
+    _admin_only(user)
+    booking = await db.bookings.find_one({"booking_id": payload.booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.get("status") != "paid":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Booking status is '{booking.get('status')}' — only paid bookings can have their confirmation resent",
+        )
+    # Defer to the shared helper that's also used by webhook + reconcile.
+    from routers.payments import _send_booking_confirmation_email
+    await _send_booking_confirmation_email(payload.booking_id)
+    return {
+        "ok": True,
+        "booking_id": payload.booking_id,
+        "to": booking.get("user_email"),
+        "message": "Confirmation email queued. Check /admin/email-logs in ~10 sec for delivery status.",
+    }
