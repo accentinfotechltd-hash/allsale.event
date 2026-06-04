@@ -122,8 +122,24 @@ async def checkout_session(payload: CheckoutIn, request: Request, user: dict = D
         raise HTTPException(status_code=410, detail="Hold expired")
 
     host_url = str(request.base_url)
-    webhook_url = f"{host_url}api/webhook/stripe"
-    stripe = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
+    # Stripe rejects non-https webhook URLs in live mode. Behind Railway's
+    # proxy, `request.base_url` sometimes reports `http://` even though the
+    # external scheme is `https://`. We force https when the request came in
+    # via an https-terminated edge (detected via the standard forwarded-proto
+    # header set by Railway / Vercel).
+    fwd_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    if fwd_proto == "https" and host_url.startswith("http://"):
+        host_url = "https://" + host_url[len("http://"):]
+    # Operators can pin the webhook URL via `STRIPE_WEBHOOK_URL` env var if
+    # the auto-detected one ever drifts (e.g. when fronted by Cloudflare with
+    # a custom domain).
+    import os as _os
+    webhook_url = (_os.environ.get("STRIPE_WEBHOOK_URL") or "").strip() or f"{host_url}api/webhook/stripe"
+    try:
+        stripe = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(f"Stripe client init failed | webhook_url={webhook_url}")
+        raise HTTPException(status_code=502, detail=f"Stripe init failed: {exc}") from exc
 
     # Currency is set per-event by the organizer. Stripe expects ISO-4217 lowercase.
     event = await db.events.find_one({"event_id": booking["event_id"]}, {"_id": 0}) or {}
@@ -139,7 +155,20 @@ async def checkout_session(payload: CheckoutIn, request: Request, user: dict = D
             "user_id": user["user_id"],
         },
     )
-    session = await stripe.create_checkout_session(req)
+    try:
+        session = await stripe.create_checkout_session(req)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Stripe create_checkout_session failed | "
+            f"booking={booking['booking_id']} amount={booking['amount']} "
+            f"currency={currency} webhook_url={webhook_url} "
+            f"success_url={success_url} origin={payload.origin_url}"
+        )
+        # Surface a useful message to the buyer rather than a blank 500.
+        raise HTTPException(
+            status_code=502,
+            detail=f"Payment provider rejected the request: {exc}",
+        ) from exc
 
     await db.payment_transactions.insert_one({
         "session_id": session.session_id, "booking_id": booking["booking_id"],
