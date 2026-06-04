@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from core import db, get_current_user, utc_now
+from core import db, event_to_public, get_current_user, utc_now
 
 router = APIRouter(tags=["site-settings"])
 
@@ -31,6 +31,15 @@ DEFAULTS = {
         "address": "Auckland, New Zealand",
         "organizer_note": "Organizers: for payout, refund and Stripe support, please include your event ID so we can resolve faster.",
     },
+    "editor_pick": {
+        # Empty = no pick set; falls back to the first featured event on the
+        # landing page hero. When `event_id` is set, the landing page shows
+        # this event with the curator blurb beneath the title and an
+        # "Editor's Pick" badge instead of "Featured".
+        "event_id": None,
+        "blurb": "",
+        "badge_text": "Editor's Pick",
+    },
 }
 
 
@@ -40,6 +49,7 @@ async def _load() -> dict:
     return {
         "about": {**DEFAULTS["about"], **(doc.get("about") or {})},
         "contact": {**DEFAULTS["contact"], **(doc.get("contact") or {})},
+        "editor_pick": {**DEFAULTS["editor_pick"], **(doc.get("editor_pick") or {})},
         "updated_at": doc.get("updated_at"),
     }
 
@@ -48,6 +58,34 @@ async def _load() -> dict:
 async def public_site_settings():
     """Public read for About + Contact pages."""
     return await _load()
+
+
+@router.get("/site-settings/editor-pick")
+async def public_editor_pick():
+    """Public read used by the landing-page hero. Returns the curator-picked
+    event (joined into a public event payload) + the blurb to render under
+    the title. Returns `{event: null}` when no pick is set or the picked
+    event was deleted / un-approved — frontend falls back to the first
+    featured event in that case.
+    """
+    settings = await _load()
+    pick = settings.get("editor_pick") or {}
+    event_id = pick.get("event_id")
+    if not event_id:
+        return {"event": None, "blurb": "", "badge_text": pick.get("badge_text", "Editor's Pick")}
+
+    event = await db.events.find_one(
+        {"event_id": event_id, "status": {"$in": ["approved", "published"]}},
+        {"_id": 0},
+    )
+    if not event:
+        # Stale pick — fall through so the landing page uses its featured fallback.
+        return {"event": None, "blurb": "", "badge_text": pick.get("badge_text", "Editor's Pick")}
+    return {
+        "event": event_to_public(event),
+        "blurb": pick.get("blurb") or "",
+        "badge_text": pick.get("badge_text") or "Editor's Pick",
+    }
 
 
 class AboutIn(BaseModel):
@@ -68,9 +106,16 @@ class ContactIn(BaseModel):
     organizer_note: str | None = None
 
 
+class EditorPickIn(BaseModel):
+    event_id: str | None = None  # `null` to clear the pick
+    blurb: str | None = None
+    badge_text: str | None = None
+
+
 class SettingsPatchIn(BaseModel):
     about: AboutIn | None = None
     contact: ContactIn | None = None
+    editor_pick: EditorPickIn | None = None
 
 
 @router.patch("/admin/site-settings")
@@ -82,6 +127,13 @@ async def update_site_settings(payload: SettingsPatchIn, user: dict = Depends(ge
     existing = await db.site_settings.find_one({"_kind": "site"}, {"_id": 0}) or {}
     new_about = {**(existing.get("about") or {}), **(payload.about.model_dump(exclude_none=True) if payload.about else {})}
     new_contact = {**(existing.get("contact") or {}), **(payload.contact.model_dump(exclude_none=True) if payload.contact else {})}
+    # Editor pick: `exclude_none=False` so the admin can explicitly clear the
+    # pick by sending `{"event_id": null}` without losing the blurb/badge.
+    if payload.editor_pick is not None:
+        ep_in = payload.editor_pick.model_dump(exclude_unset=True)
+        new_editor_pick = {**(existing.get("editor_pick") or {}), **ep_in}
+    else:
+        new_editor_pick = existing.get("editor_pick") or {}
 
     await db.site_settings.update_one(
         {"_kind": "site"},
@@ -89,6 +141,7 @@ async def update_site_settings(payload: SettingsPatchIn, user: dict = Depends(ge
             "_kind": "site",
             "about": new_about,
             "contact": new_contact,
+            "editor_pick": new_editor_pick,
             "updated_at": utc_now().isoformat(),
             "updated_by": user["user_id"],
         }},

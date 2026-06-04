@@ -306,3 +306,13 @@ See `/app/memory/test_credentials.md`
 - ✅ Smoke-tested end-to-end via curl (local dev DB: 2 demo users removed, real events unaffected) + screenshot (chip now shows "Live · 5 events on sale" instead of the fake 124).
 
 
+
+
+## Iteration 22 (2026-06-04) — Editor's Pick (curated landing hero)
+- ✅ **Site settings extended** with an `editor_pick: {event_id, blurb, badge_text}` field. Backwards-compatible — defaults to no pick, falls back to first featured event.
+- ✅ **New public endpoint** `GET /api/site-settings/editor-pick` — joins the picked event into a public payload + returns the curator blurb + badge text. Auto-falls-back to `{event: null}` when the pick references a deleted or un-approved event so the landing page never breaks.
+- ✅ **Admin PATCH** `/api/admin/site-settings` now accepts `editor_pick.event_id` (string or `null` to clear), `blurb` (≤220 chars), and `badge_text` (defaults to "Editor's Pick").
+- ✅ **Landing page hero** auto-pulls the pick. Renders the curator blurb in italics under the title, swaps the chip text to the configured badge (e.g. "Editor's Pick" / "Don't Miss" / "Trending now"), and uses the brand accent border for extra prominence. Falls back to the existing "first featured event" behaviour when no pick is set.
+- ✅ **Admin UI panel** added to Settings tab — dropdown of approved events, 220-char blurb textarea with counter, badge override input, live preview card, "Clear" button, and a save flow that confirms via toast.
+- ✅ Verified end-to-end via curl (5 backend tests) + screenshot (the chip, blurb, and orange-bordered hero all render correctly on https://seathold.preview.emergentagent.com/).
+

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2 } from "lucide-react";
+import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
 
@@ -643,6 +643,8 @@ function SettingsTab() {
     <div data-testid="admin-settings-tab" className="max-w-2xl space-y-6">
       <SiteContentPanel />
 
+      <EditorPickPanel />
+
       <BlastPanel />
 
       <DemoDataPanel />
@@ -785,6 +787,170 @@ function SF({ label, v, on, multiline, rows, testid }) {
         <input value={v || ""} onChange={(e) => on(e.target.value)} className="w-full" data-testid={testid} />
       )}
     </label>
+  );
+}
+
+
+// ============================================================================
+// EDITOR'S PICK PANEL — admin pins one curated event to the landing hero +
+// writes a quick blurb that renders under the title.
+// ============================================================================
+function EditorPickPanel() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [events, setEvents] = useState([]);
+  const [eventId, setEventId] = useState("");
+  const [blurb, setBlurb] = useState("");
+  const [badge, setBadge] = useState("Editor's Pick");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [settings, list] = await Promise.all([
+          api.get("/site-settings"),
+          api.get("/admin/events"),
+        ]);
+        const ep = settings.data?.editor_pick || {};
+        setEventId(ep.event_id || "");
+        setBlurb(ep.blurb || "");
+        setBadge(ep.badge_text || "Editor's Pick");
+        // Only approved events qualify for the landing-page hero spotlight.
+        setEvents(
+          (Array.isArray(list.data) ? list.data : [])
+            .filter((e) => e.status === "approved")
+            .sort((a, b) => new Date(a.date) - new Date(b.date))
+        );
+      } catch { /* noop */ } finally { setLoading(false); }
+    })();
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const { data } = await api.patch("/admin/site-settings", {
+        editor_pick: {
+          event_id: eventId || null,
+          blurb: blurb.trim(),
+          badge_text: (badge || "").trim() || "Editor's Pick",
+        },
+      });
+      const ep = data.editor_pick || {};
+      setEventId(ep.event_id || "");
+      setBlurb(ep.blurb || "");
+      setBadge(ep.badge_text || "Editor's Pick");
+      toast.success(eventId ? "Editor's Pick updated — visible on the landing page" : "Editor's Pick cleared — landing page reverts to the first featured event");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Could not save Editor's Pick");
+    } finally { setSaving(false); }
+  };
+
+  const clear = () => {
+    setEventId("");
+    setBlurb("");
+  };
+
+  if (loading) return null;
+
+  const picked = events.find((e) => e.event_id === eventId);
+
+  return (
+    <div
+      className="border rounded-2xl p-8"
+      style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+      data-testid="editor-pick-panel"
+    >
+      <h2 className="serif text-2xl mb-1 flex items-center gap-2">
+        <Sparkles className="w-5 h-5" style={{ color: "var(--accent)" }} /> Editor's Pick
+      </h2>
+      <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
+        Pin one curated event to the landing-page hero spotlight with a short curator blurb. Falls back to the first featured event when no pick is set.
+      </p>
+
+      <div className="space-y-4">
+        <label className="block">
+          <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--text-dim)" }}>Pinned event</div>
+          <select
+            value={eventId}
+            onChange={(e) => setEventId(e.target.value)}
+            className="w-full"
+            data-testid="editor-pick-select"
+          >
+            <option value="">— No pick (use first featured event) —</option>
+            {events.map((e) => (
+              <option key={e.event_id} value={e.event_id}>
+                {e.title} · {e.venue}, {e.city}
+              </option>
+            ))}
+          </select>
+          {events.length === 0 && (
+            <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
+              No approved events yet. Once you approve an event, it appears here.
+            </div>
+          )}
+        </label>
+
+        <label className="block">
+          <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--text-dim)" }}>Curator blurb</div>
+          <textarea
+            value={blurb}
+            onChange={(e) => setBlurb(e.target.value)}
+            rows={3}
+            maxLength={220}
+            placeholder={`e.g. "Two-night-only premiere — five-piece live band, sunset on Lake Wakatipu. Don't scroll past this one."`}
+            className="w-full"
+            data-testid="editor-pick-blurb"
+          />
+          <div className="text-xs mt-1 flex justify-between" style={{ color: "var(--text-dim)" }}>
+            <span>Renders in italics under the event title on the landing hero.</span>
+            <span>{blurb.length}/220</span>
+          </div>
+        </label>
+
+        <label className="block">
+          <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--text-dim)" }}>Badge text</div>
+          <input
+            value={badge}
+            onChange={(e) => setBadge(e.target.value)}
+            maxLength={32}
+            placeholder="Editor's Pick"
+            className="w-full"
+            data-testid="editor-pick-badge"
+          />
+          <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
+            Override to e.g. "Trending now", "Don't miss", "Last 50 seats". Defaults to "Editor's Pick".
+          </div>
+        </label>
+
+        {picked && (
+          <div
+            className="p-4 rounded-xl border flex gap-3 items-center"
+            style={{ borderColor: "var(--accent)", background: "rgba(240,138,42,0.06)" }}
+            data-testid="editor-pick-preview"
+          >
+            {picked.image_url && (
+              <img src={picked.image_url} alt="" className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--accent)" }}>{badge || "Editor's Pick"}</div>
+              <div className="font-medium truncate">{picked.title}</div>
+              <div className="text-xs" style={{ color: "var(--text-dim)" }}>{picked.venue} · {picked.city}</div>
+              {blurb && <div className="text-xs italic mt-1 line-clamp-2" style={{ color: "var(--text-muted)" }}>"{blurb}"</div>}
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2">
+          {eventId && (
+            <button type="button" onClick={clear} className="btn-ghost" data-testid="editor-pick-clear">
+              Clear
+            </button>
+          )}
+          <button type="button" onClick={save} disabled={saving} className="btn-primary" data-testid="editor-pick-save">
+            {saving ? "Saving…" : "Save Editor's Pick"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

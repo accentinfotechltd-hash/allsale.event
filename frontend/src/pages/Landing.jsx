@@ -12,20 +12,23 @@ export default function Landing() {
   const [recs, setRecs] = useState([]);
   const [recsLoading, setRecsLoading] = useState(false);
   const [liveCount, setLiveCount] = useState(null);
+  const [editorPick, setEditorPick] = useState({ event: null, blurb: "", badge_text: "Editor's Pick" });
   const [q, setQ] = useState("");
   const nav = useNavigate();
 
   useEffect(() => {
     (async () => {
       try {
-        const [f, c, s] = await Promise.all([
+        const [f, c, s, ep] = await Promise.all([
           api.get("/events/featured"),
           api.get("/events/categories"),
           api.get("/events/stats/public").catch(() => ({ data: { live_events: 0 } })),
+          api.get("/site-settings/editor-pick").catch(() => ({ data: { event: null, blurb: "", badge_text: "Editor's Pick" } })),
         ]);
         setFeatured(Array.isArray(f.data) ? f.data : []);
         setCats(Array.isArray(c.data) ? c.data : []);
         setLiveCount(typeof s?.data?.live_events === "number" ? s.data.live_events : 0);
+        setEditorPick(ep.data || { event: null, blurb: "", badge_text: "Editor's Pick" });
       } catch (e) { console.error(e); }
     })();
   }, []);
@@ -39,7 +42,12 @@ export default function Landing() {
       .finally(() => setRecsLoading(false));
   }, [user?.user_id]);
 
-  const hero = Array.isArray(featured) && featured.length > 0 ? featured[0] : null;
+  // Editor's Pick overrides the default "first featured" hero. Falls back when
+  // no pick is set or when the picked event was deleted/un-approved.
+  const hero = editorPick.event || (Array.isArray(featured) && featured.length > 0 ? featured[0] : null);
+  const heroIsEditorPick = !!editorPick.event;
+  const heroBlurb = heroIsEditorPick ? editorPick.blurb : "";
+  const heroBadge = heroIsEditorPick ? (editorPick.badge_text || "Editor's Pick") : "Featured";
 
   return (
     <div>
@@ -93,12 +101,31 @@ export default function Landing() {
 
           {hero && (
             <div className="lg:col-span-5 fade-up fade-up-2">
-              <Link to={`/events/${hero.event_id}`} className="block relative aspect-[3/4] rounded-2xl overflow-hidden border" style={{ borderColor: "var(--border)" }}>
+              <Link
+                to={`/events/${hero.event_id}`}
+                className="block relative aspect-[3/4] rounded-2xl overflow-hidden border"
+                style={{ borderColor: heroIsEditorPick ? "var(--accent)" : "var(--border)" }}
+                data-testid={heroIsEditorPick ? "landing-editor-pick" : "landing-hero-featured"}
+              >
                 <img src={hero.banner_url || hero.image_url} alt={hero.title} className="w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
                 <div className="absolute inset-x-0 bottom-0 p-6">
-                  <span className="chip chip-accent mb-3">Featured</span>
+                  <span
+                    className={`chip mb-3 ${heroIsEditorPick ? "chip-accent" : "chip-accent"}`}
+                    data-testid="hero-badge"
+                  >
+                    {heroBadge}
+                  </span>
                   <h3 className="serif text-3xl leading-tight mb-2">{hero.title}</h3>
+                  {heroBlurb ? (
+                    <p
+                      className="text-sm italic leading-snug mb-2 line-clamp-3"
+                      style={{ color: "var(--text-muted)" }}
+                      data-testid="hero-blurb"
+                    >
+                      "{heroBlurb}"
+                    </p>
+                  ) : null}
                   <p className="text-sm" style={{ color: "var(--text-muted)" }}>
                     {hero.venue} · {hero.city}
                   </p>
