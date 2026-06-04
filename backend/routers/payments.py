@@ -14,6 +14,40 @@ except Exception as _stripe_import_err:  # pragma: no cover
     _STRIPE_AVAILABLE = False
     _STRIPE_IMPORT_ERROR = str(_stripe_import_err)
 
+# Raw Stripe SDK used as a fallback when `emergentintegrations` chokes on
+# metadata fields (its Pydantic model rejects Stripe's StripeObject return
+# type and explodes on every reconcile). We use it ONLY for read-only session
+# lookups; the create-session flow still uses the higher-level wrapper.
+try:
+    import stripe as _stripe_sdk  # type: ignore
+    _RAW_STRIPE_AVAILABLE = True
+except Exception:
+    _stripe_sdk = None  # type: ignore
+    _RAW_STRIPE_AVAILABLE = False
+
+
+async def _raw_session_status(session_id: str) -> dict:
+    """Pull a Stripe Checkout Session via the raw SDK and return just the
+    fields we need — bypasses the emergentintegrations Pydantic model that
+    rejects Stripe's `metadata` return type.
+    """
+    if not _RAW_STRIPE_AVAILABLE:
+        raise RuntimeError("Raw stripe SDK not installed")
+    _stripe_sdk.api_key = STRIPE_API_KEY
+    import asyncio
+    sess = await asyncio.to_thread(_stripe_sdk.checkout.Session.retrieve, session_id)
+    md = dict(sess.get("metadata") or {})
+    return {
+        "status": sess.get("status"),
+        "payment_status": sess.get("payment_status"),
+        "amount_total": sess.get("amount_total"),
+        "currency": sess.get("currency"),
+        "metadata": md,
+        "customer_email": (sess.get("customer_details") or {}).get("email")
+            or sess.get("customer_email"),
+    }
+
+
 from core import db, get_current_user, utc_now, gen_qr_data_url, STRIPE_API_KEY, logger
 from models import CheckoutIn
 from emails import send_template_fireforget
@@ -237,7 +271,8 @@ async def admin_reconcile_payments(user: dict = Depends(get_current_user)):
     if not _STRIPE_AVAILABLE or not STRIPE_API_KEY:
         raise HTTPException(status_code=503, detail="Stripe not configured")
 
-    stripe = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
+    # NOTE: We don't actually need a StripeCheckout instance — _raw_session_status
+    # talks to the raw SDK. Initialised earlier as a defensive smoke-test.
     # Pull every transaction we still believe is pending OR initiated. We cap
     # at 200 so a runaway DB doesn't time out the request.
     pending = await db.payment_transactions.find(
@@ -255,11 +290,11 @@ async def admin_reconcile_payments(user: dict = Depends(get_current_user)):
         if not sid:
             continue
         try:
-            s = await stripe.get_checkout_status(sid)
-            new_pay = s.payment_status
+            s = await _raw_session_status(sid)
+            new_pay = s.get("payment_status") or "pending"
             await db.payment_transactions.update_one(
                 {"session_id": sid},
-                {"$set": {"status": s.status, "payment_status": new_pay, "updated_at": utc_now().isoformat()}},
+                {"$set": {"status": s.get("status") or "open", "payment_status": new_pay, "updated_at": utc_now().isoformat()}},
             )
             if new_pay == "paid":
                 did_fulfil = await _finalize_paid_booking(bkg, session_id=sid)
@@ -294,11 +329,10 @@ async def checkout_status(session_id: str, user: dict = Depends(get_current_user
 
     if not _STRIPE_AVAILABLE:
         return {"status": tx.get("status", "initiated"), "payment_status": tx.get("payment_status", "pending"), "booking_id": tx["booking_id"]}
-    stripe = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url="")
     try:
-        s = await stripe.get_checkout_status(session_id)
-        new_status = s.status
-        new_pay = s.payment_status
+        s = await _raw_session_status(session_id)
+        new_status = s.get("status") or "open"
+        new_pay = s.get("payment_status") or "pending"
     except Exception as e:
         logger.warning(f"Stripe get_checkout_status failed for {session_id}: {e}")
         return {
