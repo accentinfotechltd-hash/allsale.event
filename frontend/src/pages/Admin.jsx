@@ -1063,7 +1063,9 @@ function EmailDiagnosticsPanel() {
   const [diag, setDiag] = useState(null);
   const [testTo, setTestTo] = useState("");
   const [busyTest, setBusyTest] = useState(false);
-  const [resendBookingId, setResendBookingId] = useState("");
+  const [resendQuery, setResendQuery] = useState("");
+  const [bookingsFound, setBookingsFound] = useState([]);
+  const [searching, setSearching] = useState(false);
   const [busyResend, setBusyResend] = useState(false);
 
   const load = async () => {
@@ -1094,20 +1096,53 @@ function EmailDiagnosticsPanel() {
     } finally { setBusyTest(false); }
   };
 
-  const resend = async () => {
-    if (!resendBookingId.startsWith("bkg_")) {
-      toast.error("Booking ID must start with 'bkg_'");
-      return;
-    }
+  const search = async () => {
+    const q = resendQuery.trim();
+    if (!q) return;
+    setSearching(true);
+    setBookingsFound([]);
+    try {
+      if (q.startsWith("bkg_")) {
+        // Direct booking ID — wrap as a synthetic single-result list
+        setBookingsFound([{ booking_id: q }]);
+      } else if (q.includes("@")) {
+        const { data } = await api.get(`/admin/bookings/lookup?email=${encodeURIComponent(q)}`);
+        if (data.count === 0) {
+          toast(`No bookings found for ${q}`);
+        }
+        setBookingsFound(data.bookings || []);
+      } else {
+        toast.error("Enter a booking ID (bkg_...) or an email address");
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Search failed");
+    } finally { setSearching(false); }
+  };
+
+  const resendOne = async (bookingId) => {
     setBusyResend(true);
     try {
-      const { data } = await api.post("/admin/email/resend-booking", { booking_id: resendBookingId.trim() });
-      toast.success(`Queued for ${data.to}`);
-      setResendBookingId("");
+      const { data } = await api.post("/admin/email/resend-booking", { booking_id: bookingId });
+      toast.success(`Queued for ${data.to || bookingId}`);
       load();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Resend failed");
     } finally { setBusyResend(false); }
+  };
+
+  const resendAll = async () => {
+    if (!bookingsFound.length) return;
+    setBusyResend(true);
+    let ok = 0, fail = 0;
+    for (const b of bookingsFound) {
+      try {
+        await api.post("/admin/email/resend-booking", { booking_id: b.booking_id });
+        ok += 1;
+      } catch { fail += 1; }
+    }
+    toast.success(`Resent ${ok} email${ok === 1 ? "" : "s"}${fail ? `, ${fail} failed` : ""}`);
+    load();
+    setBusyResend(false);
   };
 
   const stat = (label, value, status) => (
@@ -1171,19 +1206,50 @@ function EmailDiagnosticsPanel() {
           <div className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>Resend a booking confirmation</div>
           <div className="flex gap-2">
             <input
-              value={resendBookingId}
-              onChange={(e) => setResendBookingId(e.target.value)}
-              placeholder="bkg_xxxxxxxxxxxx"
-              className="flex-1 font-mono"
-              data-testid="email-resend-booking-input"
+              value={resendQuery}
+              onChange={(e) => setResendQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && search()}
+              placeholder="Customer email OR booking ID (bkg_...)"
+              className="flex-1"
+              data-testid="email-resend-query-input"
             />
-            <button type="button" onClick={resend} disabled={busyResend || !resendBookingId.startsWith("bkg_")} className="btn-primary" data-testid="email-resend-booking-btn">
-              <RotateCcw className="w-4 h-4" /> {busyResend ? "Resending…" : "Resend"}
+            <button type="button" onClick={search} disabled={searching || !resendQuery} className="btn-ghost" data-testid="email-resend-search-btn">
+              <Search className="w-4 h-4" /> {searching ? "Searching…" : "Search"}
             </button>
           </div>
           <p className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
-            Find the booking ID on Admin → Bookings or in the Stripe charge metadata.
+            Paste a customer's email to find all their tickets, or a booking ID for a single one.
           </p>
+
+          {bookingsFound.length > 0 && (
+            <div className="mt-3 border rounded-xl overflow-hidden" style={{ borderColor: "var(--border)" }} data-testid="email-resend-results">
+              <div className="flex items-center justify-between px-4 py-2 text-xs" style={{ background: "var(--bg)", color: "var(--text-dim)" }}>
+                <span>{bookingsFound.length} booking{bookingsFound.length === 1 ? "" : "s"} found</span>
+                {bookingsFound.length > 1 && (
+                  <button type="button" onClick={resendAll} disabled={busyResend} className="text-xs underline" data-testid="email-resend-all-btn">
+                    {busyResend ? "Sending…" : `Resend all ${bookingsFound.length}`}
+                  </button>
+                )}
+              </div>
+              <div className="divide-y" style={{ borderColor: "var(--border)" }}>
+                {bookingsFound.map((b) => (
+                  <div key={b.booking_id} className="px-4 py-3 flex items-center justify-between gap-3" style={{ borderTop: "1px solid var(--border)" }}>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-mono truncate" style={{ color: "var(--text)" }}>{b.booking_id}</div>
+                      {b.event_title && (
+                        <div className="text-xs truncate" style={{ color: "var(--text-muted)" }}>
+                          {b.event_title} {b.status && <span style={{ color: b.status === "paid" ? "var(--success)" : "var(--accent)" }}>· {b.status}</span>}
+                        </div>
+                      )}
+                    </div>
+                    <button type="button" onClick={() => resendOne(b.booking_id)} disabled={busyResend} className="btn-ghost" data-testid={`email-resend-one-${b.booking_id}`}>
+                      <RotateCcw className="w-4 h-4" /> Resend
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

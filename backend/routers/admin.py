@@ -1,4 +1,5 @@
 """Admin endpoints: events moderation + user management."""
+import re
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -493,6 +494,29 @@ async def admin_email_diagnostics(user: dict = Depends(get_current_user)):
 
 class _ResendBookingIn(BaseModel):
     booking_id: str
+
+
+@router.get("/bookings/lookup")
+async def admin_bookings_lookup(email: str, user: dict = Depends(get_current_user)):
+    """Search paid bookings by customer email. Used by the email-resend admin
+    UI so support staff don't have to dig through individual events to find
+    a customer's booking IDs.
+    """
+    _admin_only(user)
+    email = (email or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Invalid email")
+    results = []
+    async for b in db.bookings.find(
+        {"user_email": {"$regex": f"^{re.escape(email)}$", "$options": "i"}},
+        {"_id": 0, "booking_id": 1, "event_id": 1, "status": 1, "user_email": 1,
+         "amount": 1, "currency": 1, "created_at": 1, "paid_at": 1},
+    ).sort("created_at", -1).limit(50):
+        ev = await db.events.find_one({"event_id": b.get("event_id")}, {"_id": 0, "title": 1, "date": 1})
+        b["event_title"] = (ev or {}).get("title")
+        b["event_date"] = (ev or {}).get("date")
+        results.append(b)
+    return {"ok": True, "email": email, "count": len(results), "bookings": results}
 
 
 @router.post("/email/resend-booking")
