@@ -36,15 +36,33 @@ async def _raw_session_status(session_id: str) -> dict:
     _stripe_sdk.api_key = STRIPE_API_KEY
     import asyncio
     sess = await asyncio.to_thread(_stripe_sdk.checkout.Session.retrieve, session_id)
-    md = dict(sess.get("metadata") or {})
+    # `sess` is a StripeObject; both attribute and item access work, but item
+    # access is safest because some legacy session fields use dashes.
+    def _g(obj, key, default=None):
+        # Triple-redundant accessor — handles dict, StripeObject, and any
+        # subclass that overrides __getitem__ without exposing .get().
+        try:
+            v = obj[key]
+            return default if v is None else v
+        except Exception:  # noqa: BLE001
+            try:
+                return getattr(obj, key, default)
+            except Exception:  # noqa: BLE001
+                return default
+
+    metadata_raw = _g(sess, "metadata", {})
+    md = dict(metadata_raw) if metadata_raw else {}
+    customer_details = _g(sess, "customer_details", None)
+    cust_email = _g(customer_details, "email", None) if customer_details else None
+    if not cust_email:
+        cust_email = _g(sess, "customer_email", None)
     return {
-        "status": sess.get("status"),
-        "payment_status": sess.get("payment_status"),
-        "amount_total": sess.get("amount_total"),
-        "currency": sess.get("currency"),
+        "status": _g(sess, "status"),
+        "payment_status": _g(sess, "payment_status"),
+        "amount_total": _g(sess, "amount_total"),
+        "currency": _g(sess, "currency"),
         "metadata": md,
-        "customer_email": (sess.get("customer_details") or {}).get("email")
-            or sess.get("customer_email"),
+        "customer_email": cust_email,
     }
 
 
