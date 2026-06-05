@@ -29,39 +29,43 @@ except Exception:
 async def _raw_session_status(session_id: str) -> dict:
     """Pull a Stripe Checkout Session via the raw SDK and return just the
     fields we need — bypasses the emergentintegrations Pydantic model that
-    rejects Stripe's `metadata` return type.
+    rejects Stripe's `metadata` return type. We convert to a plain dict
+    immediately to avoid every StripeObject quirk.
     """
     if not _RAW_STRIPE_AVAILABLE:
         raise RuntimeError("Raw stripe SDK not installed")
     _stripe_sdk.api_key = STRIPE_API_KEY
     import asyncio
+    import json as _json
     sess = await asyncio.to_thread(_stripe_sdk.checkout.Session.retrieve, session_id)
-    # `sess` is a StripeObject; both attribute and item access work, but item
-    # access is safest because some legacy session fields use dashes.
-    def _g(obj, key, default=None):
-        # Triple-redundant accessor — handles dict, StripeObject, and any
-        # subclass that overrides __getitem__ without exposing .get().
+    # `sess` is a StripeObject (dict subclass with magical accessors). To
+    # avoid every access-time surprise (custom __getitem__, lazy expansion,
+    # etc.), we round-trip through JSON to get a vanilla python dict.
+    try:
+        # Prefer the SDK's own dict converter when available — fastest path.
+        sess_dict = sess.to_dict_recursive() if hasattr(sess, "to_dict_recursive") else _json.loads(str(sess))
+    except Exception:  # noqa: BLE001
+        # Last-ditch: serialise via stripe's __repr__ which is JSON-shaped.
         try:
-            v = obj[key]
-            return default if v is None else v
+            sess_dict = _json.loads(str(sess))
         except Exception:  # noqa: BLE001
-            try:
-                return getattr(obj, key, default)
-            except Exception:  # noqa: BLE001
-                return default
+            sess_dict = {}
+    if not isinstance(sess_dict, dict):
+        sess_dict = {}
 
-    metadata_raw = _g(sess, "metadata", {})
-    md = dict(metadata_raw) if metadata_raw else {}
-    customer_details = _g(sess, "customer_details", None)
-    cust_email = _g(customer_details, "email", None) if customer_details else None
-    if not cust_email:
-        cust_email = _g(sess, "customer_email", None)
+    metadata_raw = sess_dict.get("metadata") or {}
+    if not isinstance(metadata_raw, dict):
+        metadata_raw = {}
+    customer_details = sess_dict.get("customer_details") or {}
+    if not isinstance(customer_details, dict):
+        customer_details = {}
+    cust_email = customer_details.get("email") or sess_dict.get("customer_email")
     return {
-        "status": _g(sess, "status"),
-        "payment_status": _g(sess, "payment_status"),
-        "amount_total": _g(sess, "amount_total"),
-        "currency": _g(sess, "currency"),
-        "metadata": md,
+        "status": sess_dict.get("status"),
+        "payment_status": sess_dict.get("payment_status"),
+        "amount_total": sess_dict.get("amount_total"),
+        "currency": sess_dict.get("currency"),
+        "metadata": metadata_raw,
         "customer_email": cust_email,
     }
 
