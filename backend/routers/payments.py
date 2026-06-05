@@ -209,7 +209,7 @@ async def checkout_session(payload: CheckoutIn, request: Request, user: dict = D
         success_url=success_url, cancel_url=cancel_url,
         metadata={
             "booking_id": booking["booking_id"], "event_id": booking["event_id"],
-            "user_id": user["user_id"],
+            "user_id": user["user_id"], "user_email": user.get("email", ""),
         },
     )
     try:

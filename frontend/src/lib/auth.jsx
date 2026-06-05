@@ -23,8 +23,21 @@ export function AuthProvider({ children }) {
     try {
       const { data } = await api.get("/auth/me");
       setUser(data);
-    } catch {
-      setUser(null);
+    } catch (err) {
+      // ONLY sign the user out on an explicit 401 (token rejected). Network
+      // hiccups, CORS races, 5xxs, or returning from a third-party redirect
+      // (Stripe Checkout, OAuth, etc.) used to flip them to signed-out, which
+      // confused users into thinking the platform "logged them out at checkout".
+      // Now we keep the token in localStorage; the next request will retry.
+      const status = err?.response?.status;
+      if (status === 401 || status === 403) {
+        localStorage.removeItem("aura_token");
+        setUser(null);
+      } else {
+        // Transient — leave the user signed in with their cached token. The
+        // header / nav will still show their name, and the next API call
+        // will refresh the user object if the server's back.
+      }
     } finally {
       setLoading(false);
     }
