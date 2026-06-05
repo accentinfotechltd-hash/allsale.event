@@ -2,6 +2,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 try:
     from emergentintegrations.payments.stripe.checkout import (
@@ -324,8 +325,14 @@ async def admin_reconcile_payments(user: dict = Depends(get_current_user)):
             else:
                 still_pending.append(sid)
         except Exception as exc:  # noqa: BLE001
-            errors.append({"session_id": sid, "booking_id": bkg, "error": str(exc)[:200]})
-            logger.warning(f"Reconcile: stripe lookup failed for {sid}: {exc}")
+            # Capture full type + message + traceback so we can diagnose what
+            # the Stripe SDK is unhappy about. Most "weird" Stripe SDK errors
+            # are just `KeyError` / `AttributeError` whose str() is uninformative.
+            import traceback
+            tb_last = traceback.format_exc().splitlines()[-1]
+            err_msg = f"{type(exc).__name__}: {str(exc)[:120]} | {tb_last[:120]}"
+            errors.append({"session_id": sid, "booking_id": bkg, "error": err_msg})
+            logger.exception(f"Reconcile: stripe lookup failed for {sid}")
 
     return {
         "ok": True,
@@ -335,6 +342,38 @@ async def admin_reconcile_payments(user: dict = Depends(get_current_user)):
         "still_pending_count": len(still_pending),
         "errors": errors,
         "fulfilled": fulfilled,
+    }
+
+
+class _ForceFulfilIn(BaseModel):
+    booking_id: str
+
+
+@router.post("/admin/payments/force-fulfil")
+async def admin_force_fulfil_booking(payload: _ForceFulfilIn, user: dict = Depends(get_current_user)):
+    """Manually mark a booking as paid and trigger fulfilment (QR + email +
+    seat lock + live tier refresh). Used by admin when Stripe shows the
+    charge as Succeeded in the dashboard but the Stripe SDK can't be queried
+    cleanly (rare — usually a Pydantic / version mismatch with the SDK).
+    The admin MUST visually confirm the payment in the Stripe dashboard
+    before calling this — there's no automated Stripe-side verification.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    booking = await db.bookings.find_one({"booking_id": payload.booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail=f"No booking with id {payload.booking_id}")
+    did_fulfil = await _finalize_paid_booking(payload.booking_id, session_id=None)
+    return {
+        "ok": True,
+        "booking_id": payload.booking_id,
+        "newly_fulfilled": did_fulfil,
+        "to": booking.get("user_email"),
+        "message": (
+            "Booking marked paid; confirmation email queued."
+            if did_fulfil
+            else "Booking was already paid — no fulfilment work done."
+        ),
     }
 
 

@@ -1265,6 +1265,8 @@ function EmailDiagnosticsPanel() {
 function StripeReconcilePanel() {
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState(null);
+  const [forceBookingId, setForceBookingId] = useState("");
+  const [busyForce, setBusyForce] = useState(false);
 
   const run = async () => {
     setBusy(true);
@@ -1279,6 +1281,25 @@ function StripeReconcilePanel() {
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Reconcile failed");
     } finally { setBusy(false); }
+  };
+
+  const forceOne = async () => {
+    const id = forceBookingId.trim();
+    if (!id.startsWith("bkg_")) {
+      toast.error("Booking ID must start with 'bkg_'");
+      return;
+    }
+    if (!window.confirm(
+      `Force-fulfil booking ${id}?\n\nThis marks the booking PAID, generates the QR code, sends the confirmation email, and locks the seats — WITHOUT verifying with Stripe.\n\nOnly use this when you've already confirmed the charge succeeded in your Stripe Dashboard. Do NOT use for unpaid customers.`
+    )) return;
+    setBusyForce(true);
+    try {
+      const { data } = await api.post("/admin/payments/force-fulfil", { booking_id: id });
+      toast.success(`✓ ${data.message} (to ${data.to})`);
+      setForceBookingId("");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Force-fulfil failed");
+    } finally { setBusyForce(false); }
   };
 
   return (
@@ -1326,6 +1347,25 @@ function StripeReconcilePanel() {
           )}
         </div>
       )}
+
+      <div className="mt-6 pt-5" style={{ borderTop: "1px dashed var(--border)" }}>
+        <div className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>Force-fulfil a single booking</div>
+        <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+          When Stripe shows the charge as Succeeded but the reconcile job can't query it cleanly, paste the booking ID here to manually issue the ticket. <strong style={{ color: "var(--danger)" }}>Verify the charge succeeded in your Stripe dashboard first.</strong>
+        </p>
+        <div className="flex gap-2">
+          <input
+            value={forceBookingId}
+            onChange={(e) => setForceBookingId(e.target.value)}
+            placeholder="bkg_xxxxxxxxxxxx"
+            className="flex-1 font-mono"
+            data-testid="force-fulfil-input"
+          />
+          <button type="button" onClick={forceOne} disabled={busyForce || !forceBookingId.trim().startsWith("bkg_")} className="btn-ghost" style={{ borderColor: "var(--danger)", color: "var(--danger)" }} data-testid="force-fulfil-btn">
+            {busyForce ? "Working…" : "Force fulfil"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
