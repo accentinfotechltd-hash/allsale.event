@@ -265,6 +265,7 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "refund_issued": _t_refund_issued,
     "organizer_event_approved": _t_organizer_event_approved,
     "organizer_payout_issued": _t_organizer_payout_issued,
+    "organizer_contact_message": lambda ctx: _t_organizer_contact_message(ctx),
     "waitlist_spot_opened": _t_waitlist_spot_opened,
     "team_invitation": _t_team_invitation,
     "event_reminder_24h": lambda ctx: _t_event_reminder_24h(ctx),
@@ -272,6 +273,54 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "new_event_announcement": lambda ctx: _t_new_event_announcement(ctx),
     "admin_blast": lambda ctx: _t_admin_blast(ctx),
 }
+
+
+def _t_organizer_contact_message(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Email sent to an organizer when a visitor submits the contact form on
+    their public profile or one of their event pages.
+    """
+    from_name = (ctx.get("from_name") or "Someone")[:120]
+    from_email = (ctx.get("from_email") or "")[:200]
+    subject_in = (ctx.get("subject") or "Message from your event page")[:160]
+    msg_preview = (ctx.get("message_preview") or "")[:600]
+    event_title = ctx.get("event_title")
+    event_line = (
+        f"<tr><td style='font-size:13px;color:{TEXT_MUTED};padding-top:8px;'>ABOUT EVENT</td>"
+        f"<td style='text-align:right;color:{TEXT};padding-top:8px;'>{event_title}</td></tr>"
+        if event_title else ""
+    )
+
+    subject = f"New message: {subject_in}"
+    body = f"""
+    <p style="color:{TEXT};">Hi {ctx.get('organizer_name','there')} — you have a new message from a visitor on Allsale Events.</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+      style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;">
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};">FROM</td><td style="text-align:right;color:{TEXT};font-weight:600;">{from_name}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">EMAIL</td><td style="text-align:right;color:{TEXT};padding-top:8px;">{from_email}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">SUBJECT</td><td style="text-align:right;color:{TEXT};padding-top:8px;">{subject_in}</td></tr>
+      {event_line}
+    </table>
+    <div style="margin-top:18px;padding:16px;border-radius:12px;background:{BG_CARD};color:{TEXT};white-space:pre-wrap;font-size:15px;line-height:1.5;">{msg_preview}</div>
+    <p style="margin-top:18px;font-size:13px;color:{TEXT_MUTED};">Click the button below to reply directly to the sender's email — they'll receive your response in their inbox.</p>
+    """
+    cta_url = ctx.get("reply_url") or f"mailto:{from_email}"
+    html = _layout(
+        title=f"Message from {from_name}",
+        preheader=msg_preview[:140],
+        body_html=body,
+        cta_label=f"Reply to {from_name}",
+        cta_url=cta_url,
+    )
+    text = "\n".join([
+        f"New message from {from_name} <{from_email}>",
+        f"Subject: {subject_in}",
+        (f"About event: {event_title}" if event_title else ""),
+        "",
+        msg_preview,
+        "",
+        f"Reply: {cta_url}",
+    ])
+    return subject, html, text
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +371,7 @@ def _t_weekly_digest(ctx: Dict[str, Any]) -> tuple[str, str, str]:
     subject = f"This week on Allsale Events — {len(items)} picks"
     html = _layout("Your week of live experiences", "Weekly digest", body, "Browse all events", f"{APP_PUBLIC_URL}/events")
     text = _text_fallback(
-        [f"This week on Allsale Events:"] + [f"- {e.get('title','')} ({e.get('venue','')}, {e.get('when','')}) {APP_PUBLIC_URL}/events/{e.get('event_id','')}" for e in items[:6]],
+        ["This week on Allsale Events:"] + [f"- {e.get('title','')} ({e.get('venue','')}, {e.get('when','')}) {APP_PUBLIC_URL}/events/{e.get('event_id','')}" for e in items[:6]],
     )
     return subject, html, text
 

@@ -325,3 +325,17 @@ See `/app/memory/test_credentials.md`
 - ✅ **Stripe Test → Live**: `STRIPE_API_KEY` swapped to `sk_live_...` on Railway. Verified via `GET /api/payments/health` returning `mode: "live"`.
 - ✅ **Payments health probe** `GET /api/payments/health` (admin-only) — sanity-check endpoint that reports test/live/restricted mode from the key prefix. Never echoes the key itself.
 - ⏳ Pending: $1 end-to-end test charge to verify real payment flow + email confirmation + QR ticket render.
+
+## Iteration 24 (2026-06-05) — Contact organizer + Swap seats
+- ✅ **Public organizer profile** at `/organizers/:id` — picture, name, bio, "X events hosted", joined date, list of upcoming approved events, "Contact organizer" CTA. Backed by new public endpoint `GET /api/organizers/:id`.
+- ✅ **Contact organizer dialog** (`<ContactOrganizerButton>` / `<ContactOrganizerDialog>`) — drop-in component used on:
+  - Event detail page (next to the organizer name)
+  - Organizer public profile page
+  Pre-fills sender's name/email when signed-in, accepts an optional `event_id` for context-rich messages.
+- ✅ **Organizer inbox** in dashboard top (`<OrganizerInboxPanel>`) — shows unread badge, expandable message thread, "Reply" mailto button, mark read/unread, delete. Persists to new `organizer_messages` Mongo collection.
+- ✅ **Email notification** to organizer on every new message — new `organizer_contact_message` template renders the sender details + message preview + a one-click reply CTA. Reply-To header lands customer's reply directly in the organizer's Gmail.
+- ✅ **Swap seats endpoint** `POST /api/organizer/bookings/:id/swap-seats` — admin/organizer moves a paid booking's seats within the same event. Validates: paid status, no check-in yet, same seat count, same tier (pricing parity), all new seats free, no duplicates. Atomically frees old reservations, writes new ones, updates booking, broadcasts seat-status delta over WS, and emails the customer a fresh confirmation noting the swap reason.
+- ✅ **Swap seats dialog** (`<SwapSeatsDialog>`) — live validation feedback (wrong count, duplicates, taken, wrong tier, unknown seat IDs), reason field, surfaced in `OrganizerEvent` attendees table next to "Transfer".
+- ✅ Verified via smoke test: 404s for unknown organizer, dev compile clean, organizer-profile page renders, swap/contact dialogs lint clean.
+
+

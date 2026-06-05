@@ -6,6 +6,7 @@ import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet, ScanLine, Pencil, Tras
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { formatMoney } from "@/lib/currencies";
 import DoorCheckinPanel from "@/components/DoorCheckinPanel";
+import OrganizerInboxPanel from "@/components/OrganizerInboxPanel";
 import { toast } from "sonner";
 
 export default function Organizer() {
@@ -61,6 +62,8 @@ export default function Organizer() {
           </Link>
         </div>
       </div>
+
+      <OrganizerInboxPanel />
 
       {analytics && (
         <>

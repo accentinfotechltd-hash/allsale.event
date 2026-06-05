@@ -326,6 +326,175 @@ async def transfer_booking(booking_id: str, payload: TransferIn, user: dict = De
 
 
 
+class SwapSeatsIn(BaseModel):
+    new_seats: list[str]
+    reason: Optional[str] = None
+
+
+@router.post("/bookings/{booking_id}/swap-seats")
+async def swap_booking_seats(
+    booking_id: str,
+    payload: SwapSeatsIn,
+    user: dict = Depends(get_current_user),
+):
+    """Move a paid booking to a different set of seats *within the same event*.
+
+    Use case: customer was assigned A-1 but wanted B-5, or organizer needs to
+    move a VIP guest to a better seat. Validates:
+      - Booking is paid and not yet checked in
+      - New seats exist in the seatmap
+      - Same seat count as the existing booking
+      - All new seats are currently free (not booked or held by anyone else)
+      - Same tier (price-wise) — preventing accidental free upgrades / downgrades
+    Also re-issues a fresh QR ticket email to the holder so they have the
+    updated seat assignment, and releases the old seats back to the public.
+    """
+    await require_role(user, "organizer", "admin")
+    booking = await db.bookings.find_one({"booking_id": booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.get("status") != "paid":
+        raise HTTPException(status_code=400, detail="Only paid bookings can have seats swapped")
+    if booking.get("checked_in"):
+        raise HTTPException(status_code=400, detail="Cannot swap seats after check-in")
+
+    old_seats = booking.get("seats") or []
+    if not old_seats:
+        raise HTTPException(status_code=400, detail="This booking doesn't use the seatmap — swap not applicable")
+
+    new_seats = [s.strip() for s in (payload.new_seats or []) if s and s.strip()]
+    if not new_seats:
+        raise HTTPException(status_code=400, detail="At least one new seat is required")
+    if len(new_seats) != len(old_seats):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Must select exactly {len(old_seats)} seat{'s' if len(old_seats) != 1 else ''} (same count as the original booking)",
+        )
+    if len(set(new_seats)) != len(new_seats):
+        raise HTTPException(status_code=400, detail="Duplicate seats in selection")
+
+    event = await db.events.find_one({"event_id": booking["event_id"]}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event missing")
+    if not await user_can_manage_event(user, event, required="manager"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    # Validate every requested seat exists in the seatmap and grab its tier.
+    seatmap = event.get("seatmap") or {}
+    all_seats_by_id = {s.get("id"): s for s in (seatmap.get("seats") or []) if s.get("id")}
+    unknown = [s for s in new_seats if s not in all_seats_by_id]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown seat(s): {', '.join(unknown)}")
+
+    # Confirm tier parity so we don't accidentally swap a Standard seat for a
+    # VIP one without payment reconciliation. Same tier id required.
+    old_tiers = {all_seats_by_id.get(s, {}).get("tier") for s in old_seats if s in all_seats_by_id}
+    new_tiers = {all_seats_by_id[s].get("tier") for s in new_seats}
+    if old_tiers != new_tiers or len(new_tiers) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail="New seats must be in the same tier as the original booking (to keep pricing fair).",
+        )
+
+    # Confirm no one else holds or has booked the requested seats. Same-booking
+    # seats are exempt — swapping A-1 → A-1 is a no-op but we allow A-1+A-2 → A-2+A-1.
+    other_reservations = await db.seat_reservations.find(
+        {
+            "event_id": booking["event_id"],
+            "seat_id": {"$in": new_seats},
+            "status": {"$in": ["held", "booked"]},
+            "booking_id": {"$ne": booking_id},
+        },
+        {"_id": 0, "seat_id": 1, "status": 1},
+    ).to_list(50)
+    if other_reservations:
+        taken = sorted({r["seat_id"] for r in other_reservations})
+        raise HTTPException(
+            status_code=409,
+            detail=f"Seat(s) already taken: {', '.join(taken)}",
+        )
+
+    now = utc_now().isoformat()
+
+    # Atomic-ish: free old reservations, write new ones, update the booking.
+    await db.seat_reservations.delete_many({"booking_id": booking_id})
+    new_reservation_docs = [
+        {
+            "event_id": booking["event_id"],
+            "seat_id": s,
+            "booking_id": booking_id,
+            "user_id": booking.get("user_id"),
+            "status": "booked",
+            "created_at": now,
+            "expires_at": None,
+        }
+        for s in new_seats
+    ]
+    if new_reservation_docs:
+        await db.seat_reservations.insert_many(new_reservation_docs)
+
+    await db.bookings.update_one(
+        {"booking_id": booking_id},
+        {"$set": {
+            "seats": new_seats,
+            "seats_swapped_at": now,
+            "seats_swapped_by": user["user_id"],
+            "seats_swapped_from": old_seats,
+            "seats_swapped_reason": payload.reason or None,
+        }},
+    )
+
+    # Broadcast the change so live event detail pages refresh.
+    try:
+        from realtime import notify_seats
+        seat_events = (
+            [{"seat_id": s, "status": "free"} for s in old_seats if s not in new_seats]
+            + [{"seat_id": s, "status": "booked"} for s in new_seats if s not in old_seats]
+        )
+        if seat_events:
+            await notify_seats(booking["event_id"], seat_events)
+    except Exception:
+        pass
+
+    # Re-send the confirmation with the new seat assignment.
+    refreshed = await db.bookings.find_one({"booking_id": booking_id}, {"_id": 0})
+    holder_email = refreshed.get("user_email")
+    if holder_email:
+        try:
+            send_template_fireforget(
+                "booking_confirmation",
+                holder_email,
+                {
+                    "user_name": refreshed.get("user_name") or holder_email.split("@")[0],
+                    "event_title": refreshed.get("event_title", event.get("title")),
+                    "event_when": _fmt_when(refreshed.get("event_date") or event.get("date") or ""),
+                    "event_venue": refreshed.get("event_venue") or event.get("venue"),
+                    "seats": new_seats,
+                    "tier_name": refreshed.get("tier_name"),
+                    "quantity": refreshed.get("quantity"),
+                    "amount": refreshed.get("amount"),
+                    "currency": refreshed.get("currency", "NZD"),
+                    "qr_payload": refreshed.get("qr_payload"),
+                    "booking_id": booking_id,
+                    "seat_swap_note": (
+                        "Your seats have been updated by the organizer. "
+                        f"Old seats: {', '.join(old_seats)} → New seats: {', '.join(new_seats)}."
+                        + (f" Reason: {payload.reason}" if payload.reason else "")
+                    ),
+                },
+                db,
+            )
+        except Exception:
+            pass
+
+    return {
+        "ok": True,
+        "booking_id": booking_id,
+        "old_seats": old_seats,
+        "new_seats": new_seats,
+    }
+
+
 @router.get("/events/{event_id}/attendees.csv")
 async def org_attendees_csv(event_id: str, user: dict = Depends(get_current_user)):
     """Stream attendee list as CSV for the given event."""

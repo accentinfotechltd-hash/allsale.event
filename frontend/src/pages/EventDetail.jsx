@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import SeatMap from "@/components/SeatMap";
 import DemandSparkline from "@/components/DemandSparkline";
 import useEventLiveUpdates from "@/lib/useEventLiveUpdates";
+import { ContactOrganizerButton } from "@/components/ContactOrganizerDialog";
 import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/currencies";
@@ -250,7 +251,33 @@ export default function EventDetail() {
           <div className="flex flex-wrap gap-3 sm:gap-5 mb-6 sm:mb-8 text-sm" style={{ color: "var(--text-muted)" }}>
             <div className="flex items-center gap-2"><Calendar className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> {date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}, {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
             <div className="flex items-center gap-2"><MapPin className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> {event.venue}, {event.city}</div>
-            <div className="flex items-center gap-2"><User className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> {event.organizer_name}</div>
+            <div className="flex items-center gap-2">
+              <User className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} />
+              {event.organizer_id ? (
+                <Link
+                  to={`/organizers/${event.organizer_id}`}
+                  className="hover:underline"
+                  style={{ color: "var(--text)" }}
+                  data-testid="event-detail-organizer-link"
+                >
+                  {event.organizer_name}
+                </Link>
+              ) : (
+                <span>{event.organizer_name}</span>
+              )}
+              {event.organizer_id && (
+                <ContactOrganizerButton
+                  organizerId={event.organizer_id}
+                  organizerName={event.organizer_name}
+                  eventId={event.event_id}
+                  eventTitle={event.title}
+                  user={user}
+                  className="ml-2 text-xs underline"
+                  label="Contact"
+                  testid="event-detail-contact-organizer-btn"
+                />
+              )}
+            </div>
           </div>
 
           <p className="text-base sm:text-lg leading-relaxed max-w-3xl mb-10 sm:mb-12" style={{ color: "var(--text-muted)" }}>{event.description}</p>

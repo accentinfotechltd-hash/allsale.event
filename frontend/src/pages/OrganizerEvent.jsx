@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send, Zap, Activity, Megaphone, UserPlus, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, Users, Ticket, TrendingUp, BarChart3, Percent, ScanLine, Bell, Send, Zap, Activity, Megaphone, UserPlus, Pencil, Trash2, ArrowLeftRight } from "lucide-react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { toast } from "sonner";
 import SeatBlocksPanel from "@/components/SeatBlocksPanel";
 import TeamPanel from "@/components/TeamPanel";
 import TransferBookingDialog from "@/components/TransferBookingDialog";
+import SwapSeatsDialog from "@/components/SwapSeatsDialog";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
@@ -17,6 +18,7 @@ export default function OrganizerEvent() {
   const [data, setData] = useState(null);
   const [attendees, setAttendees] = useState([]);
   const [transferring, setTransferring] = useState(null); // booking being transferred
+  const [swapping, setSwapping] = useState(null); // booking being swapped to new seats
 
   const reloadAttendees = async () => {
     try {
@@ -312,15 +314,28 @@ export default function OrganizerEvent() {
                     <td className="py-3 text-right">{a.quantity}</td>
                     <td className="py-3 text-right">${a.amount.toFixed(2)}</td>
                     <td className="py-3 text-right">
-                      <button
-                        onClick={() => setTransferring(a)}
-                        disabled={a.checked_in}
-                        className="btn-ghost !py-1 !px-2 text-xs"
-                        title={a.checked_in ? "Already checked in — cannot transfer" : "Transfer to another attendee"}
-                        data-testid={`transfer-btn-${a.booking_id}`}
-                      >
-                        <UserPlus className="w-3 h-3" /> Transfer
-                      </button>
+                      <div className="flex justify-end gap-1.5 flex-wrap">
+                        {a.seats?.length > 0 && event?.has_seatmap && (
+                          <button
+                            onClick={() => setSwapping(a)}
+                            disabled={a.checked_in}
+                            className="btn-ghost !py-1 !px-2 text-xs"
+                            title={a.checked_in ? "Already checked in — cannot swap seats" : "Move to different seats in this event"}
+                            data-testid={`swap-seats-btn-${a.booking_id}`}
+                          >
+                            <ArrowLeftRight className="w-3 h-3" /> Swap seats
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setTransferring(a)}
+                          disabled={a.checked_in}
+                          className="btn-ghost !py-1 !px-2 text-xs"
+                          title={a.checked_in ? "Already checked in — cannot transfer" : "Transfer to another attendee"}
+                          data-testid={`transfer-btn-${a.booking_id}`}
+                        >
+                          <UserPlus className="w-3 h-3" /> Transfer
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -344,6 +359,18 @@ export default function OrganizerEvent() {
           booking={transferring}
           onClose={() => setTransferring(null)}
           onTransferred={() => { setTransferring(null); reloadAttendees(); }}
+        />
+      )}
+
+      {swapping && (
+        <SwapSeatsDialog
+          booking={swapping}
+          eventId={eventId}
+          eventSeats={event?.seatmap?.seats || []}
+          bookedSeats={event?.booked_seats || []}
+          heldSeats={event?.held_seats || []}
+          onClose={() => setSwapping(null)}
+          onSwapped={() => { setSwapping(null); reloadAttendees(); }}
         />
       )}
     </div>
