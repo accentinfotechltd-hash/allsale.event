@@ -145,11 +145,17 @@ export default function CreateEvent() {
   const onSubmit = async (e) => {
     e.preventDefault();
     if (!form.image_url) { toast.error("Please upload a cover photo"); return; }
+    if (!form.date) { toast.error("Please pick an event date and time"); return; }
+    const parsedDate = new Date(form.date);
+    if (Number.isNaN(parsedDate.getTime())) {
+      toast.error("That date doesn't look right — please pick it again");
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = {
         ...form,
-        date: new Date(form.date).toISOString(),
+        date: parsedDate.toISOString(),
         tiers: form.has_seatmap ? [] : tiers,
       };
       if (isEdit) {
@@ -162,7 +168,22 @@ export default function CreateEvent() {
         nav(`/events/${data.event_id}`);
       }
     } catch (err) {
-      toast.error(formatApiErrorDetail(err?.response?.data?.detail) || "Failed");
+      // Surface the real reason instead of a generic "something went wrong".
+      // Network/CORS failures (err.response undefined) get a friendlier hint;
+      // server-side validation errors come through with err.response.data.detail.
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail;
+      if (!err?.response) {
+        toast.error("Couldn't reach the server. Check your connection and try again.");
+      } else if (status === 401) {
+        toast.error("Your session expired — please sign in again.");
+      } else if (status === 403) {
+        toast.error("You need an organizer account to post events. Visit 'Become an organizer' first.");
+      } else if (status === 422) {
+        toast.error(formatApiErrorDetail(detail) || "Some fields look invalid — please review and try again.");
+      } else {
+        toast.error(formatApiErrorDetail(detail) || `Failed (HTTP ${status || "?"})`);
+      }
     } finally { setSubmitting(false); }
   };
 
