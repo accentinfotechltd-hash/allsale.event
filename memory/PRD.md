@@ -339,3 +339,14 @@ See `/app/memory/test_credentials.md`
 - ✅ Verified via smoke test: 404s for unknown organizer, dev compile clean, organizer-profile page renders, swap/contact dialogs lint clean.
 
 
+## Iteration 25 (2026-06-09) — Auto-archive past events
+- ✅ **Past-event auto-archival**: events whose start `date` is older than `EVENT_FINISHED_GRACE_HOURS` (default **24h**, env-overridable) are now hidden from `/api/events`, `/api/events/featured`, and AI recommendations. The grace window covers multi-day festivals; the env var lets the owner tune it without a code change.
+- ✅ **`/api/events?past=true|false`** — public listing accepts a `past` query param; `true` returns finished events sorted newest-first and annotates each with `is_past: true`. Default is `false` (upcoming only).
+- ✅ **`/api/events/{id}`** now carries `is_past: bool` so direct links + old QR/ticket URLs still resolve, but the booking sidebar shuts off.
+- ✅ **Events page UI**: new **Upcoming / Past** segmented tabs (`data-testid="events-tab-upcoming"`/`-past`), heading auto-switches to "Past events", past empty-state copy, past cards rendered with grayscale + a "Past event" chip badge.
+- ✅ **Event detail**: shows "PAST EVENT" badge over the banner, **Book Now → "Event ended"** (disabled), helper note "This event has finished. Browse upcoming events instead.", waitlist CTA hidden.
+- ✅ **Footer**: new "Past Events" link under the Discover column (`/events?past=1`).
+- ✅ Regression suite at `/app/backend/tests/test_past_events.py` — 5 tests covering helper logic, default hide, `past=true` reveal, featured exclusion, and detail `is_past` flag. All passing.
+
+
+

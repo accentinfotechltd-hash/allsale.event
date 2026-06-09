@@ -64,8 +64,13 @@ async def my_recommendations(user: dict = Depends(get_current_user)):
 
     # Candidate events: approved + future + not already booked
     candidates = []
+    cutoff_iso = (utc_now() - timedelta(hours=int(os.environ.get("EVENT_FINISHED_GRACE_HOURS", "24")))).isoformat()
     async for e in db.events.find(
-        {"status": "approved", "event_id": {"$nin": past_event_ids}},
+        {
+            "status": "approved",
+            "event_id": {"$nin": past_event_ids},
+            "date": {"$gte": cutoff_iso},
+        },
         {"_id": 0},
     ).sort("date", 1).limit(MAX_CONTEXT_EVENTS):
         candidates.append(event_to_public(e))

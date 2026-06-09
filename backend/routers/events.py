@@ -1,6 +1,7 @@
 """Event endpoints: list, featured, categories, detail, create."""
 import os
 import uuid
+from datetime import timedelta
 from typing import Optional, Dict, Any
 from xml.sax.saxutils import escape as xml_escape
 
@@ -13,15 +14,42 @@ from models import EventIn
 
 router = APIRouter(tags=["events"])
 
+# An event is considered "finished" and archived from public listings this many
+# hours after its start `date`. We use a buffer (rather than `date < now`) so
+# same-day events don't vanish the moment they start. 24h covers most multi-day
+# festivals; tweak via env if you ever want shorter/longer.
+EVENT_FINISHED_GRACE_HOURS = int(os.environ.get("EVENT_FINISHED_GRACE_HOURS", "24"))
+
+
+def _event_finished_cutoff_iso() -> str:
+    """Events with `date` older than this ISO string are considered finished."""
+    return (utc_now() - timedelta(hours=EVENT_FINISHED_GRACE_HOURS)).isoformat()
+
+
+def _is_event_past(event_date: Optional[str]) -> bool:
+    if not event_date:
+        return False
+    return event_date < _event_finished_cutoff_iso()
+
 
 @router.get("/events")
 async def list_events(
     q: Optional[str] = None,
     category: Optional[str] = None,
     city: Optional[str] = None,
+    past: bool = False,
     limit: int = 50,
 ):
     query: Dict[str, Any] = {"status": {"$in": ["approved", "published"]}}
+    cutoff_iso = _event_finished_cutoff_iso()
+    if past:
+        # Finished events only — newest first so the most recent show up top.
+        query["date"] = {"$lt": cutoff_iso}
+        sort_spec = [("date", -1)]
+    else:
+        # Upcoming + still-running events (within the grace window).
+        query["date"] = {"$gte": cutoff_iso}
+        sort_spec = [("date", 1)]
     if q:
         query["$or"] = [
             {"title": {"$regex": q, "$options": "i"}},
@@ -32,26 +60,34 @@ async def list_events(
         query["category"] = category
     if city:
         query["city"] = {"$regex": city, "$options": "i"}
-    cursor = db.events.find(query, {"_id": 0}).sort("date", 1).limit(limit)
+    cursor = db.events.find(query, {"_id": 0}).sort(sort_spec).limit(limit)
     items = [event_to_public(e) async for e in cursor]
-    # Annotate events with waitlist_count (cheap aggregate)
-    for e in items:
-        wcount = await db.waitlist_entries.count_documents(
-            {"event_id": e["event_id"], "status": "waiting"}
-        )
-        if wcount > 0:
-            e["waitlist_count"] = wcount
+    # Annotate events with waitlist_count (cheap aggregate) — only meaningful
+    # for upcoming events; skip for past listings.
+    if not past:
+        for e in items:
+            wcount = await db.waitlist_entries.count_documents(
+                {"event_id": e["event_id"], "status": "waiting"}
+            )
+            if wcount > 0:
+                e["waitlist_count"] = wcount
+    else:
+        for e in items:
+            e["is_past"] = True
     return items
 
 
 @router.get("/events/featured")
 async def featured_events():
-    cursor = db.events.find(
-        {"status": {"$in": ["approved", "published"]}, "featured": True}, {"_id": 0},
-    ).limit(6)
+    cutoff_iso = _event_finished_cutoff_iso()
+    base_q = {
+        "status": {"$in": ["approved", "published"]},
+        "date": {"$gte": cutoff_iso},
+    }
+    cursor = db.events.find({**base_q, "featured": True}, {"_id": 0}).limit(6)
     items = [event_to_public(e) async for e in cursor]
     if not items:
-        cursor = db.events.find({"status": {"$in": ["approved", "published"]}}, {"_id": 0}).limit(6)
+        cursor = db.events.find(base_q, {"_id": 0}).sort("date", 1).limit(6)
         items = [event_to_public(e) async for e in cursor]
     return items
 
@@ -139,6 +175,7 @@ async def get_event(event_id: str):
         e["tier_status"] = tier_status
         e["sold_out"] = (not any_remaining) and bool(e.get("tiers"))
         e["surging"] = any_surging
+    e["is_past"] = _is_event_past(e.get("date"))
     return event_to_public(e)
 
 

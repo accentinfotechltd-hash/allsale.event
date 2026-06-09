@@ -240,7 +240,18 @@ export default function EventDetail() {
         <img src={event.banner_url || event.image_url} alt={event.title} className="w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-t from-[color:var(--bg)] via-black/60 to-transparent" />
         <div className="absolute inset-x-0 bottom-0 max-w-7xl mx-auto px-4 sm:px-6 pb-6 sm:pb-10">
-          <span className="chip chip-accent mb-3 sm:mb-4">{event.category}</span>
+          <div className="flex flex-wrap items-center gap-2 mb-3 sm:mb-4">
+            <span className="chip chip-accent">{event.category}</span>
+            {event.is_past && (
+              <span
+                data-testid="event-past-badge"
+                className="inline-flex items-center px-3 py-1 rounded-full text-[11px] uppercase tracking-widest font-medium"
+                style={{ background: "rgba(255,255,255,0.9)", color: "#222" }}
+              >
+                Past event
+              </span>
+            )}
+          </div>
           <h1 className="serif text-4xl sm:text-5xl lg:text-7xl leading-[0.95] max-w-3xl" data-testid="event-title">{event.title}</h1>
         </div>
       </div>
@@ -439,13 +450,17 @@ export default function EventDetail() {
               </div>
             </div>
 
-            <button onClick={onBook} disabled={submitting || total <= 0 || event.sold_out} className="btn-primary w-full justify-center mt-5" data-testid="book-now-btn">
-              {submitting ? "Holding seats..." : event.sold_out ? "Sold out" : "Book now"} <ArrowRight className="w-4 h-4" />
+            <button onClick={onBook} disabled={submitting || total <= 0 || event.sold_out || event.is_past} className="btn-primary w-full justify-center mt-5" data-testid="book-now-btn">
+              {submitting ? "Holding seats..." : event.is_past ? "Event ended" : event.sold_out ? "Sold out" : "Book now"} <ArrowRight className="w-4 h-4" />
             </button>
-            <p className="text-xs mt-3 text-center" style={{ color: "var(--text-dim)" }}>You'll have 10 minutes to complete payment.</p>
+            {event.is_past ? (
+              <p className="text-xs mt-3 text-center" style={{ color: "var(--text-dim)" }} data-testid="event-ended-note">This event has finished. Browse upcoming events instead.</p>
+            ) : (
+              <p className="text-xs mt-3 text-center" style={{ color: "var(--text-dim)" }}>You'll have 10 minutes to complete payment.</p>
+            )}
 
             {/* Waitlist section (sold-out events) */}
-            {(event.sold_out || (myWaitlist && myWaitlist.length > 0)) && (
+            {!event.is_past && (event.sold_out || (myWaitlist && myWaitlist.length > 0)) && (
               <div className="mt-5 pt-5 border-t" style={{ borderColor: "var(--border)" }} data-testid="waitlist-section">
                 {myWaitlist && myWaitlist.find((e) => e.status === "offered") ? (
                   (() => {

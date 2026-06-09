@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
 import EventCard from "@/components/EventCard";
-import { SlidersHorizontal } from "lucide-react";
+import { SlidersHorizontal, Calendar, Archive } from "lucide-react";
 
 export default function Events() {
   const [params, setParams] = useSearchParams();
@@ -13,6 +13,7 @@ export default function Events() {
   const q = params.get("q") || "";
   const category = params.get("category") || "";
   const city = params.get("city") || "";
+  const past = params.get("past") === "1";
 
   useEffect(() => {
     (async () => {
@@ -27,11 +28,11 @@ export default function Events() {
     setLoading(true);
     (async () => {
       try {
-        const { data } = await api.get("/events", { params: { q, category, city } });
+        const { data } = await api.get("/events", { params: { q, category, city, past: past ? "true" : "false" } });
         setEvents(Array.isArray(data) ? data : []);
       } finally { setLoading(false); }
     })();
-  }, [q, category, city]);
+  }, [q, category, city, past]);
 
   const updateParam = (k, v) => {
     const next = new URLSearchParams(params);
@@ -39,16 +40,50 @@ export default function Events() {
     setParams(next);
   };
 
+  const setPastTab = (isPast) => {
+    const next = new URLSearchParams(params);
+    if (isPast) next.set("past", "1"); else next.delete("past");
+    setParams(next);
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-6 py-12">
-      <div className="mb-10 flex items-end justify-between flex-wrap gap-4">
+      <div className="mb-8 flex items-end justify-between flex-wrap gap-4">
         <div>
           <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>Discover</div>
-          <h1 className="serif text-5xl">All events</h1>
+          <h1 className="serif text-5xl">{past ? "Past events" : "All events"}</h1>
         </div>
         <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-muted)" }}>
           <SlidersHorizontal className="w-4 h-4" /> {events.length} results
         </div>
+      </div>
+
+      {/* Upcoming / Past tabs */}
+      <div className="mb-8 inline-flex rounded-full border p-1" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
+        <button
+          type="button"
+          onClick={() => setPastTab(false)}
+          className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm transition"
+          style={{
+            background: !past ? "var(--accent)" : "transparent",
+            color: !past ? "var(--bg)" : "var(--text-muted)",
+          }}
+          data-testid="events-tab-upcoming"
+        >
+          <Calendar className="w-4 h-4" /> Upcoming
+        </button>
+        <button
+          type="button"
+          onClick={() => setPastTab(true)}
+          className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-sm transition"
+          style={{
+            background: past ? "var(--accent)" : "transparent",
+            color: past ? "var(--bg)" : "var(--text-muted)",
+          }}
+          data-testid="events-tab-past"
+        >
+          <Archive className="w-4 h-4" /> Past
+        </button>
       </div>
 
       <div className="grid lg:grid-cols-[260px_1fr] gap-10">
@@ -109,7 +144,9 @@ export default function Events() {
           {loading ? (
             <div className="text-center py-20" style={{ color: "var(--text-dim)" }}>Loading...</div>
           ) : events.length === 0 ? (
-            <div className="text-center py-20" style={{ color: "var(--text-dim)" }}>No events match these filters.</div>
+            <div className="text-center py-20" style={{ color: "var(--text-dim)" }} data-testid="events-empty">
+              {past ? "No past events yet." : "No events match these filters."}
+            </div>
           ) : (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5" data-testid="events-grid">
               {(Array.isArray(events) ? events : []).map((e, i) => <EventCard key={e.event_id} event={e} index={i} />)}

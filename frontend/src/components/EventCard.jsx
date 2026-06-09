@@ -14,7 +14,7 @@ export default function EventCard({ event, index = 0 }) {
     <Link
       to={`/events/${event.event_id}`}
       className="card-event fade-up block group"
-      style={{ animationDelay: `${index * 0.05}s` }}
+      style={{ animationDelay: `${index * 0.05}s`, opacity: event.is_past ? 0.7 : 1 }}
       data-testid={`event-card-${event.event_id}`}
     >
       <div className="relative aspect-[4/5] overflow-hidden">
@@ -22,11 +22,21 @@ export default function EventCard({ event, index = 0 }) {
           src={event.image_url}
           alt={event.title}
           className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+          style={event.is_past ? { filter: "grayscale(0.6)" } : undefined}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
         <div className="absolute top-3 left-3 flex flex-col gap-1.5 items-start">
           <span className="chip chip-accent" style={{ fontSize: "0.65rem" }}>{event.category}</span>
-          {event.waitlist_count > 0 && (
+          {event.is_past && (
+            <span
+              data-testid={`past-badge-${event.event_id}`}
+              className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-medium backdrop-blur-md"
+              style={{ background: "rgba(255,255,255,0.85)", color: "#222" }}
+            >
+              Past event
+            </span>
+          )}
+          {!event.is_past && event.waitlist_count > 0 && (
             <span
               data-testid={`waitlist-count-${event.event_id}`}
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-medium backdrop-blur-md"
