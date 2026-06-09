@@ -72,18 +72,48 @@ function EventsTab() {
     } catch { toast.error("Failed"); }
   };
 
+  const del = async (ev) => {
+    const title = ev?.title || "this event";
+    const confirmText =
+      `Permanently delete "${title}"?\n\n` +
+      `This will also remove ALL related bookings, seat holds, scanner tokens, ` +
+      `team grants, waitlist entries, and discount codes for this event.\n\n` +
+      `Type "delete" to confirm.`;
+    const answer = window.prompt(confirmText);
+    if (!answer || answer.trim().toLowerCase() !== "delete") {
+      toast("Cancelled");
+      return;
+    }
+    try {
+      const { data } = await api.delete(`/events/${ev.event_id}`);
+      const c = data?.cascade || {};
+      const cleaned = Object.entries(c)
+        .filter(([, n]) => n > 0)
+        .map(([k, n]) => `${n} ${k.replace(/_/g, " ")}`)
+        .join(", ");
+      toast.success(cleaned ? `Deleted "${title}". Also cleaned: ${cleaned}.` : `Deleted "${title}".`);
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Failed to delete");
+    }
+  };
+
   const pending = events.filter((e) => e.status === "pending");
   const approved = events.filter((e) => e.status === "approved");
+  const rejected = events.filter((e) => e.status === "rejected");
 
   return (
     <>
-      <Section title="Pending approval" events={pending} act={act} showApprove />
-      <Section title="Approved events" events={approved} act={act} showFeature />
+      <Section title="Pending approval" events={pending} act={act} del={del} showApprove />
+      <Section title="Approved events" events={approved} act={act} del={del} showFeature />
+      {rejected.length > 0 && (
+        <Section title="Rejected" events={rejected} act={act} del={del} />
+      )}
     </>
   );
 }
 
-function Section({ title, events, act, showApprove, showFeature }) {
+function Section({ title, events, act, del, showApprove, showFeature }) {
   return (
     <div className="mb-12">
       <h2 className="serif text-2xl mb-4">{title} <span className="text-sm" style={{ color: "var(--text-dim)" }}>({events.length})</span></h2>
@@ -107,6 +137,16 @@ function Section({ title, events, act, showApprove, showFeature }) {
                   {showFeature && (
                     <button onClick={() => act(e.event_id, "feature")} className="btn-ghost !py-1.5 !px-3 text-xs" data-testid={`feature-${e.event_id}`}>
                       <Star className="w-3 h-3" style={{ color: e.featured ? "var(--accent)" : "inherit" }} /> {e.featured ? "Unfeature" : "Feature"}
+                    </button>
+                  )}
+                  {del && (
+                    <button
+                      onClick={() => del(e)}
+                      className="btn-ghost !py-1.5 !px-3 text-xs"
+                      style={{ color: "#c62828", borderColor: "rgba(198,40,40,0.35)" }}
+                      data-testid={`delete-${e.event_id}`}
+                    >
+                      <Trash2 className="w-3 h-3" /> Delete
                     </button>
                   )}
                 </div>
