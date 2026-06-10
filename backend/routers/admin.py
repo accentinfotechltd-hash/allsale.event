@@ -243,6 +243,10 @@ class UserPatchIn(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
+    # Optional override — when set, all automated notifications for this user
+    # are re-routed to this address. Login email (`email`) stays unchanged.
+    # Pass empty string "" to clear the override.
+    notification_email: Optional[str] = None
 
 
 @router.get("/users/{user_id}")
@@ -314,6 +318,12 @@ async def admin_update_user(user_id: str, payload: UserPatchIn, user: dict = Dep
             update["email"] = new_email
     if payload.phone is not None:
         update["phone"] = payload.phone.strip() or None
+    if payload.notification_email is not None:
+        # Empty string clears the override; otherwise validate basic shape.
+        clean = payload.notification_email.strip().lower()
+        if clean and "@" not in clean:
+            raise HTTPException(status_code=400, detail="notification_email looks invalid")
+        update["notification_email"] = clean or None
 
     if not update:
         return {"updated": False}

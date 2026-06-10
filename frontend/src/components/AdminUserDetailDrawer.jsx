@@ -12,7 +12,7 @@ import { X, Mail, Phone, User, Save, Calendar, Ticket } from "lucide-react";
 export default function AdminUserDetailDrawer({ userId, onClose, onUserUpdated }) {
   const [data, setData] = useState(null);
   const [edit, setEdit] = useState(false);
-  const [form, setForm] = useState({ name: "", email: "", phone: "" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", notification_email: "" });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -21,7 +21,7 @@ export default function AdminUserDetailDrawer({ userId, onClose, onUserUpdated }
       try {
         const { data } = await api.get(`/admin/users/${userId}`);
         setData(data);
-        setForm({ name: data.name || "", email: data.email || "", phone: data.phone || "" });
+        setForm({ name: data.name || "", email: data.email || "", phone: data.phone || "", notification_email: data.notification_email || "" });
       } catch {
         toast.error("Could not load user");
         onClose?.();
@@ -75,7 +75,7 @@ export default function AdminUserDetailDrawer({ userId, onClose, onUserUpdated }
                   <button onClick={() => setEdit(true)} className="btn-ghost !py-1.5 !px-3 text-xs" data-testid="admin-edit-user-btn">Edit</button>
                 ) : (
                   <div className="flex gap-2">
-                    <button onClick={() => { setEdit(false); setForm({ name: data.name || "", email: data.email || "", phone: data.phone || "" }); }} className="text-xs" style={{ color: "var(--text-dim)" }}>Cancel</button>
+                    <button onClick={() => { setEdit(false); setForm({ name: data.name || "", email: data.email || "", phone: data.phone || "", notification_email: data.notification_email || "" }); }} className="text-xs" style={{ color: "var(--text-dim)" }}>Cancel</button>
                     <button onClick={save} disabled={busy} className="btn-primary !py-1.5 !px-3 text-xs" data-testid="admin-save-user-btn">
                       <Save className="w-3 h-3" /> {busy ? "Saving…" : "Save"}
                     </button>
@@ -86,6 +86,11 @@ export default function AdminUserDetailDrawer({ userId, onClose, onUserUpdated }
                 <div className="space-y-2 text-sm">
                   <Row icon={<User className="w-4 h-4" />} label="Name" value={data.name} />
                   <Row icon={<Mail className="w-4 h-4" />} label="Email" value={data.email} />
+                  <Row
+                    icon={<Mail className="w-4 h-4" />}
+                    label="Notification email"
+                    value={data.notification_email || <span style={{ color: "var(--text-dim)" }}>— (same as Email)</span>}
+                  />
                   <Row icon={<Phone className="w-4 h-4" />} label="Phone" value={data.phone || "—"} />
                   <Row label="Role" value={<span className="capitalize">{data.role}</span>} />
                   <Row label="Status" value={data.active ? "Active" : <span style={{ color: "var(--danger)" }}>Suspended</span>} />
@@ -95,10 +100,18 @@ export default function AdminUserDetailDrawer({ userId, onClose, onUserUpdated }
               ) : (
                 <div className="space-y-3 text-sm">
                   <Input label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} testid="admin-edit-name" />
-                  <Input label="Email" type="email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} testid="admin-edit-email" />
+                  <Input label="Email (used to log in)" type="email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} testid="admin-edit-email" />
+                  <Input
+                    label="Notification email (optional)"
+                    type="email"
+                    value={form.notification_email}
+                    onChange={(v) => setForm({ ...form, notification_email: v })}
+                    placeholder="e.g. allsaletickets@gmail.com — leave blank to use Email above"
+                    testid="admin-edit-notification-email"
+                  />
                   <Input label="Phone" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} placeholder="+64 21 555 1234" testid="admin-edit-phone" />
                   <p className="text-xs" style={{ color: "var(--text-dim)" }}>
-                    Email + phone changes take effect immediately. Future booking emails will route to the new address.
+                    Email is the login. <b>Notification email</b>, when set, re-routes all automated emails (booking confirmations, organizer messages, payouts, approvals) to that address — useful when the login email&apos;s domain has no real mailbox.
                   </p>
                 </div>
               )}

@@ -430,10 +430,28 @@ async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None) ->
     """Render and dispatch a template. Always returns a result dict; never raises.
 
     Logs to `email_logs` collection (if db provided) with status: queued | sent | failed | skipped.
+
+    If a user with this email has set `notification_email`, the message is
+    transparently re-routed to that address (the original `to` is recorded
+    on the log as `to_requested` for auditability).
     """
     log_id = uuid4().hex[:16]
     now_iso = datetime.now(timezone.utc).isoformat()
-    base = {"log_id": log_id, "template": template, "to": to, "created_at": now_iso, "context_summary": _safe_summary(ctx)}
+    requested_to = to
+    # Resolve notification_email override (lets users keep their login email
+    # while having all automated notifications land in a different inbox —
+    # critical for domains whose login email has no real MX records).
+    if db is not None and to:
+        try:
+            owner = await db.users.find_one(
+                {"email": to.lower().strip()},
+                {"_id": 0, "notification_email": 1},
+            )
+            if owner and owner.get("notification_email"):
+                to = owner["notification_email"]
+        except Exception:
+            pass
+    base = {"log_id": log_id, "template": template, "to": to, "to_requested": requested_to, "created_at": now_iso, "context_summary": _safe_summary(ctx)}
 
     if not _RESEND_AVAILABLE or not RESEND_API_KEY:
         logger.warning(f"[email] resend unavailable or RESEND_API_KEY not set — skipped {template} to {to}")

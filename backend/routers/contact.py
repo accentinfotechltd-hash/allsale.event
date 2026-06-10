@@ -19,7 +19,11 @@ from emails import send_template_fireforget
 
 router = APIRouter(prefix="/contact", tags=["contact"])
 
-SUPPORT_INBOX = os.environ.get("SUPPORT_INBOX") or "support@allsale.events"
+SUPPORT_INBOX = (
+    os.environ.get("SUPPORT_INBOX")
+    or os.environ.get("REPLY_TO_EMAIL")  # fallback — same shared support inbox
+    or "allsaletickets@gmail.com"
+)
 _PHONE_RE = re.compile(r"^[+0-9 ()\-]{6,20}$")
 
 
