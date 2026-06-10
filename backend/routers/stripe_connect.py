@@ -104,17 +104,20 @@ class OnboardIn(BaseModel):
 
 @router.post("/stripe/connect/onboard")
 async def onboard(payload: OnboardIn, user: dict = Depends(get_current_user)):
-    """Create-or-resume Connect Express onboarding for the calling organizer."""
+    """Create-or-resume Connect Express onboarding for the calling organizer.
+
+    If we already have a `stripe_account_id` but Stripe rejects it (deleted in
+    dashboard, wrong key mode, etc.), we wipe the stored ID and create a
+    fresh Express account on the next attempt so the user doesn't get stuck.
+    """
     _ensure_stripe()
     if user.get("role") not in {"organizer", "admin"}:
         raise HTTPException(status_code=403, detail="Only organizers can connect Stripe")
 
     acct_id = user.get("stripe_account_id")
-    if not acct_id:
-        # Lazily create the Express account. Country defaults to NZ for our
-        # primary market but can be overridden — Stripe enforces the rest via
-        # the hosted onboarding wizard.
-        country = (payload.country or user.get("country") or "NZ").upper()
+
+    async def _create_account() -> str:
+        country = (payload.country or user.get("stripe_country") or user.get("country") or "NZ").upper()
         try:
             acct = await asyncio.to_thread(
                 _stripe_sdk.Account.create,
@@ -125,7 +128,6 @@ async def onboard(payload: OnboardIn, user: dict = Depends(get_current_user)):
                     "card_payments": {"requested": True},
                     "transfers": {"requested": True},
                 },
-                business_type=None,  # let the organizer pick during onboarding
                 metadata={
                     "platform_user_id": user["user_id"],
                     "platform_role": user.get("role", "organizer"),
@@ -133,32 +135,68 @@ async def onboard(payload: OnboardIn, user: dict = Depends(get_current_user)):
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception(f"[stripe-connect] Account.create failed: {exc}")
-            raise HTTPException(status_code=502, detail=f"Stripe rejected the account: {exc}") from exc
-        acct_id = acct["id"]
+            raise HTTPException(status_code=502, detail=f"Stripe couldn't create the account — {exc}") from exc
+        new_id = acct["id"]
         await db.users.update_one(
             {"user_id": user["user_id"]},
             {"$set": {
-                "stripe_account_id": acct_id,
+                "stripe_account_id": new_id,
                 "stripe_country": country,
                 "stripe_created_at": utc_now().isoformat(),
             }},
         )
+        return new_id
 
-    # Mint a fresh AccountLink (these expire after ~5 min so we always create
-    # a new one rather than caching).
-    refresh = payload.refresh_url or payload.return_url
-    try:
+    async def _make_link(account_id: str) -> dict:
+        refresh = payload.refresh_url or payload.return_url
         link = await asyncio.to_thread(
             _stripe_sdk.AccountLink.create,
-            account=acct_id,
+            account=account_id,
             refresh_url=refresh,
             return_url=payload.return_url,
             type="account_onboarding",
         )
+        return {"url": link["url"], "expires_at": link.get("expires_at"), "stripe_account_id": account_id}
+
+    if not acct_id:
+        acct_id = await _create_account()
+
+    try:
+        return await _make_link(acct_id)
     except Exception as exc:  # noqa: BLE001
+        msg = str(exc)
+        # If the stored account ID is unknown/invalid (e.g. test-mode ID with
+        # a live key, or it was deleted in the Stripe dashboard) reset and
+        # try once more with a fresh account.
+        recoverable = any(
+            tag in msg.lower()
+            for tag in ("no such account", "does not exist", "testmode", "invalid request", "permission")
+        )
+        if recoverable:
+            logger.warning(f"[stripe-connect] stale acct {acct_id} ({msg[:120]}) — recreating")
+            await db.users.update_one(
+                {"user_id": user["user_id"]},
+                {"$unset": {
+                    "stripe_account_id": "",
+                    "stripe_country": "",
+                    "stripe_created_at": "",
+                    "stripe_charges_enabled": "",
+                    "stripe_payouts_enabled": "",
+                    "stripe_details_submitted": "",
+                    "stripe_requirements_due": "",
+                    "stripe_last_synced_at": "",
+                }},
+            )
+            try:
+                new_id = await _create_account()
+                return await _make_link(new_id)
+            except HTTPException:
+                raise
+            except Exception as exc2:  # noqa: BLE001
+                logger.exception(f"[stripe-connect] recovery failed: {exc2}")
+                raise HTTPException(status_code=502, detail=f"Stripe rejected the link — {exc2}") from exc2
         logger.exception(f"[stripe-connect] AccountLink.create failed: {exc}")
-        raise HTTPException(status_code=502, detail=f"Stripe rejected the link: {exc}") from exc
-    return {"url": link["url"], "expires_at": link.get("expires_at"), "stripe_account_id": acct_id}
+        raise HTTPException(status_code=502, detail=f"Stripe couldn't generate the link — {exc}") from exc
 
 
 @router.get("/stripe/connect/status")
@@ -166,28 +204,50 @@ async def status(user: dict = Depends(get_current_user)):
     """Return current Connect state. Re-syncs from Stripe if we have an
     account_id and the cached state is stale (>60s) — keeps the badge fresh
     when the user comes back from Stripe's onboarding without us having
-    received the webhook yet."""
-    acct_id = user.get("stripe_account_id")
-    if not acct_id:
+    received the webhook yet.
+
+    Wrapped defensively so a stale `stripe_account_id` (deleted in Stripe
+    dashboard, wrong mode, etc.) never produces a bare HTTP 500 for the
+    frontend — we surface the cached state and let the user re-onboard.
+    """
+    try:
+        acct_id = user.get("stripe_account_id")
+        if not acct_id:
+            return _connect_status_payload(user)
+
+        last = user.get("stripe_last_synced_at")
+        is_stale = True
+        if last:
+            try:
+                from datetime import datetime, timezone, timedelta
+                then = datetime.fromisoformat(last)
+                if then.tzinfo is None:
+                    then = then.replace(tzinfo=timezone.utc)
+                is_stale = (utc_now() - then) > timedelta(seconds=60)
+            except Exception:  # noqa: BLE001
+                is_stale = True
+
+        if is_stale and _STRIPE_AVAILABLE and STRIPE_API_KEY:
+            try:
+                refreshed = await _sync_account_from_stripe(acct_id)
+                if refreshed:
+                    user = refreshed
+            except Exception as exc:  # noqa: BLE001
+                # Stale or mismatched-mode account ID — log + fall back to
+                # cached state rather than 500ing the page.
+                logger.warning(f"[stripe-connect] status sync failed for {acct_id}: {exc}")
         return _connect_status_payload(user)
-
-    last = user.get("stripe_last_synced_at")
-    is_stale = True
-    if last:
-        try:
-            from datetime import datetime, timezone, timedelta
-            then = datetime.fromisoformat(last)
-            if then.tzinfo is None:
-                then = then.replace(tzinfo=timezone.utc)
-            is_stale = (utc_now() - then) > timedelta(seconds=60)
-        except Exception:  # noqa: BLE001
-            is_stale = True
-
-    if is_stale and _STRIPE_AVAILABLE and STRIPE_API_KEY:
-        refreshed = await _sync_account_from_stripe(acct_id)
-        if refreshed:
-            user = refreshed
-    return _connect_status_payload(user)
+    except Exception as exc:  # noqa: BLE001  (last-resort guard)
+        logger.exception(f"[stripe-connect] status crashed: {exc}")
+        return {
+            "stripe_account_id": user.get("stripe_account_id"),
+            "stripe_charges_enabled": False,
+            "stripe_payouts_enabled": False,
+            "stripe_details_submitted": False,
+            "stripe_requirements_due": [],
+            "stripe_last_synced_at": None,
+            "_warning": f"Could not refresh Stripe state: {str(exc)[:200]}",
+        }
 
 
 @router.post("/stripe/connect/dashboard-link")
