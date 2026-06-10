@@ -117,7 +117,7 @@ export default function StripeConnectPanel() {
           <>
             <div className="text-sm font-medium mb-0.5">Get paid for your events</div>
             <div className="text-xs" style={{ color: "var(--text-dim)" }}>
-              Connect a Stripe account once. We&apos;ll transfer your share automatically a day after each event finishes, minus the 5% platform fee + Stripe&apos;s card processing fee.
+              Connect a Stripe account once. We&apos;ll transfer your share automatically <b>5 days after each event finishes</b>, minus the 5% platform fee + Stripe&apos;s card processing fee.
             </div>
           </>
         )}
@@ -148,7 +148,7 @@ export default function StripeConnectPanel() {
               Stripe connected — ready for payouts
             </div>
             <div className="text-xs" style={{ color: "var(--text-dim)" }}>
-              Your share of each event lands in your Stripe balance ~24 h after the event ends. View transfer history in your Stripe Express dashboard.
+              Your share of each event lands in your Stripe balance <b>5 days after the event ends</b>. View transfer history in your Stripe Express dashboard.
             </div>
           </>
         )}

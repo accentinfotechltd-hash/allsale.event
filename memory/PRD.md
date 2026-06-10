@@ -372,7 +372,7 @@ See `/app/memory/test_credentials.md`
 - `PLATFORM_FEE_BPS=500` — 5% (default if unset).
 
 **Batch 2 — Scheduled payouts (NEXT push):**
-- Scheduler job: daily scan for events that ended ≥24h ago + have paid bookings + organizer has verified Connect account. Compute share, create `Transfer` to organizer's connected account, mark event `payout_status=paid` with `payout_transfer_id`.
+- Scheduler job: daily scan for events that ended ≥`PAYOUT_HOLD_HOURS` ago (default **120h = 5 days**) + have paid bookings + organizer has verified Connect account. Compute share, create `Transfer` to organizer's connected account, mark event `payout_status=paid` with `payout_transfer_id`.
 - Admin manual-trigger UI: `/admin → Payouts` per-event button.
 - Refund-aware: if a booking was refunded post-transfer, the transfer is reversed.
 - Email notification to organizer on each payout.
