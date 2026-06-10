@@ -17,6 +17,7 @@ export default function Layout({ children }) {
   const location = useLocation();
   const [q, setQ] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
 
   const onSearch = (e) => {
     e.preventDefault();
@@ -32,6 +33,22 @@ export default function Layout({ children }) {
     document.body.style.overflow = menuOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [menuOpen]);
+
+  // Poll the pending-events count for the Admin nav badge.
+  useEffect(() => {
+    if (user?.role !== "admin") { setPendingCount(0); return undefined; }
+    let cancelled = false;
+    const ping = async () => {
+      try {
+        const api = (await import("@/lib/api")).default;
+        const { data } = await api.get("/admin/pending-events-count");
+        if (!cancelled) setPendingCount(Number(data?.count) || 0);
+      } catch { /* swallow — header should never break the page */ }
+    };
+    ping();
+    const t = setInterval(ping, 60_000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, [user?.role]);
 
   return (
     <div className="min-h-screen grain">
@@ -79,8 +96,18 @@ export default function Layout({ children }) {
                   </Link>
                 )}
                 {user.role === "admin" && (
-                  <Link to="/admin" className="px-2 md:px-3 py-2 text-sm inline-flex items-center gap-1.5" style={{ color: "var(--text-muted)" }} data-testid="nav-admin-link">
+                  <Link to="/admin" className="relative px-2 md:px-3 py-2 text-sm inline-flex items-center gap-1.5" style={{ color: "var(--text-muted)" }} data-testid="nav-admin-link">
                     <ShieldCheck className="w-4 h-4" /> <span className="hidden md:inline">Admin</span>
+                    {pendingCount > 0 && (
+                      <span
+                        className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-semibold"
+                        style={{ background: "var(--accent)", color: "#fff" }}
+                        title={`${pendingCount} event${pendingCount === 1 ? "" : "s"} awaiting approval`}
+                        data-testid="nav-admin-pending-badge"
+                      >
+                        {pendingCount}
+                      </span>
+                    )}
                   </Link>
                 )}
                 <Link to="/profile" className="btn-ghost !py-2 !px-3 md:!px-4 text-sm" data-testid="nav-profile-link">

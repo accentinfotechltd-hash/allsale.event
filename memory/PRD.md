@@ -398,5 +398,14 @@ See `/app/memory/test_credentials.md`
 
 - Multi-org-per-event splits (e.g., promoter + venue revenue share).
 - Display platform fee preview at checkout (transparency).
+
+## Iteration 28 (2026-06-10) — Admin "new event submitted" alerts
+
+- ✅ Backend: when an organizer creates an event with status=pending, emails are fired to every `admin`-role user using the new `admin_new_event_submitted` template (full event card + organizer + venue + date + one-click "Open admin queue" CTA). Re-routes through `notification_email` like every other automated send.
+- ✅ Backend: new `GET /api/admin/pending-events-count` — cheap counter for the badge poll.
+- ✅ Frontend: `Layout` polls the count every 60 s for admin users. Renders an orange numeric pill next to the **Admin** nav link when `> 0`, with a hover-title summarising the count.
+- ✅ Smoke-verified: submitted a test event on preview, template fired and re-routed to `allsaletickets+admin@gmail.com`. Resend rejected only because preview is sandbox-only — on production the verified `noreply@allsale.events` sender delivers.
+
+
 - Organizer balance/transfer history page using `stripe.Transfer.list(destination=acct_id)`.
 

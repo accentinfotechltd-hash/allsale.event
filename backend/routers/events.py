@@ -214,6 +214,32 @@ async def create_event(payload: EventIn, user: dict = Depends(get_current_user))
         "created_at": utc_now().isoformat(),
     }
     await db.events.insert_one(doc)
+    # Notify all admins when a new event lands in the moderation queue.
+    if doc["status"] == "pending":
+        try:
+            from emails import send_template_fireforget
+            cms = await db.platform_settings.find_one({"key": "cms"}, {"_id": 0}) or {}
+            origin = (cms.get("public_origin") or "https://www.allsale.events").rstrip("/")
+            admin_url = f"{origin}/admin"
+            async for admin in db.users.find(
+                {"role": "admin"}, {"_id": 0, "email": 1, "name": 1}
+            ):
+                send_template_fireforget(
+                    "admin_new_event_submitted",
+                    admin.get("email"),
+                    {
+                        "admin_name": admin.get("name") or "Admin",
+                        "event_title": doc["title"],
+                        "organizer_name": doc.get("organizer_name") or "Organizer",
+                        "venue": f"{doc.get('venue','')}, {doc.get('city','')}",
+                        "event_date_iso": doc["date"],
+                        "admin_url": admin_url,
+                    },
+                    db,
+                )
+        except Exception as exc:  # pragma: no cover
+            from core import logger as _log
+            _log.warning(f"[events] admin notify failed: {exc}")
     return event_to_public(doc)
 
 

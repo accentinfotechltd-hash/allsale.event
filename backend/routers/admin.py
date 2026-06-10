@@ -23,6 +23,15 @@ async def admin_events(user: dict = Depends(get_current_user)):
     return [event_to_public(e) async for e in cursor]
 
 
+@router.get("/pending-events-count")
+async def pending_events_count(user: dict = Depends(get_current_user)):
+    """Cheap counter for the Admin nav badge — number of events awaiting
+    moderation right now. Called by the layout every ~60 s."""
+    _admin_only(user)
+    n = await db.events.count_documents({"status": "pending"})
+    return {"count": n}
+
+
 @router.post("/events/{event_id}/approve")
 async def admin_approve(event_id: str, user: dict = Depends(get_current_user)):
     _admin_only(user)

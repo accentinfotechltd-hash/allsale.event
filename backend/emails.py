@@ -272,6 +272,7 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "weekly_digest": lambda ctx: _t_weekly_digest(ctx),
     "new_event_announcement": lambda ctx: _t_new_event_announcement(ctx),
     "admin_blast": lambda ctx: _t_admin_blast(ctx),
+    "admin_new_event_submitted": lambda ctx: _t_admin_new_event_submitted(ctx),
 }
 
 
@@ -420,6 +421,35 @@ def _t_admin_blast(ctx: Dict[str, Any]) -> tuple[str, str, str]:
     cta_url = f"{APP_PUBLIC_URL}/events/{ctx.get('event_id','')}" if ctx.get("event_id") else f"{APP_PUBLIC_URL}/events"
     html = _layout(subject, "From the Allsale Events team", body, "Browse events", cta_url)
     text = _text_fallback([ctx.get("body") or "", cta_url])
+    return subject, html, text
+
+
+def _t_admin_new_event_submitted(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Notification to admins when an organizer submits a new event."""
+    when = ctx.get("event_date_iso") or ""
+    try:
+        from datetime import datetime as _dt
+        when_disp = _dt.fromisoformat(when.replace("Z", "+00:00")).strftime("%a %d %b %Y · %I:%M %p")
+    except Exception:
+        when_disp = when[:16] if when else "TBA"
+    body = f"""
+    <p style="color:{TEXT};">Hi {ctx.get('admin_name','Admin')},</p>
+    <p style="color:{TEXT_MUTED};">A new event is waiting for your review.</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+      style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;">
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};">EVENT</td><td style="text-align:right;color:{TEXT};font-weight:600;">{ctx.get('event_title','')}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">ORGANIZER</td><td style="text-align:right;color:{TEXT};padding-top:8px;">{ctx.get('organizer_name','')}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">VENUE</td><td style="text-align:right;color:{TEXT};padding-top:8px;">{ctx.get('venue','')}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">WHEN</td><td style="text-align:right;color:{TEXT};padding-top:8px;">{when_disp}</td></tr>
+    </table>
+    """
+    subject = f"New event needs review: {ctx.get('event_title','Untitled')}"
+    html = _layout(subject, "A new submission landed in your moderation queue", body, "Open admin queue", ctx.get("admin_url", APP_PUBLIC_URL + "/admin"))
+    text = _text_fallback([
+        f"New event submitted: {ctx.get('event_title','')}",
+        f"By {ctx.get('organizer_name','')} at {ctx.get('venue','')} — {when_disp}",
+        ctx.get("admin_url", APP_PUBLIC_URL + "/admin"),
+    ])
     return subject, html, text
 
 
