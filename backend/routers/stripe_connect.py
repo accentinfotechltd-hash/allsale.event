@@ -266,6 +266,37 @@ async def dashboard_link(user: dict = Depends(get_current_user)):
     return {"url": link["url"]}
 
 
+@router.post("/stripe/connect/reset")
+async def reset_connect(user: dict = Depends(get_current_user)):
+    """Wipe the user's Stripe Connect fields so the next "Connect with Stripe"
+    click starts from scratch. Useful when an account got stuck in a bad mode
+    (test ID with live key, deleted in Stripe dashboard, etc.).
+
+    Safe to call repeatedly. Does NOT delete the account on Stripe's side —
+    just unhooks it from this user record. If the user is mid-onboarding on
+    Stripe's hosted page, they can complete and we'll re-link via webhook,
+    but a fresh "Connect with Stripe" click will create a brand-new account.
+    """
+    if user.get("role") not in {"organizer", "admin"}:
+        raise HTTPException(status_code=403, detail="Only organizers can reset")
+    prev = user.get("stripe_account_id")
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$unset": {
+            "stripe_account_id": "",
+            "stripe_country": "",
+            "stripe_created_at": "",
+            "stripe_charges_enabled": "",
+            "stripe_payouts_enabled": "",
+            "stripe_details_submitted": "",
+            "stripe_requirements_due": "",
+            "stripe_last_synced_at": "",
+        }},
+    )
+    logger.info(f"[stripe-connect] reset for user={user['user_id']} (was {prev})")
+    return {"ok": True, "previous_account_id": prev}
+
+
 # ---------- Webhook (Connect events) ----------
 @router.post("/webhook/stripe/connect")
 async def connect_webhook(request: Request):

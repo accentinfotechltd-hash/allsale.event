@@ -76,6 +76,20 @@ export default function StripeConnectPanel() {
     }
   };
 
+  const resetConnection = async () => {
+    if (!window.confirm("Reset your Stripe connection? This will clear the link to your Stripe account so you can start the onboarding flow again from scratch. (It does NOT delete the account on Stripe — you can still log in to your Stripe dashboard directly.)")) return;
+    setWorking(true);
+    try {
+      await api.post("/stripe/connect/reset", {});
+      toast.success("Stripe connection reset — click 'Connect with Stripe' to start fresh.");
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Couldn't reset");
+    } finally {
+      setWorking(false);
+    }
+  };
+
   if (status === null) {
     return (
       <div
@@ -138,6 +152,20 @@ export default function StripeConnectPanel() {
                   </span>
                 </span>
               )}
+              {status._warning && (
+                <span className="block mt-1" style={{ color: "rgb(198,40,40)" }}>
+                  ⚠ {status._warning}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={resetConnection}
+                className="block mt-1.5 underline text-[11px]"
+                style={{ color: "var(--text-dim)" }}
+                data-testid="stripe-connect-reset-btn"
+              >
+                Start over with a new Stripe account
+              </button>
             </div>
           </>
         )}
