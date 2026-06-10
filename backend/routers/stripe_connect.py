@@ -245,3 +245,79 @@ async def connect_webhook(request: Request):
         # log them for now; payouts router (phase 2) will react.
         logger.info(f"[stripe-connect] webhook noop: type={event_type} acct={acct_id}")
     return {"received": True}
+
+
+# ---------- Event payouts (Batch 2) ----------
+from connect_payouts_engine import (  # noqa: E402  (kept here so /webhook stays compact above)
+    _attempt_event_payout,
+    PAYOUT_HOLD_HOURS,
+    PLATFORM_FEE_BPS,
+)
+
+
+@router.get("/organizer/event-payouts")
+async def organizer_event_payouts(user: dict = Depends(get_current_user)):
+    """For the calling organizer, return each of their events with its payout
+    state + a countdown showing how many hours of the hold window remain.
+
+    Used by the organizer dashboard to render the "Hold ends in X days" badge.
+    """
+    if user.get("role") not in {"organizer", "admin"}:
+        raise HTTPException(status_code=403, detail="Organizer only")
+    items: list[dict] = []
+    cursor = db.events.find(
+        {"organizer_id": user["user_id"]}, {"_id": 0}
+    ).sort("date", -1).limit(200)
+    from datetime import datetime, timezone, timedelta
+    now = utc_now()
+    async for e in cursor:
+        try:
+            ev_dt = datetime.fromisoformat((e.get("date") or "").replace("Z", "+00:00"))
+            if ev_dt.tzinfo is None:
+                ev_dt = ev_dt.replace(tzinfo=timezone.utc)
+            ends_at = ev_dt + timedelta(hours=PAYOUT_HOLD_HOURS)
+            hold_remaining_hours = max(0, int((ends_at - now).total_seconds() // 3600))
+        except Exception:
+            hold_remaining_hours = None
+        items.append({
+            "event_id": e["event_id"],
+            "title": e.get("title"),
+            "date": e.get("date"),
+            "currency": e.get("currency", "NZD"),
+            "payout_status": e.get("payout_status"),
+            "payout_amount": e.get("payout_amount"),
+            "payout_gross": e.get("payout_gross"),
+            "payout_platform_fee": e.get("payout_platform_fee"),
+            "payout_transfer_id": e.get("payout_transfer_id"),
+            "payout_error": e.get("payout_error"),
+            "payout_processed_at": e.get("payout_processed_at"),
+            "hold_remaining_hours": hold_remaining_hours,
+        })
+    return {
+        "items": items,
+        "platform_fee_bps": PLATFORM_FEE_BPS,
+        "hold_hours": PAYOUT_HOLD_HOURS,
+    }
+
+
+@router.post("/admin/stripe/payouts/{event_id}/run")
+async def admin_run_event_payout(event_id: str, user: dict = Depends(get_current_user)):
+    """Force an immediate payout attempt for one event (admin override).
+    Bypasses the 5-day hold but still respects Stripe idempotency."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    res = await _attempt_event_payout(db, event, triggered_by=f"admin:{user['user_id']}")
+    return res
+
+
+@router.get("/admin/stripe/payouts")
+async def admin_list_event_payouts(user: dict = Depends(get_current_user)):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    items = []
+    async for p in db.connect_payouts.find({}, {"_id": 0}).sort("created_at", -1).limit(500):
+        items.append(p)
+    return {"items": items, "platform_fee_bps": PLATFORM_FEE_BPS, "hold_hours": PAYOUT_HOLD_HOURS}

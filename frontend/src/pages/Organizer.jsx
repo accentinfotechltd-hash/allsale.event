@@ -8,6 +8,7 @@ import { formatMoney } from "@/lib/currencies";
 import DoorCheckinPanel from "@/components/DoorCheckinPanel";
 import OrganizerInboxPanel from "@/components/OrganizerInboxPanel";
 import StripeConnectPanel from "@/components/StripeConnectPanel";
+import OrganizerPayoutsPanel from "@/components/OrganizerPayoutsPanel";
 import { toast } from "sonner";
 
 export default function Organizer() {
@@ -170,6 +171,8 @@ export default function Organizer() {
           </tbody>
         </table>
       </div>
+
+      <OrganizerPayoutsPanel />
     </div>
   );
 }

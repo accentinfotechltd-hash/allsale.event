@@ -371,11 +371,16 @@ See `/app/memory/test_credentials.md`
 - `STRIPE_CONNECT_WEBHOOK_SECRET` — must be added on Railway after creating the Connect webhook in Stripe dashboard (see action items).
 - `PLATFORM_FEE_BPS=500` — 5% (default if unset).
 
-**Batch 2 — Scheduled payouts (NEXT push):**
-- Scheduler job: daily scan for events that ended ≥`PAYOUT_HOLD_HOURS` ago (default **120h = 5 days**) + have paid bookings + organizer has verified Connect account. Compute share, create `Transfer` to organizer's connected account, mark event `payout_status=paid` with `payout_transfer_id`.
-- Admin manual-trigger UI: `/admin → Payouts` per-event button.
-- Refund-aware: if a booking was refunded post-transfer, the transfer is reversed.
-- Email notification to organizer on each payout.
+**Batch 2 — Scheduled payouts (DONE):**
+- ✅ New module `/app/backend/connect_payouts_engine.py` — finds events ≥`PAYOUT_HOLD_HOURS` (default **120h = 5 days**) past their start, organizer has verified Connect, sums paid bookings (excluding refunded), subtracts platform fee (`PLATFORM_FEE_BPS=500` = 5%), creates `stripe.Transfer` with idempotency key `event-payout-{event_id}`, stamps event with payout_status/transfer_id/amount, writes audit row in new `connect_payouts` collection.
+- ✅ Hourly scheduler tick now runs `run_due_event_payouts(db)` alongside reminders + digest.
+- ✅ New routes:
+  - `GET /api/organizer/event-payouts` — organizer-facing list with `hold_remaining_hours` countdown.
+  - `POST /api/admin/stripe/payouts/{event_id}/run` — admin force-trigger.
+  - `GET /api/admin/stripe/payouts` — admin audit listing.
+- ✅ Organizer emailed via existing `organizer_payout_issued` template (routes through `notification_email` if set).
+- ✅ New React component `OrganizerPayoutsPanel` — countdown badges ("Payout in 4 days"), Paid/Failed/Processing-soon/No-sales states. Mounted at bottom of `/organizer`.
+- ✅ Regression suite `/app/backend/tests/test_connect_payouts.py` — 4 tests covering 3 skip branches + hold-hours constant. All passing.
 
 **Future:**
 - Multi-org-per-event splits (e.g., promoter + venue revenue share).

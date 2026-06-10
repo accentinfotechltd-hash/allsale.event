@@ -22,6 +22,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from emails import send_template_fireforget
+from connect_payouts_engine import run_due_event_payouts
 
 logger = logging.getLogger("aura.scheduler")
 
@@ -160,8 +161,12 @@ async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
         try:
             n_reminders = await _send_24h_reminders(db)
             n_digest = await _send_weekly_digest(db)
-            if n_reminders or n_digest:
-                logger.info("[scheduler] reminders=%s digest=%s", n_reminders, n_digest)
+            payout_summary = await run_due_event_payouts(db)
+            if n_reminders or n_digest or payout_summary.get("paid") or payout_summary.get("failed"):
+                logger.info(
+                    "[scheduler] reminders=%s digest=%s payouts=%s",
+                    n_reminders, n_digest, payout_summary,
+                )
         except Exception as exc:  # pragma: no cover
             logger.exception("[scheduler] tick failed: %s", exc)
         await asyncio.sleep(interval_seconds)
