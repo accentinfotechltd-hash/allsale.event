@@ -150,6 +150,12 @@ async def me(user: dict = Depends(get_current_user)):
         "notification_prefs": user.get("notification_prefs") or {
             "email_booking": True, "email_reminders": True, "email_marketing": False,
         },
+        # Stripe Connect onboarding status — surfaced so the organizer
+        # dashboard can render the right CTA (Connect / Continue / Verified).
+        "stripe_account_id": user.get("stripe_account_id"),
+        "stripe_charges_enabled": bool(user.get("stripe_charges_enabled")),
+        "stripe_payouts_enabled": bool(user.get("stripe_payouts_enabled")),
+        "stripe_details_submitted": bool(user.get("stripe_details_submitted")),
     }
 
 

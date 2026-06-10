@@ -350,3 +350,35 @@ See `/app/memory/test_credentials.md`
 
 
 
+
+## Iteration 26 (2026-06-10) — Stripe Connect Express (Batch 1)
+
+**Charge model chosen**: Marketplace — separate-charges-and-transfers / hold-until-event. Platform holds all ticket revenue in Allsale's Stripe balance; transfers organizer share (minus 5% platform fee + Stripe processing) ~24h after event end. This gives full control for refunds, chargebacks, and cancelled events.
+
+**Batch 1 — Organizer onboarding (DONE):**
+- ✅ New router `/app/backend/routers/stripe_connect.py` with:
+  - `POST /api/stripe/connect/onboard` — lazily creates a Stripe **Express** account for the organizer, requests `card_payments` + `transfers` capabilities, mints a fresh AccountLink and returns the hosted-onboarding URL.
+  - `GET /api/stripe/connect/status` — returns `{stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled, stripe_details_submitted, stripe_requirements_due, stripe_last_synced_at}`. Auto re-syncs from Stripe if stale (>60s).
+  - `POST /api/stripe/connect/dashboard-link` — generates one-time Express dashboard login URL for the organizer.
+  - `POST /api/webhook/stripe/connect` — listens for `account.updated`, mirrors capability flags onto the user row. Other Connect events (transfer.*, payout.*) logged for Batch 2.
+- ✅ `/auth/me` extended with the four Stripe fields.
+- ✅ New React component `/app/frontend/src/components/StripeConnectPanel.jsx` (3-state: Not connected / In progress + missing requirements / Verified). Mounted at the top of `/organizer`.
+- ✅ Smoke-tested on preview: panel renders, copy + CTA correct, all four backend endpoints respond.
+- ✅ Regression suite `/app/backend/tests/test_stripe_connect.py` — 5 tests covering status-empty, dashboard-link-without-account, role-gating, `/me` field exposure, webhook dev-mode acceptance. All passing.
+
+**Env vars (production):**
+- `STRIPE_API_KEY` — already set (live key).
+- `STRIPE_CONNECT_WEBHOOK_SECRET` — must be added on Railway after creating the Connect webhook in Stripe dashboard (see action items).
+- `PLATFORM_FEE_BPS=500` — 5% (default if unset).
+
+**Batch 2 — Scheduled payouts (NEXT push):**
+- Scheduler job: daily scan for events that ended ≥24h ago + have paid bookings + organizer has verified Connect account. Compute share, create `Transfer` to organizer's connected account, mark event `payout_status=paid` with `payout_transfer_id`.
+- Admin manual-trigger UI: `/admin → Payouts` per-event button.
+- Refund-aware: if a booking was refunded post-transfer, the transfer is reversed.
+- Email notification to organizer on each payout.
+
+**Future:**
+- Multi-org-per-event splits (e.g., promoter + venue revenue share).
+- Display platform fee preview at checkout (transparency).
+- Organizer balance/transfer history page using `stripe.Transfer.list(destination=acct_id)`.
+
