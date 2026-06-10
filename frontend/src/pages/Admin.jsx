@@ -262,15 +262,16 @@ function UsersTab({ currentUser }) {
               <th className="text-left p-4 hidden lg:table-cell">Joined</th>
               <th className="text-right p-4">Bookings</th>
               <th className="text-right p-4 hidden sm:table-cell">Events</th>
+              <th className="text-left p-4 hidden lg:table-cell">Stripe</th>
               <th className="text-left p-4">Status</th>
               <th className="text-right p-4">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan="8" className="p-10 text-center" style={{ color: "var(--text-dim)" }}>Loading users...</td></tr>
+              <tr><td colSpan="9" className="p-10 text-center" style={{ color: "var(--text-dim)" }}>Loading users...</td></tr>
             ) : users.length === 0 ? (
-              <tr><td colSpan="8" className="p-10 text-center" style={{ color: "var(--text-dim)" }}>No users match these filters.</td></tr>
+              <tr><td colSpan="9" className="p-10 text-center" style={{ color: "var(--text-dim)" }}>No users match these filters.</td></tr>
             ) : users.map((u) => (
               <tr key={u.user_id} className="border-b" style={{ borderColor: "var(--border)", opacity: u.active ? 1 : 0.55 }} data-testid={`user-row-${u.user_id}`}>
                 <td className="p-4">
@@ -315,6 +316,9 @@ function UsersTab({ currentUser }) {
                 </td>
                 <td className="p-4 text-right" style={{ color: "var(--text-muted)" }}>{u.bookings_count}</td>
                 <td className="p-4 text-right hidden sm:table-cell" style={{ color: "var(--text-muted)" }}>{u.events_count}</td>
+                <td className="p-4 hidden lg:table-cell">
+                  <StripePill user={u} />
+                </td>
                 <td className="p-4">
                   {u.active ? (
                     <span className="chip chip-accent" style={{ fontSize: "0.65rem" }}>Active</span>
@@ -368,8 +372,49 @@ function UsersTab({ currentUser }) {
   );
 }
 
-function Stat({ label, value, icon, accent }) {
+function StripePill({ user }) {
+  const hasAccount = !!user.stripe_account_id;
+  if (!hasAccount) {
+    if (user.role !== "organizer" && user.role !== "admin") {
+      return <span className="text-xs" style={{ color: "var(--text-dim)" }}>—</span>;
+    }
+    return (
+      <span
+        className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-medium"
+        style={{ background: "var(--bg-elev)", color: "var(--text-dim)" }}
+        title="Organizer hasn't started Stripe onboarding yet"
+        data-testid={`stripe-pill-none-${user.user_id}`}
+      >
+        Not connected
+      </span>
+    );
+  }
+  const verified = user.stripe_charges_enabled && user.stripe_payouts_enabled;
+  if (verified) {
+    return (
+      <span
+        className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-medium"
+        style={{ background: "rgba(46,160,67,0.14)", color: "rgb(46,160,67)" }}
+        title={`Account ${user.stripe_account_id}`}
+        data-testid={`stripe-pill-verified-${user.user_id}`}
+      >
+        Verified
+      </span>
+    );
+  }
   return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-medium"
+      style={{ background: "rgba(240,138,42,0.14)", color: "var(--accent)" }}
+      title={`Account ${user.stripe_account_id} — onboarding not complete`}
+      data-testid={`stripe-pill-pending-${user.user_id}`}
+    >
+      Pending
+    </span>
+  );
+}
+
+function Stat({ label, value, icon, accent }) {  return (
     <div className="border rounded-2xl p-4" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
       <div className="flex items-center justify-between mb-1">
         <div className="text-xs uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>{label}</div>
