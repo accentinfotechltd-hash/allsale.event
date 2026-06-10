@@ -383,6 +383,19 @@ See `/app/memory/test_credentials.md`
 - ✅ Regression suite `/app/backend/tests/test_connect_payouts.py` — 4 tests covering 3 skip branches + hold-hours constant. All passing.
 
 **Future:**
+
+## Iteration 27 (2026-06-10) — Buyer-pays-fees pricing model
+
+**Change:** the organizer now keeps the full ticket face value; the buyer pays Stripe + platform fees on top in a single combined "Service fee" line.
+
+- ✅ New module `/app/backend/fees.py` with `compute_fees(face_value, currency)` — gross-ups the buyer total so that after Stripe's 2.7% + $0.30 deduction the platform retains exactly `face_value + platform_fee`. Default rates: 5% platform + 2.7% + $0.30 Stripe NZ. All knobs are env vars: `PLATFORM_FEE_BPS`, `STRIPE_FEE_BPS`, `STRIPE_FEE_FLAT`. Free tickets (face_value=0) skip all fees.
+- ✅ Booking schema extended: `face_value`, `platform_fee`, `stripe_fee_estimated`, `service_fee`, `amount` (now the grossed-up buyer total). Subtotal/discount math unchanged.
+- ✅ Connect payout engine updated — now uses `face_value` as the organizer's transfer amount (not `amount - platform_fee`). Legacy bookings (missing `face_value`) fall back to treating `amount` as face value so old events still pay out correctly during the migration window.
+- ✅ Checkout UI shows three lines: **Tickets** (face value) + **Service fee** (combined) + **Payable now** (total). No platform-vs-Stripe split exposed to the buyer.
+- ✅ Math verified end-to-end: $25 ticket → $2.29 service fee → buyer charged $27.29 → organizer paid $25.00. After Stripe's real-world cut, platform retains face_value + 5% exactly.
+- ✅ Regression suite `/app/backend/tests/test_fees.py` — 4 tests covering pure math, free tickets, dict serialisation, and end-to-end booking creation. All passing.
+
+
 - Multi-org-per-event splits (e.g., promoter + venue revenue share).
 - Display platform fee preview at checkout (transparency).
 - Organizer balance/transfer history page using `stripe.Transfer.list(destination=acct_id)`.

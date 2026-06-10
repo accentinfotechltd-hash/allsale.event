@@ -56,9 +56,17 @@ def _format_period(start_iso: str | None, end_iso: str | None) -> str:
         return ""
 
 
-async def _gross_for_event(db, event_id: str) -> tuple[float, int, list[str], str | None]:
-    """Total paid gross, ticket count, booking IDs, dominant currency for an event."""
-    gross = 0.0
+async def _gross_for_event(db, event_id: str) -> tuple[float, float, int, list[str], str | None]:
+    """Return (face_value_sum, platform_fee_sum, tickets, booking_ids, currency).
+
+    For new (post-fee-passthrough) bookings, `face_value` and `platform_fee`
+    are stored explicitly. For legacy bookings missing those fields we fall
+    back to `amount` as the face value and compute 5% on the fly so old
+    events still pay out correctly during the migration window.
+    """
+    from fees import PLATFORM_FEE_BPS as _BPS  # local import to avoid cycle
+    face_total = 0.0
+    platform_total = 0.0
     tickets = 0
     booking_ids: list[str] = []
     currency = None
@@ -68,12 +76,20 @@ async def _gross_for_event(db, event_id: str) -> tuple[float, int, list[str], st
         # Skip if refunded after payment.
         if b.get("refunded_at") or b.get("status") == "refunded":
             continue
-        gross += float(b.get("amount", 0) or 0)
+        face_val = b.get("face_value")
+        if face_val is None:
+            # Legacy booking — `amount` was the ticket face (no fees added).
+            face_val = float(b.get("amount", 0) or 0)
+        plat = b.get("platform_fee")
+        if plat is None:
+            plat = round(float(face_val) * (_BPS / 10000.0), 2)
+        face_total += float(face_val)
+        platform_total += float(plat)
         tickets += int(b.get("quantity", 0) or 0)
         booking_ids.append(b["booking_id"])
         if currency is None:
             currency = b.get("currency") or "nzd"
-    return round(gross, 2), tickets, booking_ids, currency
+    return round(face_total, 2), round(platform_total, 2), tickets, booking_ids, currency
 
 
 async def _attempt_event_payout(db, event: dict, *, triggered_by: str = "scheduler") -> dict:
@@ -93,7 +109,7 @@ async def _attempt_event_payout(db, event: dict, *, triggered_by: str = "schedul
     if event.get("payout_status") == "paid":
         return {"event_id": event_id, "status": "skipped", "reason": "already paid"}
 
-    gross, tickets, booking_ids, currency = await _gross_for_event(db, event_id)
+    gross, platform_fee, tickets, booking_ids, currency = await _gross_for_event(db, event_id)
     if gross <= 0 or not booking_ids:
         await db.events.update_one(
             {"event_id": event_id},
@@ -101,8 +117,10 @@ async def _attempt_event_payout(db, event: dict, *, triggered_by: str = "schedul
         )
         return {"event_id": event_id, "status": "skipped", "reason": "no paid bookings"}
 
-    platform_fee = round(gross * (PLATFORM_FEE_BPS / 10000.0), 2)
-    net = round(max(0.0, gross - platform_fee), 2)
+    # The organizer's transfer = face_value (their ticket revenue). The
+    # platform fee was already collected from the buyer separately, so we
+    # don't subtract it again — we just keep it in the platform's balance.
+    net = round(gross, 2)
     if net <= 0:
         return {"event_id": event_id, "status": "skipped", "reason": "net <= 0"}
 

@@ -87,6 +87,21 @@ export default function Checkout() {
         </div>
 
         <div className="border rounded-2xl p-6 space-y-5" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
+          {/* Single "fees" line as agreed — buyer sees ticket subtotal + a
+              combined service fee + the grand total. We never expose the
+              platform-vs-Stripe split to the buyer. */}
+          {booking.service_fee > 0 && (
+            <div className="space-y-1.5 text-sm pb-3 border-b" style={{ borderColor: "var(--border)" }} data-testid="checkout-fees-breakdown">
+              <div className="flex justify-between" style={{ color: "var(--text-muted)" }}>
+                <span>Tickets</span>
+                <span data-testid="checkout-ticket-subtotal">{formatMoney(booking.face_value ?? booking.subtotal ?? booking.amount, booking.currency || "NZD")}</span>
+              </div>
+              <div className="flex justify-between" style={{ color: "var(--text-muted)" }}>
+                <span>Service fee</span>
+                <span data-testid="checkout-service-fee">{formatMoney(booking.service_fee, booking.currency || "NZD")}</span>
+              </div>
+            </div>
+          )}
           <div>
             <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--text-dim)" }}>Payable now</div>
             <div className="serif text-5xl" style={{ color: "var(--accent)" }} data-testid="checkout-total">{formatMoney(booking.amount, booking.currency || "NZD")}</div>

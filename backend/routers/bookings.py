@@ -9,6 +9,7 @@ from core import (
     db, get_current_user, utc_now, gen_qr_data_url, booking_to_public, HOLD_MINUTES,
     compute_tier_effective_price, seat_price_for,
 )
+from fees import compute_fees
 from models import HoldIn
 from routers.discount_codes import _find_active_code, _check_code_usable, _apply_discount, _normalize_code
 from routers.waitlist import try_offer_next_in_waitlist
@@ -151,11 +152,25 @@ async def create_hold(payload: HoldIn, user: dict = Depends(get_current_user)):
         "event_venue": event["venue"], "event_image": event["image_url"],
         "user_id": user["user_id"], "user_email": user["email"], "user_name": user["name"],
         "tier_name": tier_name, "quantity": quantity, "seats": seats,
-        "amount": amount, "subtotal": subtotal,
+        # `amount` is what we charge Stripe (buyer-total, including fees).
+        # `face_value` is the organizer's gross revenue base (paid out 5 days
+        # after the event, less platform fee). `service_fee` is the single
+        # number shown to the buyer (platform_fee + Stripe processing fee).
+        # Discounts apply to `face_value`; if it goes to $0 the booking is a
+        # comp and we skip Stripe entirely.
+        "subtotal": subtotal,
         "discount_code": discount_code, "discount_amount": discount_amount,
         "currency": (event.get("currency") or "NZD").upper(), "status": "pending",
         "hold_expires_at": expires.isoformat(), "created_at": utc_now().isoformat(),
     }
+    fee_breakdown = compute_fees(amount, booking_doc["currency"])
+    booking_doc.update({
+        "face_value": round(fee_breakdown.face_value, 2),
+        "platform_fee": round(fee_breakdown.platform_fee, 2),
+        "stripe_fee_estimated": round(fee_breakdown.stripe_fee, 2),
+        "service_fee": round(fee_breakdown.service_fee, 2),
+        "amount": round(fee_breakdown.buyer_total, 2),
+    })
     await db.bookings.insert_one(booking_doc)
 
     # Live broadcast: tell anyone watching the seatmap/tier counts changed
