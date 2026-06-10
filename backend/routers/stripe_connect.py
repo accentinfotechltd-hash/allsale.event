@@ -102,6 +102,35 @@ class OnboardIn(BaseModel):
     country: Optional[str] = None  # ISO 3166-1 alpha-2 (NZ, AU, US, IN, …)
 
 
+def _describe_stripe_error(exc: Exception) -> str:
+    """Turn a stripe.error.* into a buyer-friendly multi-line description.
+
+    Stripe SDK exceptions carry the actual API error inside `json_body`.
+    Plain `str(exc)` often drops the useful bits, so we extract message +
+    code + type + http status manually.
+    """
+    parts: list[str] = []
+    try:
+        body = getattr(exc, "json_body", None) or {}
+        err = (body.get("error") if isinstance(body, dict) else None) or {}
+        msg = err.get("message") or getattr(exc, "user_message", None) or str(exc)
+        code = err.get("code") or err.get("type") or ""
+        status = getattr(exc, "http_status", None)
+        if msg and msg != "get":
+            parts.append(msg)
+        if code:
+            parts.append(f"({code})")
+        if status:
+            parts.append(f"[HTTP {status}]")
+    except Exception:  # noqa: BLE001
+        pass
+    if not parts:
+        # Last resort — use exception class name so the user sees *something*
+        # meaningful instead of a one-word fragment.
+        parts.append(f"{type(exc).__name__}: {exc}")
+    return " ".join(parts).strip()
+
+
 @router.post("/stripe/connect/onboard")
 async def onboard(payload: OnboardIn, user: dict = Depends(get_current_user)):
     """Create-or-resume Connect Express onboarding for the calling organizer.
@@ -135,7 +164,7 @@ async def onboard(payload: OnboardIn, user: dict = Depends(get_current_user)):
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception(f"[stripe-connect] Account.create failed: {exc}")
-            raise HTTPException(status_code=502, detail=f"Stripe couldn't create the account — {exc}") from exc
+            raise HTTPException(status_code=502, detail=f"Stripe couldn't create the account — {_describe_stripe_error(exc)}") from exc
         new_id = acct["id"]
         await db.users.update_one(
             {"user_id": user["user_id"]},
@@ -194,9 +223,9 @@ async def onboard(payload: OnboardIn, user: dict = Depends(get_current_user)):
                 raise
             except Exception as exc2:  # noqa: BLE001
                 logger.exception(f"[stripe-connect] recovery failed: {exc2}")
-                raise HTTPException(status_code=502, detail=f"Stripe rejected the link — {exc2}") from exc2
+                raise HTTPException(status_code=502, detail=f"Stripe rejected the link — {_describe_stripe_error(exc2)}") from exc2
         logger.exception(f"[stripe-connect] AccountLink.create failed: {exc}")
-        raise HTTPException(status_code=502, detail=f"Stripe couldn't generate the link — {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Stripe couldn't generate the link — {_describe_stripe_error(exc)}") from exc
 
 
 @router.get("/stripe/connect/status")
