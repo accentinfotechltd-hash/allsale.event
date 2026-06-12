@@ -32,6 +32,51 @@ async def pending_events_count(user: dict = Depends(get_current_user)):
     return {"count": n}
 
 
+@router.get("/events/submission-trend")
+async def events_submission_trend(days: int = 14, user: dict = Depends(get_current_user)):
+    """Mini-trend for the admin dashboard: how many events were submitted
+    over the last N days, bucketed by day. Used to render a small sparkline
+    showing whether organizer activity is trending up or down.
+
+    Default is 14 days (covers 2 weeks). Capped at 90.
+    """
+    _admin_only(user)
+    from datetime import timedelta
+    days = max(1, min(90, int(days or 14)))
+    since = (utc_now() - timedelta(days=days)).isoformat()
+    last24 = (utc_now() - timedelta(hours=24)).isoformat()
+    prev24 = (utc_now() - timedelta(hours=48)).isoformat()
+
+    # Aggregate per-day submission counts via the `created_at` ISO string.
+    pipeline = [
+        {"$match": {"created_at": {"$gte": since}}},
+        {"$group": {
+            "_id": {"$substr": ["$created_at", 0, 10]},
+            "count": {"$sum": 1},
+            "pending": {"$sum": {"$cond": [{"$eq": ["$status", "pending"]}, 1, 0]}},
+        }},
+        {"$sort": {"_id": 1}},
+    ]
+    rows = [r async for r in db.events.aggregate(pipeline)]
+    series = [{"date": r["_id"], "count": r["count"], "pending": r["pending"]} for r in rows]
+
+    submitted_24h = await db.events.count_documents({"created_at": {"$gte": last24}})
+    submitted_prev_24h = await db.events.count_documents({"created_at": {"$gte": prev24, "$lt": last24}})
+    if submitted_prev_24h > 0:
+        delta_pct = round(((submitted_24h - submitted_prev_24h) * 100.0 / submitted_prev_24h), 1)
+    else:
+        delta_pct = None  # no comparison baseline
+
+    return {
+        "days": days,
+        "series": series,
+        "submitted_24h": submitted_24h,
+        "submitted_prev_24h": submitted_prev_24h,
+        "delta_pct": delta_pct,
+        "total_in_window": sum(r["count"] for r in series),
+    }
+
+
 @router.post("/events/{event_id}/approve")
 async def admin_approve(event_id: str, user: dict = Depends(get_current_user)):
     _admin_only(user)
@@ -46,7 +91,56 @@ async def admin_approve(event_id: str, user: dict = Depends(get_current_user)):
                     "event_id": event_id,
                     "event_title": event.get("title", "Your event"),
                 }, db)
+            # Auto-generate a "First 50 buyers" flash promo so newly-published
+            # events have early-bird momentum. Skipped silently if the
+            # organizer already has a FIRST50 code (idempotent) or opted out
+            # via the event's `auto_promo_disabled` flag.
+            try:
+                await _maybe_seed_first50_promo(event)
+            except Exception:  # noqa: BLE001 — never break the approval flow
+                pass
     return {"ok": True}
+
+
+async def _maybe_seed_first50_promo(event: dict) -> bool:
+    """Create a 10%-off code valid for the first 50 buyers of this event.
+
+    Idempotent — returns False if the organizer already has a `FIRST50` code
+    or the event is configured to skip auto-promos.
+    """
+    import uuid as _uuid
+    if event.get("auto_promo_disabled"):
+        return False
+    organizer_id = event.get("organizer_id")
+    if not organizer_id:
+        return False
+    code_str = "FIRST50"
+    existing = await db.discount_codes.find_one(
+        {"code": code_str, "created_by": organizer_id},
+        {"_id": 0, "code_id": 1},
+    )
+    if existing:
+        return False
+    # 7-day expiry so the urgency feels real; capped at 50 uses.
+    from datetime import timedelta
+    expires = (utc_now() + timedelta(days=7)).isoformat()
+    await db.discount_codes.insert_one({
+        "code_id": f"dc_{_uuid.uuid4().hex[:12]}",
+        "code": code_str,
+        "kind": "percent",
+        "value": 10.0,
+        "event_id": event.get("event_id"),
+        "max_uses": 50,
+        "uses_count": 0,
+        "expires_at": expires,
+        "restricted_tiers": [],
+        "active": True,
+        "created_by": organizer_id,
+        "auto_generated": True,
+        "auto_promo_reason": "first50_on_publish",
+        "created_at": utc_now().isoformat(),
+    })
+    return True
 
 
 @router.post("/events/{event_id}/reject")

@@ -409,6 +409,8 @@ async def organizer_event_payouts(user: dict = Depends(get_current_user)):
             "payout_gross": e.get("payout_gross"),
             "payout_platform_fee": e.get("payout_platform_fee"),
             "payout_transfer_id": e.get("payout_transfer_id"),
+            "payout_recipients": e.get("payout_recipients") or [],
+            "revenue_splits": e.get("revenue_splits") or [],
             "payout_error": e.get("payout_error"),
             "payout_processed_at": e.get("payout_processed_at"),
             "hold_remaining_hours": hold_remaining_hours,

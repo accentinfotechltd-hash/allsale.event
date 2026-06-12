@@ -9,6 +9,7 @@ import SeatBlocksPanel from "@/components/SeatBlocksPanel";
 import TeamPanel from "@/components/TeamPanel";
 import TransferBookingDialog from "@/components/TransferBookingDialog";
 import SwapSeatsDialog from "@/components/SwapSeatsDialog";
+import RevenueSplitsPanel from "@/components/RevenueSplitsPanel";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
@@ -154,6 +155,8 @@ export default function OrganizerEvent() {
       <VelocityWidget eventId={eventId} />
 
       <TeamPanel eventId={eventId} event={event} />
+
+      <RevenueSplitsPanel eventId={eventId} event={event} currentUser={user} />
 
       <SeatBlocksPanel eventId={eventId} event={event} />
 

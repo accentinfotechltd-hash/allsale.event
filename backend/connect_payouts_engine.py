@@ -142,21 +142,34 @@ async def _resolve_recipients(db, event: dict, face_total: float) -> list[dict]:
 
 
 async def _attempt_event_payout(db, event: dict, *, triggered_by: str = "scheduler") -> dict:
-    """Create a Stripe Transfer for one event. Returns a result dict."""
+    """Create one or more Stripe Transfers for one event.
+
+    Supports `event.revenue_splits` (multi-organizer revenue share). When set,
+    each recipient gets a separate transfer keyed by
+    `event-payout-{event_id}-{user_id}`, so adding a new split later doesn't
+    re-pay the recipients who already got their share.
+
+    Returns a summary dict including a per-recipient breakdown.
+    """
     event_id = event["event_id"]
     organizer_id = event.get("organizer_id")
     if not organizer_id:
         return {"event_id": event_id, "status": "skipped", "reason": "no organizer"}
 
-    organizer = await db.users.find_one({"user_id": organizer_id}, {"_id": 0})
-    if not organizer:
-        return {"event_id": event_id, "status": "skipped", "reason": "organizer not found"}
-    acct_id = organizer.get("stripe_account_id")
-    if not acct_id or not organizer.get("stripe_payouts_enabled"):
-        return {"event_id": event_id, "status": "skipped", "reason": "connect not verified"}
-
-    if event.get("payout_status") == "paid":
+    # Skip events fully settled in a previous run. Per-recipient idempotency
+    # already protects against double-pay, but checking up-front saves a
+    # round-trip and keeps audit logs clean.
+    if event.get("payout_status") == "paid" and not event.get("payout_recipients"):
+        # Legacy single-organizer path — already done.
         return {"event_id": event_id, "status": "skipped", "reason": "already paid"}
+
+    # Check Connect verification BEFORE booking aggregation so the scheduler
+    # can retry once the organizer (or a split recipient) completes Stripe
+    # onboarding. We pass `gross=0` here for the existence check; the real
+    # share amounts are computed below.
+    pre_recipients = await _resolve_recipients(db, event, 0.0)
+    if not pre_recipients:
+        return {"event_id": event_id, "status": "skipped", "reason": "connect not verified"}
 
     gross, platform_fee, tickets, booking_ids, currency = await _gross_for_event(db, event_id)
     if gross <= 0 or not booking_ids:
@@ -166,130 +179,182 @@ async def _attempt_event_payout(db, event: dict, *, triggered_by: str = "schedul
         )
         return {"event_id": event_id, "status": "skipped", "reason": "no paid bookings"}
 
-    # The organizer's transfer = face_value (their ticket revenue). The
-    # platform fee was already collected from the buyer separately, so we
-    # don't subtract it again — we just keep it in the platform's balance.
-    net = round(gross, 2)
-    if net <= 0:
-        return {"event_id": event_id, "status": "skipped", "reason": "net <= 0"}
+    recipients = await _resolve_recipients(db, event, gross)
+    if not recipients:
+        return {"event_id": event_id, "status": "skipped", "reason": "connect not verified"}
 
     if not _STRIPE or not os.environ.get("STRIPE_API_KEY"):
         return {"event_id": event_id, "status": "skipped", "reason": "stripe not configured"}
     _stripe.api_key = os.environ["STRIPE_API_KEY"]
 
-    # Idempotency key: stable per-event so retries don't double-pay. If admin
-    # ever needs to force a second payout, they can delete the event's
-    # `payout_*` fields first.
-    idem_key = f"event-payout-{event_id}"
-
-    amount_minor = int(round(net * 100))  # cents
     cur = (currency or event.get("currency") or "nzd").lower()
-    try:
-        transfer = await asyncio.to_thread(
-            _stripe.Transfer.create,
-            amount=amount_minor,
-            currency=cur,
-            destination=acct_id,
-            description=f"Allsale Events payout — {event.get('title','event')[:60]}",
-            metadata={
+
+    # Track which recipients we've already paid (in case of retries).
+    prior = {r.get("user_id"): r for r in (event.get("payout_recipients") or []) if isinstance(r, dict)}
+
+    results: list[dict] = []
+    all_paid = True
+    any_failed = False
+
+    for rcpt in recipients:
+        uid = rcpt["user_id"]
+        if prior.get(uid, {}).get("status") == "paid":
+            # Already transferred in a previous run — preserve audit row.
+            results.append(prior[uid])
+            continue
+
+        amount_minor = int(round(float(rcpt["amount"]) * 100))
+        if amount_minor <= 0:
+            results.append({**rcpt, "status": "skipped", "reason": "zero share"})
+            continue
+
+        # Per-recipient idempotency so a partial failure can be retried
+        # without double-paying anyone who already succeeded.
+        idem_key = f"event-payout-{event_id}-{uid}"
+        try:
+            transfer = await asyncio.to_thread(
+                _stripe.Transfer.create,
+                amount=amount_minor,
+                currency=cur,
+                destination=rcpt["account_id"],
+                description=f"Allsale Events payout — {event.get('title','event')[:60]} ({rcpt.get('label','organizer')})",
+                metadata={
+                    "event_id": event_id,
+                    "organizer_id": organizer_id,
+                    "recipient_user_id": uid,
+                    "recipient_label": rcpt.get("label", "organizer"),
+                    "gross": str(gross),
+                    "share_amount": str(rcpt["amount"]),
+                    "platform_fee": str(platform_fee),
+                    "tickets": str(tickets),
+                    "triggered_by": triggered_by,
+                },
+                idempotency_key=idem_key,
+            )
+        except Exception as exc:  # noqa: BLE001
+            reason = str(exc)[:300]
+            logger.exception(f"[connect-payout] event={event_id} recipient={uid} failed: {reason}")
+            results.append({
+                **rcpt,
+                "status": "failed",
+                "error": reason,
+                "attempted_at": _utc_now().isoformat(),
+            })
+            await db.connect_payouts.insert_one({
+                "payout_id": "cpyt_" + uuid4().hex[:12],
                 "event_id": event_id,
                 "organizer_id": organizer_id,
-                "gross": str(gross),
-                "platform_fee": str(platform_fee),
-                "tickets": str(tickets),
+                "recipient_user_id": uid,
+                "recipient_label": rcpt.get("label"),
+                "stripe_account_id": rcpt["account_id"],
+                "status": "failed",
+                "error": reason,
+                "gross": gross,
+                "platform_fee": platform_fee,
+                "net_amount": rcpt["amount"],
+                "currency": cur,
+                "bookings_count": len(booking_ids),
+                "tickets_count": tickets,
+                "booking_ids": booking_ids,
                 "triggered_by": triggered_by,
-            },
-            idempotency_key=idem_key,
-        )
-    except Exception as exc:  # noqa: BLE001
-        reason = str(exc)[:300]
-        logger.exception(f"[connect-payout] event={event_id} failed: {reason}")
-        await db.events.update_one(
-            {"event_id": event_id},
-            {"$set": {
-                "payout_status": "failed",
-                "payout_error": reason,
-                "payout_processed_at": _utc_now().isoformat(),
-            }},
-        )
+                "created_at": _utc_now().isoformat(),
+            })
+            all_paid = False
+            any_failed = True
+            continue
+
+        now_iso = _utc_now().isoformat()
+        transfer_id = transfer.get("id") if isinstance(transfer, dict) else getattr(transfer, "id", None)
+        results.append({
+            **rcpt,
+            "status": "paid",
+            "transfer_id": transfer_id,
+            "paid_at": now_iso,
+        })
         await db.connect_payouts.insert_one({
             "payout_id": "cpyt_" + uuid4().hex[:12],
             "event_id": event_id,
             "organizer_id": organizer_id,
-            "stripe_account_id": acct_id,
-            "status": "failed",
-            "error": reason,
+            "recipient_user_id": uid,
+            "recipient_label": rcpt.get("label"),
+            "stripe_account_id": rcpt["account_id"],
+            "stripe_transfer_id": transfer_id,
+            "status": "paid",
             "gross": gross,
             "platform_fee": platform_fee,
-            "net_amount": net,
+            "net_amount": rcpt["amount"],
             "currency": cur,
             "bookings_count": len(booking_ids),
             "tickets_count": tickets,
             "booking_ids": booking_ids,
             "triggered_by": triggered_by,
-            "created_at": _utc_now().isoformat(),
+            "created_at": now_iso,
+            "paid_at": now_iso,
         })
-        return {"event_id": event_id, "status": "failed", "reason": reason}
 
-    now_iso = _utc_now().isoformat()
-    transfer_id = transfer.get("id") if isinstance(transfer, dict) else getattr(transfer, "id", None)
+        # Email each recipient individually so co-organizers know they got paid.
+        try:
+            user_doc = await db.users.find_one({"user_id": uid}, {"_id": 0}) or {}
+            target_email = user_doc.get("notification_email") or user_doc.get("email")
+            if target_email:
+                send_template_fireforget(
+                    "organizer_payout_issued",
+                    target_email,
+                    {
+                        "organizer_name": user_doc.get("name") or rcpt.get("name") or "organizer",
+                        "payout_id": transfer_id or "—",
+                        "amount": rcpt["amount"],
+                        "bookings_count": len(booking_ids),
+                        "period": _format_period(event.get("date"), now_iso),
+                        "event_title": event.get("title", "your event"),
+                        "currency": cur.upper(),
+                    },
+                    db,
+                )
+        except Exception as exc:  # pragma: no cover
+            logger.warning(f"[connect-payout] email failed for {uid}: {exc}")
+
+    # Roll-up event state.
+    paid_total = round(sum(float(r.get("amount", 0)) for r in results if r.get("status") == "paid"), 2)
+    if not any(r.get("status") == "paid" for r in results) and any_failed:
+        status_label = "failed"
+    elif any_failed:
+        status_label = "partial"
+    else:
+        status_label = "paid" if all_paid else "partial"
+
+    # Backward-compat top-level fields (legacy single-organizer dashboards).
+    legacy_recipient = next((r for r in results if r.get("status") == "paid"), results[0] if results else {})
 
     await db.events.update_one(
         {"event_id": event_id},
         {"$set": {
-            "payout_status": "paid",
-            "payout_transfer_id": transfer_id,
-            "payout_amount": net,
+            "payout_status": status_label,
+            "payout_recipients": [
+                {k: v for k, v in r.items() if k != "account_id" or True}  # keep account_id; audit
+                for r in results
+            ],
+            "payout_transfer_id": legacy_recipient.get("transfer_id"),
+            "payout_amount": paid_total,
             "payout_platform_fee": platform_fee,
             "payout_gross": gross,
             "payout_currency": cur,
-            "payout_processed_at": now_iso,
+            "payout_processed_at": _utc_now().isoformat(),
         }},
     )
-    payout_doc = {
-        "payout_id": "cpyt_" + uuid4().hex[:12],
+
+    summary = {
         "event_id": event_id,
-        "organizer_id": organizer_id,
-        "stripe_account_id": acct_id,
-        "stripe_transfer_id": transfer_id,
-        "status": "paid",
-        "gross": gross,
+        "status": status_label,
+        "recipients": results,
+        "paid_total": paid_total,
         "platform_fee": platform_fee,
-        "net_amount": net,
-        "currency": cur,
-        "bookings_count": len(booking_ids),
-        "tickets_count": tickets,
-        "booking_ids": booking_ids,
-        "triggered_by": triggered_by,
-        "created_at": now_iso,
-        "paid_at": now_iso,
+        "gross": gross,
     }
-    await db.connect_payouts.insert_one(payout_doc)
-
-    # Notify organizer.
-    try:
-        target_email = (
-            organizer.get("notification_email") or organizer.get("email")
-        )
-        if target_email:
-            send_template_fireforget(
-                "organizer_payout_issued",
-                target_email,
-                {
-                    "organizer_name": organizer.get("name") or "organizer",
-                    "payout_id": payout_doc["payout_id"],
-                    "amount": net,
-                    "bookings_count": len(booking_ids),
-                    "period": _format_period(event.get("date"), now_iso),
-                    "event_title": event.get("title", "your event"),
-                    "currency": cur.upper(),
-                },
-                db,
-            )
-    except Exception as exc:  # pragma: no cover
-        logger.warning(f"[connect-payout] email failed: {exc}")
-
-    return {"event_id": event_id, "status": "paid", "transfer_id": transfer_id, "net": net}
+    if status_label == "paid":
+        summary["transfer_id"] = legacy_recipient.get("transfer_id")
+        summary["net"] = paid_total
+    return summary
 
 
 async def run_due_event_payouts(db) -> dict:
@@ -320,9 +385,10 @@ async def run_due_event_payouts(db) -> dict:
     paid = skipped = failed = 0
     for ev in candidates:
         res = await _attempt_event_payout(db, ev, triggered_by="scheduler")
-        if res["status"] == "paid":
+        st = res.get("status")
+        if st == "paid":
             paid += 1
-        elif res["status"] == "failed":
+        elif st in ("failed", "partial"):
             failed += 1
         else:
             skipped += 1

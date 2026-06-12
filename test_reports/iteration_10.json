@@ -1,0 +1,54 @@
+{
+  "summary": "Iteration 29 — Verified all 4 sequential features (Multi-organizer revenue splits, Widget click-tracking pixel, Admin 14-day submission sparkline, FIRST50 auto-promo on approval). Backend: 4/4 new pytest suites PASS individually (test_revenue_splits, test_embed_tracking, test_admin_submission_trend, test_first50_promo). Existing regression (test_connect_payouts, test_stripe_connect, test_fees, test_connect_reversal) PASS individually (running together triggers known Motor 'Event loop is closed' — by design per main agent note). Live preview URL: PUT/GET/DELETE /api/organizer/events/{id}/revenue-splits work; sum!=100 → 400; attendee recipient → 400; unverified Stripe → 200 with warning. /api/embed/track returns valid GIF89a 1x1 pixel; /api/organizer/embed/analytics rolls up totals/by_host/by_event/daily correctly. /api/admin/events/submission-trend?days=14 returns 14-day series + submitted_24h + delta_pct. Frontend: SubmissionTrend, RevenueSplitsPanel (lookup→add→edit→save→clear cycle confirmed on /organizer/events/:id), and EmbedAnalytics (KPIs Impressions=2, Clicks=2, CTR=100% on /organizer) all render with data-testids and live data.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/admin/events/{id}/approve",
+        "issue": "FIRST50 promo seeding is gated by `result.modified_count` from the status='approved' update. When admin creates an event (admin-authored events are auto-approved on POST /api/events line 212), the subsequent /approve call has modified_count=0 → _maybe_seed_first50_promo is never invoked through this E2E path. Pytest covers the logic directly; live admin-as-organizer flow can't be exercised end-to-end. Consider also seeding when an admin transitions an already-approved event for the first time, or always call _maybe_seed_first50_promo idempotently regardless of modified_count."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "OrganizerEmbedPanel.jsx (line 70)",
+        "issue": "Hydration warning: 'In HTML, <span> cannot be a child of <option>'. The Show-up-to <select>'s <option> children are wrapped by an emergent dev shim into a <span>, but the underlying JSX likely puts non-text children inside <option>. Refactor to ensure <option> contains only text. Not functional, but pollutes console and breaks SSR hydration.",
+        "selector": "select inside [data-testid='embed-analytics-section']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_revenue_splits.py",
+    "/app/backend/tests/test_embed_tracking.py",
+    "/app/backend/tests/test_admin_submission_trend.py",
+    "/app/backend/tests/test_first50_promo.py",
+    "/app/test_reports/pytest/iter10_regression.xml"
+  ],
+  "action_items": [
+    "(LOW) FIRST50 seeding gate: drop the `if result.modified_count` guard around _maybe_seed_first50_promo in admin.py:84-101 (or move the seed outside the conditional) so re-approving / already-approved events still get the auto-promo. _maybe_seed_first50_promo is already idempotent on the (code, created_by) pair, so making it always-run is safe.",
+    "(LOW) Fix OrganizerEmbedPanel.jsx select <option> children to be plain text only (no nested elements / fragments)."
+  ],
+  "critical_code_review_comments": [
+    "admin.py:84 — `_maybe_seed_first50_promo` is correctly idempotent on (code, created_by) but is unreachable when the event is already approved. Move the call outside the `if result.modified_count` block.",
+    "admin.py:64 — submitted_prev_24h baseline correctly returns delta_pct=null when prior period is 0; frontend renders '—' as expected.",
+    "routers/embed.py — tracking pixel correctly returns 200 + GIF89a regardless of bad org/event params (silent drop for noise). by_event hydration falls back to title '—' for missing/empty event_ids (observed when event_id query param is omitted — fine).",
+    "routers/revenue_splits.py PUT — returns warnings array for unverified Stripe recipients but still saves (200). UI correctly shows 'Connect required' badge per row. Good UX.",
+    "Backend regression test files share a single asyncio loop closure issue when collected together due to motor's lazy client cache — documented by main agent and confirmed (works fine when files run individually). Long-term fix: a conftest-level pytest_collection_modifyitems hook to run each test in a subprocess, or migrate motor reads in tests to per-test client instances.",
+    "OrganizerEmbedPanel.jsx — embed-analytics-range data-testid is on the <select> (good), but the hydration warning indicates option children are non-trivial — wrap any computed labels in template literals instead of JSX children."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (4/4 new feature suites, 4/4 prior regression suites — all individual runs)",
+    "frontend": "100% (3/3 new UI surfaces render with correct data-testids and live API integration)"
+  },
+  "test_credentials": "admin@allsale.events / admin123 (only admin exists in preview DB; organizer@/attendee@ accounts were removed per main agent note)",
+  "seed_data_creation": "Created and deleted one event evt_bca73bea64c3 ('TEST UI Splits Event') during the Playwright run. Two embed_events rows (impression + click) were also inserted for the test event — left in DB as test artifacts (negligible).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Preview backend's only seeded login is admin@allsale.events. Admin can create+auto-approve their own events (status='approved' on POST /api/events when role=admin) — this also means /api/admin/events/{id}/approve is a no-op for admin-authored events. Embed analytics rolls up by_event with empty event_id key when track() is called without event_id param. For FIRST50 e2e you'd need to (a) POST as a non-admin organizer (none seeded here) OR (b) loosen the modified_count guard in admin.py:84. RevenueSplitsPanel data-testids match spec exactly: revenue-splits-panel / splits-lookup-email / splits-add-btn / splits-save-btn / splits-clear-btn / start-splits-btn / split-row-{uid} / split-label-{uid} / split-percent-{uid} / remove-split-{uid}.",
+  "rca of the issue": "FIRST50 silent-skip RCA: admin.py:84 — `if result.modified_count:` only enters the post-approve block when the events.update_one actually changed the status field. Admin-authored events are written with status='approved' at creation time (events.py:212 `status: 'approved' if user.get('role') == 'admin' else 'pending'`), so subsequent admin approve calls yield modified_count=0 and _maybe_seed_first50_promo is never invoked. Fix: hoist `_maybe_seed_first50_promo` invocation out of the conditional (it's already (code, created_by)-idempotent), e.g. always fetch the event after the update and call it unconditionally if status is now 'approved'."
+}

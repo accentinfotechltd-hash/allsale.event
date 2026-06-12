@@ -104,12 +104,93 @@ function EventsTab() {
 
   return (
     <>
+      <SubmissionTrend />
       <Section title="Pending approval" events={pending} act={act} del={del} showApprove />
       <Section title="Approved events" events={approved} act={act} del={del} showFeature />
       {rejected.length > 0 && (
         <Section title="Rejected" events={rejected} act={act} del={del} />
       )}
     </>
+  );
+}
+
+function SubmissionTrend() {
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get("/admin/events/submission-trend?days=14");
+        if (!cancelled) setData(data);
+      } catch {
+        if (!cancelled) setData(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!data) return null;
+
+  // Pad series with zero-buckets so the sparkline always shows 14 days.
+  const today = new Date();
+  const padded = [];
+  for (let i = data.days - 1; i >= 0; i -= 1) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const row = data.series.find((s) => s.date === key);
+    padded.push({ date: key, count: row?.count || 0 });
+  }
+  const maxCount = Math.max(...padded.map((p) => p.count), 1);
+  const deltaSign = data.delta_pct == null ? 0 : Math.sign(data.delta_pct);
+  const deltaColor = deltaSign > 0 ? "rgb(46,160,67)" : deltaSign < 0 ? "rgb(198,40,40)" : "var(--text-dim)";
+  const deltaLabel = data.delta_pct == null
+    ? "—"
+    : `${data.delta_pct > 0 ? "+" : ""}${data.delta_pct}% vs previous 24h`;
+
+  return (
+    <div
+      className="mb-8 border rounded-2xl p-5"
+      style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+      data-testid="admin-submission-trend"
+    >
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <div className="text-xs uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Last 24 hours</div>
+          <div className="flex items-baseline gap-3">
+            <div className="serif text-4xl" data-testid="admin-submitted-24h">{data.submitted_24h}</div>
+            <div className="text-xs" style={{ color: "var(--text-muted)" }}>event{data.submitted_24h === 1 ? "" : "s"} submitted</div>
+            <div className="text-xs" style={{ color: deltaColor }} data-testid="admin-submitted-delta">
+              {deltaLabel}
+            </div>
+          </div>
+        </div>
+        <div className="text-xs" style={{ color: "var(--text-dim)" }}>
+          {data.total_in_window} in last {data.days} days
+        </div>
+      </div>
+
+      {/* Sparkline */}
+      <div className="flex items-end gap-1 h-16">
+        {padded.map((p) => (
+          <div
+            key={p.date}
+            className="flex-1 rounded-t"
+            style={{
+              height: `${(p.count / maxCount) * 100}%`,
+              minHeight: "2px",
+              background: p.count > 0 ? "var(--accent)" : "var(--border)",
+            }}
+            title={`${p.date}: ${p.count} submission${p.count === 1 ? "" : "s"}`}
+          />
+        ))}
+      </div>
+      <div className="flex justify-between text-[10px] mt-1" style={{ color: "var(--text-dim)" }}>
+        <span>{padded[0]?.date}</span>
+        <span>{padded[padded.length - 1]?.date}</span>
+      </div>
+    </div>
   );
 }
 

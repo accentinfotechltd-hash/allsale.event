@@ -103,19 +103,53 @@ function Row({ it }) {
 }
 
 function pickRowPresentation(it, hasEnded) {
+  const isSplit = Array.isArray(it.payout_recipients) && it.payout_recipients.length > 1;
+  const splitBadge = isSplit ? (
+    <span
+      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px]"
+      style={{ background: "var(--bg-elev)", color: "var(--text-dim)" }}
+      title={`Revenue split between ${it.payout_recipients.length} recipients`}
+    >
+      Split × {it.payout_recipients.length}
+    </span>
+  ) : null;
   if (it.payout_status === "paid") {
     return {
       pill: (
-        <span
-          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
-          style={{ background: "rgba(46,160,67,0.12)", color: "rgb(46,160,67)" }}
-          data-testid={`payout-status-paid-${it.event_id}`}
-        >
-          <CheckCircle2 className="w-3 h-3" /> Paid out
+        <span className="inline-flex items-center gap-1">
+          <span
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
+            style={{ background: "rgba(46,160,67,0.12)", color: "rgb(46,160,67)" }}
+            data-testid={`payout-status-paid-${it.event_id}`}
+          >
+            <CheckCircle2 className="w-3 h-3" /> Paid out
+          </span>
+          {splitBadge}
         </span>
       ),
       amountText: (
         <span style={{ color: "rgb(46,160,67)", fontWeight: 500 }}>
+          {it.currency} {(it.payout_amount || 0).toFixed(2)}
+        </span>
+      ),
+    };
+  }
+  if (it.payout_status === "partial") {
+    const paidRcpts = (it.payout_recipients || []).filter((r) => r.status === "paid").length;
+    const totalRcpts = (it.payout_recipients || []).length;
+    return {
+      pill: (
+        <span
+          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium"
+          style={{ background: "rgba(240,138,42,0.12)", color: "var(--accent)" }}
+          data-testid={`payout-status-partial-${it.event_id}`}
+          title="Some recipients paid; rest pending or failed"
+        >
+          <AlertCircle className="w-3 h-3" /> Partial — {paidRcpts}/{totalRcpts} paid
+        </span>
+      ),
+      amountText: (
+        <span style={{ color: "var(--accent)", fontWeight: 500 }}>
           {it.currency} {(it.payout_amount || 0).toFixed(2)}
         </span>
       ),
