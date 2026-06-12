@@ -92,6 +92,55 @@ async def _gross_for_event(db, event_id: str) -> tuple[float, float, int, list[s
     return round(face_total, 2), round(platform_total, 2), tickets, booking_ids, currency
 
 
+async def _resolve_recipients(db, event: dict, face_total: float) -> list[dict]:
+    """Return the list of recipients to pay for an event.
+
+    If `event.revenue_splits` is set (e.g. `[{user_id, percent, label}]`),
+    we honor it — each entry receives `face_total * percent / 100` of the
+    organizer-side share. Percents must sum to ~100; otherwise we fall back
+    to a single 100%-organizer payout to be safe.
+
+    Each returned dict carries `{user_id, name, label, amount, account_id}`.
+    Recipients with no verified Connect account are dropped (logged); their
+    share is forfeited to platform until the event is reconfigured.
+    """
+    splits = event.get("revenue_splits") or []
+    if not splits:
+        organizer_id = event.get("organizer_id")
+        org = await db.users.find_one({"user_id": organizer_id}, {"_id": 0})
+        if not org or not org.get("stripe_account_id") or not org.get("stripe_payouts_enabled"):
+            return []
+        return [{
+            "user_id": organizer_id,
+            "name": org.get("name") or "organizer",
+            "label": "organizer",
+            "amount": round(face_total, 2),
+            "account_id": org["stripe_account_id"],
+        }]
+    total_pct = sum(float(s.get("percent") or 0) for s in splits)
+    if abs(total_pct - 100.0) > 0.5:
+        logger.warning("[connect-payout] event %s revenue_splits sum to %.2f%% (not 100) — falling back to organizer-only payout", event.get("event_id"), total_pct)
+        # Fallback: pay organizer in full to avoid double-paying / underpaying
+        return await _resolve_recipients(db, {"organizer_id": event.get("organizer_id"), "revenue_splits": []}, face_total)
+    out: list[dict] = []
+    for s in splits:
+        uid = s.get("user_id")
+        if not uid:
+            continue
+        u = await db.users.find_one({"user_id": uid}, {"_id": 0})
+        if not u or not u.get("stripe_account_id") or not u.get("stripe_payouts_enabled"):
+            logger.warning("[connect-payout] skipping split recipient %s — no verified Connect", uid)
+            continue
+        out.append({
+            "user_id": uid,
+            "name": u.get("name") or "recipient",
+            "label": s.get("label") or "recipient",
+            "amount": round(face_total * float(s.get("percent")) / 100.0, 2),
+            "account_id": u["stripe_account_id"],
+        })
+    return out
+
+
 async def _attempt_event_payout(db, event: dict, *, triggered_by: str = "scheduler") -> dict:
     """Create a Stripe Transfer for one event. Returns a result dict."""
     event_id = event["event_id"]
