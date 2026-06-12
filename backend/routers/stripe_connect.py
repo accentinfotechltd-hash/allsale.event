@@ -482,3 +482,65 @@ async def admin_reverse_for_refund(booking_id: str, user: dict = Depends(get_cur
         raise HTTPException(status_code=404, detail="Booking not found")
     from connect_payouts_engine import reverse_transfer_for_refund
     return await reverse_transfer_for_refund(db, booking, triggered_by=f"admin:{user['user_id']}")
+
+
+@router.get("/admin/users/{user_id}/stripe-health")
+async def admin_stripe_health_check(user_id: str, user: dict = Depends(get_current_user)):
+    """Live Stripe Connect diagnostics for one organizer.
+
+    Calls `stripe.Account.retrieve` on the organizer's connected account and
+    returns the current capability + requirements state, plus a flat list of
+    what they still need to provide. Mirrors the fields into our user record
+    so the Admin → Users table reflects the latest state.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    target = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    acct_id = target.get("stripe_account_id")
+    if not acct_id:
+        return {
+            "ok": False,
+            "reason": "Organizer hasn't started Stripe onboarding yet — no account to check.",
+            "stripe_account_id": None,
+        }
+    _ensure_stripe()
+    try:
+        acct = await asyncio.to_thread(_stripe_sdk.Account.retrieve, acct_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(f"[stripe-connect] health check failed for {acct_id}: {exc}")
+        return {
+            "ok": False,
+            "reason": _describe_stripe_error(exc),
+            "stripe_account_id": acct_id,
+        }
+    requirements = acct.get("requirements") or {}
+    cap = acct.get("capabilities") or {}
+    payload = {
+        "ok": True,
+        "stripe_account_id": acct_id,
+        "country": acct.get("country"),
+        "email": acct.get("email"),
+        "charges_enabled": bool(acct.get("charges_enabled")),
+        "payouts_enabled": bool(acct.get("payouts_enabled")),
+        "details_submitted": bool(acct.get("details_submitted")),
+        "currently_due": list(requirements.get("currently_due") or []),
+        "past_due": list(requirements.get("past_due") or []),
+        "eventually_due": list(requirements.get("eventually_due") or []),
+        "disabled_reason": requirements.get("disabled_reason"),
+        "capabilities": {k: cap.get(k) for k in ("card_payments", "transfers") if k in cap},
+        "checked_at": utc_now().isoformat(),
+    }
+    # Mirror so the Users table pill stays fresh.
+    await db.users.update_one(
+        {"user_id": user_id},
+        {"$set": {
+            "stripe_charges_enabled": payload["charges_enabled"],
+            "stripe_payouts_enabled": payload["payouts_enabled"],
+            "stripe_details_submitted": payload["details_submitted"],
+            "stripe_requirements_due": payload["currently_due"],
+            "stripe_last_synced_at": payload["checked_at"],
+        }},
+    )
+    return payload

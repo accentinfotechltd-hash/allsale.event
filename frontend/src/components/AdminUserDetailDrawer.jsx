@@ -7,13 +7,15 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
 import { toast } from "sonner";
-import { X, Mail, Phone, User, Save, Calendar, Ticket } from "lucide-react";
+import { X, Mail, Phone, User, Save, Calendar, Ticket, Banknote, RefreshCw, CheckCircle2, AlertTriangle } from "lucide-react";
 
 export default function AdminUserDetailDrawer({ userId, onClose, onUserUpdated }) {
   const [data, setData] = useState(null);
   const [edit, setEdit] = useState(false);
   const [form, setForm] = useState({ name: "", email: "", phone: "", notification_email: "" });
   const [busy, setBusy] = useState(false);
+  const [stripeHealth, setStripeHealth] = useState(null);
+  const [checkingStripe, setCheckingStripe] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -145,6 +147,92 @@ export default function AdminUserDetailDrawer({ userId, onClose, onUserUpdated }
               )}
             </div>
 
+            {/* Stripe Connect health check (organizer/admin only) */}
+            {(data.role === "organizer" || data.role === "admin") && (
+              <div>
+                <div className="text-xs uppercase tracking-widest mb-3 flex items-center justify-between" style={{ color: "var(--text-dim)" }}>
+                  <span className="flex items-center gap-2"><Banknote className="w-3.5 h-3.5" /> Stripe Connect</span>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setCheckingStripe(true);
+                      try {
+                        const { data: h } = await api.get(`/admin/users/${userId}/stripe-health`);
+                        setStripeHealth(h);
+                      } catch (err) {
+                        toast.error(err?.response?.data?.detail || "Health check failed");
+                      } finally {
+                        setCheckingStripe(false);
+                      }
+                    }}
+                    className="text-[10px] uppercase tracking-widest inline-flex items-center gap-1"
+                    style={{ color: "var(--accent)" }}
+                    disabled={checkingStripe}
+                    data-testid="admin-stripe-healthcheck-btn"
+                  >
+                    <RefreshCw className={`w-3 h-3 ${checkingStripe ? "animate-spin" : ""}`} />
+                    {checkingStripe ? "Checking..." : "Run health check"}
+                  </button>
+                </div>
+                {!stripeHealth && !data.stripe_account_id && (
+                  <div className="text-sm py-4 px-4 rounded-xl border" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }} data-testid="stripe-healthcheck-empty">
+                    No Stripe Connect account yet. The organizer needs to click <b>Connect with Stripe</b> on their dashboard first.
+                  </div>
+                )}
+                {!stripeHealth && data.stripe_account_id && (
+                  <div className="text-xs py-3 px-4 rounded-xl border" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}>
+                    Account exists ({data.stripe_account_id}). Click <b>Run health check</b> for the live status from Stripe.
+                  </div>
+                )}
+                {stripeHealth && stripeHealth.ok === false && (
+                  <div className="text-sm py-3 px-4 rounded-xl border" style={{ borderColor: "rgba(198,40,40,0.4)", background: "rgba(198,40,40,0.06)", color: "rgb(198,40,40)" }} data-testid="stripe-healthcheck-error">
+                    <AlertTriangle className="w-4 h-4 inline mr-1" /> {stripeHealth.reason}
+                  </div>
+                )}
+                {stripeHealth && stripeHealth.ok && (
+                  <div className="rounded-xl border p-4 space-y-2 text-xs" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }} data-testid="stripe-healthcheck-ok">
+                    <div className="flex items-center gap-2 mb-2">
+                      {stripeHealth.charges_enabled && stripeHealth.payouts_enabled ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ background: "rgba(46,160,67,0.14)", color: "rgb(46,160,67)" }}>
+                          <CheckCircle2 className="w-3 h-3" /> Fully verified
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ background: "rgba(240,138,42,0.14)", color: "var(--accent)" }}>
+                          <AlertTriangle className="w-3 h-3" /> Onboarding incomplete
+                        </span>
+                      )}
+                    </div>
+                    <KV k="Charges enabled" v={String(stripeHealth.charges_enabled)} />
+                    <KV k="Payouts enabled" v={String(stripeHealth.payouts_enabled)} />
+                    <KV k="Details submitted" v={String(stripeHealth.details_submitted)} />
+                    <KV k="Country" v={stripeHealth.country || "—"} />
+                    {stripeHealth.disabled_reason && (
+                      <KV k="Disabled because" v={stripeHealth.disabled_reason} highlight />
+                    )}
+                    {stripeHealth.currently_due?.length > 0 && (
+                      <div className="pt-1">
+                        <div className="font-medium" style={{ color: "var(--text-muted)" }}>Currently due ({stripeHealth.currently_due.length}):</div>
+                        <ul className="list-disc list-inside" style={{ color: "var(--text-muted)" }}>
+                          {stripeHealth.currently_due.map((r) => <li key={r}>{r.replace(/_/g, " ").replace(/\./g, " → ")}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {stripeHealth.past_due?.length > 0 && (
+                      <div className="pt-1">
+                        <div className="font-medium" style={{ color: "rgb(198,40,40)" }}>⚠ Past due ({stripeHealth.past_due.length}):</div>
+                        <ul className="list-disc list-inside" style={{ color: "rgb(198,40,40)" }}>
+                          {stripeHealth.past_due.map((r) => <li key={r}>{r.replace(/_/g, " ").replace(/\./g, " → ")}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    <div className="text-[10px] mt-2" style={{ color: "var(--text-dim)" }}>
+                      Live from Stripe · {new Date(stripeHealth.checked_at).toLocaleString()}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Events organized */}
             {data.events_count > 0 && (
               <div>
@@ -190,5 +278,14 @@ function Input({ label, value, onChange, placeholder, type = "text", testid }) {
       <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--text-dim)" }}>{label}</div>
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full" data-testid={testid} />
     </label>
+  );
+}
+
+function KV({ k, v, highlight }) {
+  return (
+    <div className="flex justify-between gap-2">
+      <span style={{ color: "var(--text-dim)" }}>{k}</span>
+      <span style={{ color: highlight ? "rgb(198,40,40)" : "var(--text)" }}>{v}</span>
+    </div>
   );
 }
