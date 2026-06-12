@@ -90,6 +90,22 @@ export default function StripeConnectPanel() {
     }
   };
 
+  const [health, setHealth] = useState(null);
+  const [diagnosing, setDiagnosing] = useState(false);
+  const runHealth = async () => {
+    setDiagnosing(true);
+    try {
+      const { data } = await api.get("/organizer/stripe/health");
+      setHealth(data);
+      // Live state may have changed — refresh the badge.
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Health check failed");
+    } finally {
+      setDiagnosing(false);
+    }
+  };
+
   if (status === null) {
     return (
       <div
@@ -166,6 +182,45 @@ export default function StripeConnectPanel() {
               >
                 Start over with a new Stripe account
               </button>
+              <button
+                type="button"
+                onClick={runHealth}
+                disabled={diagnosing}
+                className="block mt-1 underline text-[11px]"
+                style={{ color: "var(--accent)" }}
+                data-testid="stripe-connect-self-diagnose-btn"
+              >
+                {diagnosing ? "Checking with Stripe…" : "Why isn't this verified?"}
+              </button>
+              {health && health.ok && (health.currently_due?.length > 0 || health.past_due?.length > 0 || health.disabled_reason) && (
+                <div className="mt-3 p-3 rounded-lg border text-[11px]" style={{ borderColor: "var(--border)", background: "var(--bg-elev)" }} data-testid="stripe-connect-self-diagnose-result">
+                  {health.disabled_reason && (
+                    <div className="mb-1.5" style={{ color: "rgb(198,40,40)" }}>⚠ {health.disabled_reason.replace(/_/g, " ")}</div>
+                  )}
+                  {health.past_due?.length > 0 && (
+                    <>
+                      <div className="font-medium mb-0.5" style={{ color: "rgb(198,40,40)" }}>Past due — fix these urgently:</div>
+                      <ul className="list-disc list-inside mb-1.5" style={{ color: "rgb(198,40,40)" }}>
+                        {health.past_due.map((r) => <li key={r}>{r.replace(/_/g, " ").replace(/\./g, " → ")}</li>)}
+                      </ul>
+                    </>
+                  )}
+                  {health.currently_due?.length > 0 && (
+                    <>
+                      <div className="font-medium mb-0.5" style={{ color: "var(--text-muted)" }}>Currently due:</div>
+                      <ul className="list-disc list-inside" style={{ color: "var(--text-muted)" }}>
+                        {health.currently_due.map((r) => <li key={r}>{r.replace(/_/g, " ").replace(/\./g, " → ")}</li>)}
+                      </ul>
+                    </>
+                  )}
+                  <div className="mt-2" style={{ color: "var(--text-dim)" }}>Fix these by clicking <b>Continue onboarding</b> above.</div>
+                </div>
+              )}
+              {health && health.ok === false && (
+                <div className="mt-3 p-3 rounded-lg border text-[11px]" style={{ borderColor: "rgba(198,40,40,0.4)", background: "rgba(198,40,40,0.06)", color: "rgb(198,40,40)" }}>
+                  ⚠ {health.reason}
+                </div>
+              )}
             </div>
           </>
         )}

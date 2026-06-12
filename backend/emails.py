@@ -273,6 +273,7 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "new_event_announcement": lambda ctx: _t_new_event_announcement(ctx),
     "admin_blast": lambda ctx: _t_admin_blast(ctx),
     "admin_new_event_submitted": lambda ctx: _t_admin_new_event_submitted(ctx),
+    "organizer_stripe_setup_nudge": lambda ctx: _t_organizer_stripe_setup_nudge(ctx),
 }
 
 
@@ -449,6 +450,33 @@ def _t_admin_new_event_submitted(ctx: Dict[str, Any]) -> tuple[str, str, str]:
         f"New event submitted: {ctx.get('event_title','')}",
         f"By {ctx.get('organizer_name','')} at {ctx.get('venue','')} — {when_disp}",
         ctx.get("admin_url", APP_PUBLIC_URL + "/admin"),
+    ])
+    return subject, html, text
+
+
+def _t_organizer_stripe_setup_nudge(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Friendly reminder that the organizer has upcoming events but hasn't
+    finished Stripe Connect — their payouts will be delayed otherwise."""
+    when = ctx.get("next_event_date") or ""
+    try:
+        from datetime import datetime as _dt
+        when_disp = _dt.fromisoformat(when.replace("Z", "+00:00")).strftime("%a %d %b")
+    except Exception:
+        when_disp = when[:10] if when else "soon"
+    n = int(ctx.get("events_count", 1) or 1)
+    plural = "event" if n == 1 else "events"
+    body = f"""
+    <p style="color:{TEXT};">Hi {ctx.get('organizer_name','organizer')},</p>
+    <p style="color:{TEXT_MUTED};">You have <b style="color:{TEXT};">{n} {plural}</b> coming up — including <b style="color:{TEXT};">{ctx.get('next_event_title','your next event')}</b> on {when_disp} — but you haven&apos;t finished setting up Stripe yet.</p>
+    <p style="color:{TEXT_MUTED};">Stripe is how we send you your ticket revenue (5 days after each event ends). Without it, your payouts will be held in escrow until you connect.</p>
+    <p style="color:{TEXT_MUTED};">It takes about 3 minutes — bank details, ID, that&apos;s it.</p>
+    """
+    subject = f"Finish Stripe setup so we can pay you for {ctx.get('next_event_title','your event')}"
+    html = _layout(subject, "Quick reminder before your event", body, "Finish Stripe setup", ctx.get("dashboard_url", APP_PUBLIC_URL + "/organizer"))
+    text = _text_fallback([
+        f"Hi {ctx.get('organizer_name','organizer')},",
+        f"You have {n} {plural} coming up but Stripe isn't set up yet — payouts will be delayed.",
+        f"Finish setup: {ctx.get('dashboard_url', APP_PUBLIC_URL + '/organizer')}",
     ])
     return subject, html, text
 

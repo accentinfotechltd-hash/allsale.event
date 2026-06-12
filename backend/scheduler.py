@@ -154,6 +154,71 @@ async def _send_weekly_digest(db) -> int:
     return sent
 
 
+async def _send_stripe_setup_nudges(db: Any) -> int:
+    """Email organizers with upcoming events but no verified Stripe Connect.
+
+    Targets: organizer has at least one approved event starting within the
+    next `PAYOUT_HOLD_HOURS + 24` hours (so the payout would happen within
+    a week) AND they don't have `stripe_payouts_enabled=True`. Sent at most
+    once every 72 h per organizer so we don't spam them.
+    """
+    import os
+    now = datetime.now(timezone.utc)
+    hold_hours = int(os.environ.get("PAYOUT_HOLD_HOURS", "120"))
+    horizon = now + timedelta(hours=hold_hours + 24)
+    cooldown = now - timedelta(hours=72)
+
+    # Find distinct organizer IDs with at least one upcoming event in window.
+    pipeline = [
+        {"$match": {
+            "status": {"$in": ["approved", "published"]},
+            "date": {"$gte": now.isoformat(), "$lt": horizon.isoformat()},
+        }},
+        {"$group": {"_id": "$organizer_id", "events_count": {"$sum": 1}, "next_event": {"$min": "$date"}, "next_title": {"$first": "$title"}}},
+    ]
+    sent = 0
+    async for row in db.events.aggregate(pipeline):
+        organizer_id = row["_id"]
+        if not organizer_id:
+            continue
+        organizer = await db.users.find_one({"user_id": organizer_id}, {"_id": 0})
+        if not organizer:
+            continue
+        if organizer.get("stripe_payouts_enabled"):
+            continue  # already verified
+        last_nudge = organizer.get("stripe_nudge_sent_at")
+        if last_nudge:
+            try:
+                then = datetime.fromisoformat(last_nudge)
+                if then.tzinfo is None:
+                    then = then.replace(tzinfo=timezone.utc)
+                if then >= cooldown:
+                    continue  # cooldown
+            except Exception:
+                pass
+        try:
+            send_template_fireforget(
+                "organizer_stripe_setup_nudge",
+                organizer.get("email"),
+                {
+                    "organizer_name": organizer.get("name") or "organizer",
+                    "events_count": int(row.get("events_count", 1)),
+                    "next_event_title": row.get("next_title") or "your next event",
+                    "next_event_date": row.get("next_event") or "",
+                    "dashboard_url": "https://www.allsale.events/organizer",
+                },
+                db,
+            )
+            await db.users.update_one(
+                {"user_id": organizer_id},
+                {"$set": {"stripe_nudge_sent_at": now.isoformat()}},
+            )
+            sent += 1
+        except Exception as exc:  # pragma: no cover
+            logger.exception("stripe nudge failed for organizer %s: %s", organizer_id, exc)
+    return sent
+
+
 async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
     """Top-level loop — sleeps 30s on startup, then ticks every `interval_seconds`."""
     await asyncio.sleep(30)
@@ -161,11 +226,12 @@ async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
         try:
             n_reminders = await _send_24h_reminders(db)
             n_digest = await _send_weekly_digest(db)
+            n_nudge = await _send_stripe_setup_nudges(db)
             payout_summary = await run_due_event_payouts(db)
-            if n_reminders or n_digest or payout_summary.get("paid") or payout_summary.get("failed"):
+            if n_reminders or n_digest or n_nudge or payout_summary.get("paid") or payout_summary.get("failed"):
                 logger.info(
-                    "[scheduler] reminders=%s digest=%s payouts=%s",
-                    n_reminders, n_digest, payout_summary,
+                    "[scheduler] reminders=%s digest=%s nudges=%s payouts=%s",
+                    n_reminders, n_digest, n_nudge, payout_summary,
                 )
         except Exception as exc:  # pragma: no cover
             logger.exception("[scheduler] tick failed: %s", exc)

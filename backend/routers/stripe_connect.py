@@ -484,6 +484,60 @@ async def admin_reverse_for_refund(booking_id: str, user: dict = Depends(get_cur
     return await reverse_transfer_for_refund(db, booking, triggered_by=f"admin:{user['user_id']}")
 
 
+@router.get("/organizer/stripe/health")
+async def organizer_stripe_health(user: dict = Depends(get_current_user)):
+    """Self-service version of the admin health check — the calling
+    organizer sees exactly what Stripe still needs from them.
+
+    Same response shape as `/admin/users/{id}/stripe-health` so the two
+    surfaces can share frontend logic.
+    """
+    if user.get("role") not in {"organizer", "admin"}:
+        raise HTTPException(status_code=403, detail="Organizer only")
+    acct_id = user.get("stripe_account_id")
+    if not acct_id:
+        return {
+            "ok": False,
+            "reason": "You haven't started Stripe onboarding yet.",
+            "stripe_account_id": None,
+        }
+    _ensure_stripe()
+    try:
+        acct = await asyncio.to_thread(_stripe_sdk.Account.retrieve, acct_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(f"[stripe-connect] self-health failed for {acct_id}: {exc}")
+        return {
+            "ok": False,
+            "reason": _describe_stripe_error(exc),
+            "stripe_account_id": acct_id,
+        }
+    requirements = acct.get("requirements") or {}
+    payload = {
+        "ok": True,
+        "stripe_account_id": acct_id,
+        "country": acct.get("country"),
+        "charges_enabled": bool(acct.get("charges_enabled")),
+        "payouts_enabled": bool(acct.get("payouts_enabled")),
+        "details_submitted": bool(acct.get("details_submitted")),
+        "currently_due": list(requirements.get("currently_due") or []),
+        "past_due": list(requirements.get("past_due") or []),
+        "eventually_due": list(requirements.get("eventually_due") or []),
+        "disabled_reason": requirements.get("disabled_reason"),
+        "checked_at": utc_now().isoformat(),
+    }
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "stripe_charges_enabled": payload["charges_enabled"],
+            "stripe_payouts_enabled": payload["payouts_enabled"],
+            "stripe_details_submitted": payload["details_submitted"],
+            "stripe_requirements_due": payload["currently_due"],
+            "stripe_last_synced_at": payload["checked_at"],
+        }},
+    )
+    return payload
+
+
 @router.get("/admin/users/{user_id}/stripe-health")
 async def admin_stripe_health_check(user_id: str, user: dict = Depends(get_current_user)):
     """Live Stripe Connect diagnostics for one organizer.
