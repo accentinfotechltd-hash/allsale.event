@@ -278,3 +278,91 @@ async def run_due_event_payouts(db) -> dict:
         else:
             skipped += 1
     return {"checked": len(candidates), "paid": paid, "skipped": skipped, "failed": failed}
+
+
+# ---------------------------------------------------------------------------
+# Refund-aware reversal
+# ---------------------------------------------------------------------------
+async def reverse_transfer_for_refund(db, booking: dict, *, triggered_by: str = "refund") -> dict:
+    """When a booking is refunded AFTER its event has already paid out, claw
+    back the organizer's share proportionally via `stripe.Transfer.create_reversal`.
+
+    Idempotent on `(booking_id)` — if we've already reversed for this
+    booking, returns the cached reversal_id instead of double-reversing.
+
+    Returns `{"status": "reversed"|"skipped"|"failed", ...}`.
+    """
+    event_id = booking.get("event_id")
+    booking_id = booking.get("booking_id")
+    if not (event_id and booking_id):
+        return {"status": "skipped", "reason": "missing event/booking id"}
+
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event or event.get("payout_status") != "paid":
+        return {"status": "skipped", "reason": "event not paid out yet — no reversal needed"}
+
+    transfer_id = event.get("payout_transfer_id")
+    if not transfer_id:
+        return {"status": "skipped", "reason": "event has no transfer to reverse"}
+
+    # Check whether we already reversed this booking.
+    existing = await db.connect_payouts.find_one(
+        {"reversal_for_booking_id": booking_id}, {"_id": 0}
+    )
+    if existing:
+        return {"status": "skipped", "reason": "already reversed", "reversal_id": existing.get("stripe_reversal_id")}
+
+    # Compute the share to reverse: booking.face_value (the organizer net
+    # of this single booking). Fallback to amount for legacy bookings.
+    refundable = booking.get("face_value") or booking.get("amount") or 0
+    refundable = float(refundable or 0)
+    if refundable <= 0:
+        return {"status": "skipped", "reason": "booking has no refundable face value"}
+
+    if not _STRIPE or not os.environ.get("STRIPE_API_KEY"):
+        return {"status": "skipped", "reason": "stripe not configured"}
+    _stripe.api_key = os.environ["STRIPE_API_KEY"]
+
+    amount_minor = int(round(refundable * 100))
+    idem_key = f"refund-reversal-{booking_id}"
+    try:
+        reversal = await asyncio.to_thread(
+            _stripe.Transfer.create_reversal,
+            transfer_id,
+            amount=amount_minor,
+            description=f"Allsale refund reversal — booking {booking_id}",
+            metadata={
+                "booking_id": booking_id,
+                "event_id": event_id,
+                "triggered_by": triggered_by,
+            },
+            idempotency_key=idem_key,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(f"[connect-payout] reversal failed for {booking_id}: {exc}")
+        return {"status": "failed", "reason": str(exc)[:300]}
+
+    reversal_id = reversal.get("id") if isinstance(reversal, dict) else getattr(reversal, "id", None)
+    now_iso = _utc_now().isoformat()
+    await db.connect_payouts.insert_one({
+        "payout_id": "rev_" + uuid4().hex[:12],
+        "event_id": event_id,
+        "organizer_id": event.get("organizer_id"),
+        "stripe_account_id": event.get("payout_transfer_id"),  # link
+        "stripe_transfer_id": transfer_id,
+        "stripe_reversal_id": reversal_id,
+        "reversal_for_booking_id": booking_id,
+        "status": "reversed",
+        "net_amount": -refundable,
+        "currency": (event.get("payout_currency") or "nzd"),
+        "triggered_by": triggered_by,
+        "created_at": now_iso,
+    })
+    await db.bookings.update_one(
+        {"booking_id": booking_id},
+        {"$set": {
+            "transfer_reversal_id": reversal_id,
+            "transfer_reversal_at": now_iso,
+        }},
+    )
+    return {"status": "reversed", "reversal_id": reversal_id, "amount": refundable}

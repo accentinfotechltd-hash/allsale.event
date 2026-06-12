@@ -176,7 +176,7 @@ export default function StripeConnectPanel() {
               Stripe connected — ready for payouts
             </div>
             <div className="text-xs" style={{ color: "var(--text-dim)" }}>
-              Your share of each event lands in your Stripe balance <b>5 days after the event ends</b>. View transfer history in your Stripe Express dashboard.
+              Your share of each event lands in your Stripe balance <b>5 days after the event ends</b>. <a href="/organizer/transfers" style={{ color: "var(--accent)" }} data-testid="stripe-connect-transfers-link">View transfer history →</a>
             </div>
           </>
         )}

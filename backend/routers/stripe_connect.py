@@ -441,3 +441,44 @@ async def admin_list_event_payouts(user: dict = Depends(get_current_user)):
     async for p in db.connect_payouts.find({}, {"_id": 0}).sort("created_at", -1).limit(500):
         items.append(p)
     return {"items": items, "platform_fee_bps": PLATFORM_FEE_BPS, "hold_hours": PAYOUT_HOLD_HOURS}
+
+
+@router.get("/organizer/stripe/transfers")
+async def organizer_transfers(user: dict = Depends(get_current_user)):
+    """Organizer-facing transfer history — every payout + reversal that
+    affected their connected Stripe account. Used by the new "Transfer
+    history" page on the organizer dashboard."""
+    if user.get("role") not in {"organizer", "admin"}:
+        raise HTTPException(status_code=403, detail="Organizer only")
+    items = []
+    async for p in db.connect_payouts.find(
+        {"organizer_id": user["user_id"]}, {"_id": 0}
+    ).sort("created_at", -1).limit(500):
+        # Hydrate event title for the row.
+        if p.get("event_id"):
+            ev = await db.events.find_one({"event_id": p["event_id"]}, {"_id": 0, "title": 1, "date": 1})
+            if ev:
+                p["event_title"] = ev.get("title")
+                p["event_date"] = ev.get("date")
+        items.append(p)
+    total_paid = sum(p.get("net_amount", 0) for p in items if p.get("status") == "paid")
+    total_reversed = sum(abs(p.get("net_amount", 0)) for p in items if p.get("status") == "reversed")
+    return {
+        "items": items,
+        "total_paid": round(total_paid, 2),
+        "total_reversed": round(total_reversed, 2),
+        "net_settled": round(total_paid - total_reversed, 2),
+    }
+
+
+@router.post("/admin/bookings/{booking_id}/reverse-transfer")
+async def admin_reverse_for_refund(booking_id: str, user: dict = Depends(get_current_user)):
+    """Admin override — manually trigger a Stripe transfer reversal for a
+    refunded booking. Idempotent; safe to call repeatedly."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    booking = await db.bookings.find_one({"booking_id": booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    from connect_payouts_engine import reverse_transfer_for_refund
+    return await reverse_transfer_for_refund(db, booking, triggered_by=f"admin:{user['user_id']}")
