@@ -9,6 +9,7 @@ import DoorCheckinPanel from "@/components/DoorCheckinPanel";
 import OrganizerInboxPanel from "@/components/OrganizerInboxPanel";
 import StripeConnectPanel from "@/components/StripeConnectPanel";
 import OrganizerPayoutsPanel from "@/components/OrganizerPayoutsPanel";
+import OrganizerEmbedPanel from "@/components/OrganizerEmbedPanel";
 import { toast } from "sonner";
 
 export default function Organizer() {
@@ -173,6 +174,7 @@ export default function Organizer() {
       </div>
 
       <OrganizerPayoutsPanel />
+      <OrganizerEmbedPanel />
     </div>
   );
 }
