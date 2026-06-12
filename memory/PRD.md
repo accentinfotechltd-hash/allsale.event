@@ -409,3 +409,37 @@ See `/app/memory/test_credentials.md`
 
 - Organizer balance/transfer history page using `stripe.Transfer.list(destination=acct_id)`.
 
+
+
+## Iteration 29 (2026-06-12) — Multi-organizer revenue splits + widget analytics + admin trend + flash promo
+
+### 29.1 Multi-organizer revenue splits ✅
+- ✅ New router `/app/backend/routers/revenue_splits.py`:
+  - `GET/PUT/DELETE /api/organizer/events/{event_id}/revenue-splits`
+  - `GET /api/organizer/users/lookup?email=` (case-insensitive)
+- ✅ `connect_payouts_engine._attempt_event_payout` refactored to issue one Stripe Transfer per recipient with per-recipient idempotency keys (`event-payout-{event_id}-{user_id}`). Per-recipient audit rows in `events.payout_recipients[]` and `connect_payouts` collection. Status rollup: `paid` | `partial` | `failed`.
+- ✅ `_resolve_recipients` validates splits sum to 100 (±0.5) and drops unverified Stripe recipients silently; falls back to organizer-only on invalid splits.
+- ✅ New React component `RevenueSplitsPanel` mounted in `OrganizerEvent.jsx`. Lookup-by-email → add → edit label & percent → save → clear. Shows Stripe Connect status badge per recipient.
+- ✅ `OrganizerPayoutsPanel` now renders a "Split × N" badge and "Partial — N/M paid" status pill.
+- ✅ Regression suite `/app/backend/tests/test_revenue_splits.py` — 1 large async test covering recipient resolution + engine short-circuit + full HTTP endpoint validation (8 sub-cases). All passing.
+
+### 29.2 Widget click-tracking + organizer analytics ✅
+- ✅ New endpoints in `/app/backend/routers/embed.py`:
+  - `GET /api/embed/track?organizer_id=&event_id=&kind=impression|click` — returns 1×1 transparent GIF89a (43 B), best-effort logging into `embed_events` with referrer host, UA, IP.
+  - `GET /api/organizer/embed/analytics?days=30` — facet aggregation returns totals (impressions/clicks/ctr_pct), top 10 by_host, top 10 by_event (hydrated with event titles), daily series.
+- ✅ `/api/embed/events.js` loader now fires `track('impression', ...)` per rendered card + `track('click', ...)` on anchor click. CSP-friendly `new Image()` beacon.
+- ✅ `OrganizerEmbedPanel` extended with `EmbedAnalytics` section — KPI cards (Impressions / Clicks / CTR), Top Hosts table, Top Events table, range selector (7/30/90 days).
+- ✅ Regression suite `/app/backend/tests/test_embed_tracking.py`. All passing.
+
+### 29.3 Admin events-submitted-24h sparkline ✅
+- ✅ New endpoint `GET /api/admin/events/submission-trend?days=14` — daily-bucketed submissions + `submitted_24h` / `submitted_prev_24h` / `delta_pct`.
+- ✅ New React `SubmissionTrend` component at top of Admin → Events tab. Renders 14-day sparkline (bars padded with zero-buckets so the timeline is always continuous), shows the 24h count with a coloured % delta vs the previous 24h.
+- ✅ Regression suite `/app/backend/tests/test_admin_submission_trend.py`. Passing.
+
+### 29.4 First-50-buyers flash promo on approval ✅
+- ✅ `_maybe_seed_first50_promo` in `admin.py`: on `POST /api/admin/events/{id}/approve`, creates a `FIRST50` discount code (10% off, max_uses=50, 7-day expiry, `auto_generated=true`) for the event's organizer. Idempotent on (code, created_by). Runs even when `modified_count=0` so admin-authored auto-approved events still get the promo.
+- ✅ Events with `auto_promo_disabled: true` skip creation.
+- ✅ Regression suite `/app/backend/tests/test_first50_promo.py`. Passing.
+
+### Notes
+- The motor event-loop issue (running multiple async test files in one pytest invocation closes the loop) is documented — each test file passes individually.

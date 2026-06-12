@@ -81,9 +81,14 @@ async def events_submission_trend(days: int = 14, user: dict = Depends(get_curre
 async def admin_approve(event_id: str, user: dict = Depends(get_current_user)):
     _admin_only(user)
     result = await db.events.update_one({"event_id": event_id}, {"$set": {"status": "approved"}})
-    if result.modified_count:
-        event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
-        if event:
+    # We run the post-approval side effects (notification email, FIRST50
+    # auto-promo) whenever the event ends up in `approved` state, even if
+    # the update was a no-op (admin-authored events are created as
+    # `approved`, so `modified_count` would be 0). Both side effects are
+    # idempotent so re-running them is safe.
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if event and event.get("status") == "approved":
+        if result.modified_count:
             organizer = await db.users.find_one({"user_id": event.get("organizer_id")}, {"_id": 0}) or {}
             if organizer.get("email"):
                 send_template_fireforget("organizer_event_approved", organizer["email"], {
@@ -91,14 +96,13 @@ async def admin_approve(event_id: str, user: dict = Depends(get_current_user)):
                     "event_id": event_id,
                     "event_title": event.get("title", "Your event"),
                 }, db)
-            # Auto-generate a "First 50 buyers" flash promo so newly-published
-            # events have early-bird momentum. Skipped silently if the
-            # organizer already has a FIRST50 code (idempotent) or opted out
-            # via the event's `auto_promo_disabled` flag.
-            try:
-                await _maybe_seed_first50_promo(event)
-            except Exception:  # noqa: BLE001 — never break the approval flow
-                pass
+        # FIRST50 auto-promo runs every time an event is approved — the
+        # `_maybe_seed_first50_promo` helper is idempotent on (code,
+        # created_by) so a repeat call is a cheap no-op.
+        try:
+            await _maybe_seed_first50_promo(event)
+        except Exception:  # noqa: BLE001 — never break the approval flow
+            pass
     return {"ok": True}
 
 
