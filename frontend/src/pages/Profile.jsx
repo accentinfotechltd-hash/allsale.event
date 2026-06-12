@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth";
 import { Calendar, MapPin, Download, QrCode, UserCog, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import ProfileEditPanel from "@/components/ProfileEditPanel";
+import ProfileWaitlistsPanel from "@/components/ProfileWaitlistsPanel";
 
 export default function Profile() {
   const { user, setUser } = useAuth();
@@ -96,6 +97,8 @@ export default function Profile() {
           )}
         </div>
       )}
+
+      <ProfileWaitlistsPanel />
 
       <h2 className="serif text-2xl mb-4">My tickets</h2>
       {paid.length === 0 ? (
