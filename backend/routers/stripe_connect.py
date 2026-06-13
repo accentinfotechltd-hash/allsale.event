@@ -387,18 +387,27 @@ async def stripe_webhook_health(user: dict = Depends(get_current_user)):
 
     Returns:
       - secret_configured: bool   (STRIPE_CONNECT_WEBHOOK_SECRET env var set)
+      - webhook_url:       the URL the user needs to paste into Stripe Dashboard
       - recent_deliveries: list of last 20 received deliveries
       - event_type_counts: rollup of received event types over last 30 days
       - last_seen_at:      most recent webhook arrival
       - critical_events_seen: per-event boolean for the required Connect
                               event types so the user knows which ones still
                               need to be enabled in the Stripe dashboard.
+      - setup_instructions: step-by-step guide
 
     Admin-only.
     """
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     secret_configured = bool(os.environ.get("STRIPE_CONNECT_WEBHOOK_SECRET"))
+
+    # Build the public webhook URL the user needs to paste into the Stripe
+    # dashboard. We pull from platform_settings → public_origin, falling
+    # back to the production domain.
+    cms = await db.platform_settings.find_one({"key": "cms"}, {"_id": 0}) or {}
+    origin = (cms.get("public_origin") or "https://www.allsale.events").rstrip("/")
+    webhook_url = f"{origin}/api/webhook/stripe/connect"
 
     from datetime import timedelta
     since = (utc_now() - timedelta(days=30)).isoformat()
@@ -429,13 +438,25 @@ async def stripe_webhook_health(user: dict = Depends(get_current_user)):
     ]
     critical_events_seen = {ev: ev in counts for ev in required_events}
 
+    setup_instructions = [
+        "1. Open Stripe Dashboard → Developers → Webhooks → Add endpoint",
+        "2. Set 'Listen to events on Connected accounts' (toggle ON)",
+        f"3. Paste this URL: {webhook_url}",
+        "4. Select these events:\n" + "\n".join(f"   • {ev}" for ev in required_events),
+        "5. Copy the 'Signing secret' (starts with whsec_…)",
+        "6. On Railway: add env var STRIPE_CONNECT_WEBHOOK_SECRET=<that value>",
+        "7. Redeploy. This panel will turn green within a few minutes.",
+    ]
+
     return {
         "secret_configured": secret_configured,
+        "webhook_url": webhook_url,
         "last_seen_at": last_seen_at,
         "recent_deliveries": recent,
         "event_type_counts": counts,
         "critical_events_seen": critical_events_seen,
         "required_events": required_events,
+        "setup_instructions": setup_instructions,
     }
 
 

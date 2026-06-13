@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import api from "@/lib/api";
-import { CheckCircle2, AlertCircle, RefreshCw, Loader2 } from "lucide-react";
+import { CheckCircle2, AlertCircle, RefreshCw, Loader2, Copy, Check } from "lucide-react";
 
 /**
  * Admin-only Stripe diagnostics panel.
@@ -82,6 +82,40 @@ export default function StripeAdminDiagnostics() {
               Last delivery: {health.last_seen_at || "—"}
             </div>
 
+            {/* Setup card — only show if not all green */}
+            {(!health.secret_configured || Object.values(health.critical_events_seen || {}).some((v) => !v)) && (
+              <div
+                className="mt-4 p-4 rounded-xl border"
+                style={{ borderColor: "var(--accent)", background: "rgba(240,138,42,0.08)" }}
+                data-testid="webhook-setup-card"
+              >
+                <div className="font-medium text-sm mb-2" style={{ color: "var(--accent)" }}>
+                  Setup steps
+                </div>
+                <CopyField label="Webhook URL — paste into Stripe Dashboard" value={health.webhook_url} testid="webhook-url-copy" />
+                <CopyField
+                  label="Events to enable (one per line)"
+                  value={(health.required_events || []).join("\n")}
+                  testid="webhook-events-copy"
+                  multiline
+                />
+                <ol className="text-xs space-y-1 list-decimal pl-5 mt-3" style={{ color: "var(--text-muted)" }}>
+                  <li>
+                    Stripe Dashboard → <strong>Developers → Webhooks → Add endpoint</strong>
+                    <a href="https://dashboard.stripe.com/webhooks/create" target="_blank" rel="noopener noreferrer" className="ml-1.5 underline" style={{ color: "var(--accent)" }}>Open ↗</a>
+                  </li>
+                  <li>Toggle <strong>&ldquo;Listen to events on Connected accounts&rdquo;</strong> ON.</li>
+                  <li>Paste the URL above and select the 5 events.</li>
+                  <li>Copy the <strong>Signing secret</strong> (whsec_…).</li>
+                  <li>
+                    On Railway → Your Service → Variables, add:
+                    <code className="block mt-1 px-2 py-1 rounded text-[11px]" style={{ background: "var(--bg-elev)", color: "var(--text)" }}>STRIPE_CONNECT_WEBHOOK_SECRET=whsec_xxx</code>
+                  </li>
+                  <li>Redeploy. Refresh this page in a few minutes — checkpoints below will turn green as Stripe delivers events.</li>
+                </ol>
+              </div>
+            )}
+
             <div className="mt-4">
               <div className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>Required Connect events (last 30 days)</div>
               <div className="space-y-1.5">
@@ -129,9 +163,17 @@ export default function StripeAdminDiagnostics() {
               testid="tax-status"
             />
             {!tax.enabled && (
-              <ol className="mt-3 text-xs space-y-1 list-decimal pl-5" style={{ color: "var(--text-muted)" }}>
-                {tax.activation_checklist.map((step, i) => <li key={i}>{step}</li>)}
-              </ol>
+              <>
+                <ol className="mt-3 text-xs space-y-1 list-decimal pl-5" style={{ color: "var(--text-muted)" }}>
+                  {tax.activation_checklist.map((step, i) => <li key={i}>{step}</li>)}
+                </ol>
+                <CopyField
+                  label="Railway env vars (paste once you've activated Stripe Tax)"
+                  value={"STRIPE_TAX_ENABLED=true\nSTRIPE_TAX_BEHAVIOR=exclusive"}
+                  testid="tax-env-copy"
+                  multiline
+                />
+              </>
             )}
             {tax.enabled && report && (
               <div className="mt-4 grid sm:grid-cols-3 gap-3">
@@ -196,6 +238,40 @@ function Kpi({ label, value, testid }) {
     <div className="border rounded-xl p-3" style={{ borderColor: "var(--border)", background: "var(--bg-elev)" }} data-testid={testid}>
       <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>{label}</div>
       <div className="text-xl serif">{value}</div>
+    </div>
+  );
+}
+
+function CopyField({ label, value, testid, multiline = false }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked */
+    }
+  };
+  return (
+    <div className="mt-3" data-testid={testid}>
+      <label className="text-[11px]" style={{ color: "var(--text-dim)" }}>{label}</label>
+      <div className="mt-1 flex gap-2 items-start">
+        {multiline ? (
+          <pre
+            className="flex-1 text-xs px-2.5 py-2 rounded-md border overflow-x-auto whitespace-pre"
+            style={{ borderColor: "var(--border)", background: "var(--bg-elev)", color: "var(--text)" }}
+          >{value}</pre>
+        ) : (
+          <code
+            className="flex-1 text-xs px-2.5 py-2 rounded-md border break-all"
+            style={{ borderColor: "var(--border)", background: "var(--bg-elev)", color: "var(--text)" }}
+          >{value}</code>
+        )}
+        <button onClick={onCopy} className="btn-ghost !py-2 !px-2.5 shrink-0" title="Copy">
+          {copied ? <Check className="w-3.5 h-3.5" style={{ color: "rgb(46,160,67)" }} /> : <Copy className="w-3.5 h-3.5" />}
+        </button>
+      </div>
     </div>
   );
 }
