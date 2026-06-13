@@ -443,3 +443,76 @@ See `/app/memory/test_credentials.md`
 
 ### Notes
 - The motor event-loop issue (running multiple async test files in one pytest invocation closes the loop) is documented — each test file passes individually.
+
+## Iteration 30 (2026-06-13) — Backlog clean-out: 8 features shipped sequentially
+
+### 30.1 PWA install banner ✅
+- ✅ `PwaInstallBanner.jsx` mounted in `Layout.jsx`. Organizer/admin-only.
+- ✅ Listens for `beforeinstallprompt`; iOS Safari fallback shows "Add to Home Screen" hint.
+- ✅ Dismissal stored in `localStorage` with 14-day snooze.
+- ✅ Added Organizer Dashboard shortcut to `manifest.json`.
+
+### 30.2 Refund-window policy enforcement ✅
+- ✅ Event model field `refund_policy = {enabled, hours_before_event, refund_pct, include_fees}` persisted via `events.py` (POST + PATCH).
+- ✅ New router `/app/backend/routers/refunds.py`:
+  - `GET /api/events/{id}/refund-policy` — public read
+  - `GET /api/me/bookings/{id}/refund-eligibility` — per-booking dry-run
+  - `POST /api/me/bookings/{id}/refund-request` — Stripe Refund + Connect transfer reversal hook + seat release. Idempotent via booking.status==refunded.
+- ✅ `RefundPolicyPanel` (organizer) and `RefundButton` (attendee Profile) wired.
+- ✅ Regression: `/app/backend/tests/test_refund_policy.py` — 10 assertions covering eligibility + cut-off + idempotency.
+
+### 30.3 Follow-organizer / weekly digest ✅
+- ✅ New router `/app/backend/routers/follows.py`:
+  - `POST/DELETE/GET /api/organizers/{id}/follow` (idempotent upsert)
+  - `GET /api/me/following` (list w/ upcoming counts)
+  - `GET /api/organizers/{id}/public` (no-auth profile + follower count + upcoming events + total_events)
+- ✅ `FollowOrganizerButton.jsx` on EventDetail + OrganizerProfile.
+- ✅ On event approval: `_notify_followers_of_new_event` emails followers (template `follower_new_event`).
+- ✅ Scheduler `_send_follower_weekly_digest` runs Sunday 09-11 UTC, dedupes via `follower_digest_sent_at`, skips empty.
+- ✅ Regression: `/app/backend/tests/test_follows.py`.
+- ✅ Fixed: `OrganizerProfile.jsx` was calling `/organizers/{id}` (404). Changed to `/organizers/{id}/public`.
+
+### 30.4 Ticket transfers (recallable) ✅
+- ✅ New router `/app/backend/routers/transfers.py`:
+  - `POST /api/me/bookings/{id}/transfer` — owner sends; 7-day expiry; refuses double-pending.
+  - `POST /api/transfers/{id}/accept` — recipient (email-gated) accepts; rotates qr_token; reassigns user_id.
+  - `POST /api/transfers/{id}/reject` and `/recall` — symmetric cancellation.
+  - `GET /api/transfers/{id}` — public read for the claim page.
+  - `GET /api/me/transfers` — outgoing + incoming.
+- ✅ Email template `ticket_transfer_offer` to recipient.
+- ✅ Audit table `booking_transfer_audit` for compliance.
+- ✅ Frontend: `TransferTicketButton` on Profile, new `/transfer/:id` page (`TransferClaim.jsx`) with email-mismatch guard, accept/decline flow, redirect to Profile on accept.
+- ✅ Regression: `/app/backend/tests/test_transfers.py` — 10-step full lifecycle.
+
+### 30.5 Per-event affiliate codes (30-day cookie) ✅
+- ✅ New router `/app/backend/routers/affiliates.py`:
+  - POST/GET/PATCH/DELETE `/api/organizer/affiliates`
+  - `GET /api/affiliate/track?code=X` — drops `aff_code` cookie (30d), increments clicks, 302 to event.
+  - `GET /api/affiliate/{code}` — public resolve for share UI.
+  - `attribute_booking` helper called by `bookings.create_hold` to stamp affiliate_id on new bookings.
+- ✅ Stats rollup in list endpoint: clicks, conversions, tickets_sold, commission_owed.
+- ✅ `AffiliatesPanel.jsx` mounted on OrganizerEvent. Copy-link button generates trackable URL.
+- ✅ Regression: `/app/backend/tests/test_affiliates.py` — 11 assertions.
+
+### 30.6 Bulk seat-block tools ✅
+- ✅ Added `BulkRangePicker` sub-component to `SeatBlocksPanel.jsx`. Pick row range + col range → generates seat IDs (A1, A2, B1...) respecting `seatmap_numbering_rtl`. Adds to the existing selection (merge + dedupe).
+
+### 30.7 Stripe Connect webhook diagnostic ✅
+- ✅ Webhook handler in `stripe_connect.py` now writes every delivery to `webhook_deliveries` (event_type, account_id, signature_verified, received_at).
+- ✅ New endpoint `GET /api/admin/stripe/webhook-health` returns: secret_configured, recent_deliveries (last 20), event_type_counts (30d), critical_events_seen for [account.updated, transfer.created, transfer.reversed, payout.paid, payout.failed].
+- ✅ `StripeAdminDiagnostics.jsx` mounted on new Admin → Stripe tab.
+
+### 30.8 Stripe Tax (feature-flagged off) ✅
+- ✅ New router `/app/backend/routers/stripe_tax.py`:
+  - `stripe_tax_enabled()` helper (env flag `STRIPE_TAX_ENABLED`)
+  - `build_checkout_session_with_tax` — raw Stripe SDK path with `automatic_tax: {enabled: true}` and tax_behavior on each line item. Wired into `payments.create_checkout_session` (falls back to legacy emergent flow on error).
+  - `record_tax_from_session` — post-payment helper to stamp `tax_amount` + `tax_breakdown` on bookings.
+  - `GET /api/admin/stripe/tax-status` (env flag + dashboard URL + activation checklist).
+  - `GET /api/admin/stripe/tax-report?days=30` (rollup by jurisdiction).
+- ✅ Surface on `StripeAdminDiagnostics.jsx` — status pill, activation checklist, jurisdiction table.
+- ✅ Activation playbook documented in module docstring.
+
+### Notes
+- 14 backend pytest suites pass individually. Combined runs still hit Motor's "Event loop is closed" — known limitation, deferred fix (subprocess-per-test plugin).
+- Iteration 11 testing agent report: 100% backend pass, 85% frontend (PWA banner not testable in headless Playwright by design; OrganizerProfile bug fixed in-loop).
+

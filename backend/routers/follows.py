@@ -153,6 +153,7 @@ async def organizer_public_page(organizer_id: str):
             "picture": org.get("picture"),
             "bio": org.get("bio"),
             "joined_at": org.get("created_at"),
+            "total_events": await db.events.count_documents({"organizer_id": organizer_id, "status": {"$in": ["approved", "published"]}}),
         },
         "follower_count": await _follower_count(organizer_id),
         "upcoming_count": len(upcoming),

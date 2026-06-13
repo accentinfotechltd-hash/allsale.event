@@ -26,7 +26,7 @@ export default function OrganizerProfile() {
       setLoading(true);
       setNotFound(false);
       try {
-        const { data } = await api.get(`/organizers/${id}`);
+        const { data } = await api.get(`/organizers/${id}/public`);
         setData(data);
       } catch (err) {
         if (err?.response?.status === 404) setNotFound(true);
