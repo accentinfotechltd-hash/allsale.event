@@ -6,6 +6,7 @@ import api from "../lib/api";
 import { useAuth } from "../lib/auth";
 import EventCard from "../components/EventCard";
 import { ContactOrganizerButton } from "../components/ContactOrganizerDialog";
+import FollowOrganizerButton from "../components/FollowOrganizerButton";
 
 /**
  * Public organizer profile page at /organizer/:id.
@@ -114,6 +115,14 @@ export default function OrganizerProfile() {
             label="Contact organizer"
             testid="organizer-profile-contact-btn"
           />
+
+          <div className="mt-4">
+            <FollowOrganizerButton
+              organizerId={organizer.user_id}
+              organizerName={organizer.name}
+              size="md"
+            />
+          </div>
         </div>
       </div>
 

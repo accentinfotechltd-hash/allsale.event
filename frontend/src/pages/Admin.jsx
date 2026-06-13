@@ -4,6 +4,7 @@ import { useAuth } from "@/lib/auth";
 import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send } from "lucide-react";
 import { toast } from "sonner";
 import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
+import StripeAdminDiagnostics from "@/components/StripeAdminDiagnostics";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -25,12 +26,13 @@ export default function Admin() {
           <TabBtn id="events" current={tab} onClick={setTab} icon={<Calendar className="w-4 h-4" />} label="Events" />
           <TabBtn id="users" current={tab} onClick={setTab} icon={<Users className="w-4 h-4" />} label="Users" />
           <TabBtn id="payouts" current={tab} onClick={setTab} icon={<Wallet className="w-4 h-4" />} label="Payouts" />
+          <TabBtn id="stripe" current={tab} onClick={setTab} icon={<ShieldCheck className="w-4 h-4" />} label="Stripe" />
           <TabBtn id="emails" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Emails" />
           <TabBtn id="settings" current={tab} onClick={setTab} icon={<SettingsIcon className="w-4 h-4" />} label="Settings" />
         </div>
       </div>
 
-      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "emails" ? <EmailsTab /> : <SettingsTab />}
+      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : <SettingsTab />}
     </div>
   );
 }

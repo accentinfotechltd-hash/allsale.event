@@ -103,7 +103,63 @@ async def admin_approve(event_id: str, user: dict = Depends(get_current_user)):
             await _maybe_seed_first50_promo(event)
         except Exception:  # noqa: BLE001 — never break the approval flow
             pass
+
+        # Notify followers of this organizer that a new event was just
+        # published. Fire-and-forget; the digest worker will catch missed
+        # sends on its weekly run.
+        try:
+            await _notify_followers_of_new_event(event)
+        except Exception as exc:  # noqa: BLE001
+            import logging as _l
+            _l.getLogger(__name__).warning(f"[follow-notify] failed: {exc}")
     return {"ok": True}
+
+
+async def _notify_followers_of_new_event(event: dict) -> int:
+    """When an organizer's event is approved, email every follower a one-shot
+    'new from <organizer>' alert. Returns how many emails were queued."""
+    organizer_id = event.get("organizer_id")
+    if not organizer_id:
+        return 0
+    organizer = await db.users.find_one(
+        {"user_id": organizer_id},
+        {"_id": 0, "user_id": 1, "name": 1},
+    ) or {}
+    cms = await db.platform_settings.find_one({"key": "cms"}, {"_id": 0}) or {}
+    origin = (cms.get("public_origin") or "https://www.allsale.events").rstrip("/")
+    event_url = f"{origin}/events/{event['event_id']}"
+    sent = 0
+    async for f in db.follows.find(
+        {"organizer_id": organizer_id, "notifications_enabled": {"$ne": False}},
+        {"_id": 0, "user_id": 1},
+    ):
+        u = await db.users.find_one(
+            {"user_id": f["user_id"]},
+            {"_id": 0, "email": 1, "notification_email": 1, "name": 1},
+        )
+        if not u:
+            continue
+        target = u.get("notification_email") or u.get("email")
+        if not target:
+            continue
+        try:
+            send_template_fireforget(
+                "follower_new_event",
+                target,
+                {
+                    "follower_name": u.get("name") or "there",
+                    "organizer_name": organizer.get("name") or "an organizer you follow",
+                    "event_title": event.get("title", "New event"),
+                    "event_date_iso": event.get("date"),
+                    "venue": f"{event.get('venue','')}, {event.get('city','')}",
+                    "event_url": event_url,
+                },
+                db,
+            )
+            sent += 1
+        except Exception:  # noqa: BLE001
+            continue
+    return sent
 
 
 async def _maybe_seed_first50_promo(event: dict) -> bool:

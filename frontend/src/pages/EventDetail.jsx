@@ -6,6 +6,7 @@ import SeatMap from "@/components/SeatMap";
 import DemandSparkline from "@/components/DemandSparkline";
 import useEventLiveUpdates from "@/lib/useEventLiveUpdates";
 import { ContactOrganizerButton } from "@/components/ContactOrganizerDialog";
+import FollowOrganizerButton from "@/components/FollowOrganizerButton";
 import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/currencies";
@@ -286,6 +287,13 @@ export default function EventDetail() {
                   className="ml-2 text-xs underline"
                   label="Contact"
                   testid="event-detail-contact-organizer-btn"
+                />
+              )}
+              {event.organizer_id && (
+                <FollowOrganizerButton
+                  organizerId={event.organizer_id}
+                  organizerName={event.organizer_name}
+                  size="sm"
                 />
               )}
             </div>

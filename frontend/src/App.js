@@ -27,6 +27,7 @@ import BecomeOrganizer from "@/pages/BecomeOrganizer";
 import About from "@/pages/About";
 import Contact from "@/pages/Contact";
 import OrganizerProfile from "@/pages/OrganizerProfile";
+import TransferClaim from "@/pages/TransferClaim";
 import RequireOrganizer from "@/components/RequireOrganizer";
 
 function AppRouter() {
@@ -51,6 +52,7 @@ function AppRouter() {
         <Route path="/about" element={<About />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/organizers/:id" element={<OrganizerProfile />} />
+        <Route path="/transfer/:id" element={<TransferClaim />} />
         <Route path="/organizer" element={<RequireOrganizer><Organizer /></RequireOrganizer>} />
         <Route path="/organizer/new" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId/edit" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />

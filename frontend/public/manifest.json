@@ -47,6 +47,12 @@
       "short_name": "Tickets",
       "url": "/my-tickets",
       "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Organizer Dashboard",
+      "short_name": "Dashboard",
+      "url": "/organizer",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

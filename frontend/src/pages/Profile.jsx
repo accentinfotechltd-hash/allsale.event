@@ -6,6 +6,8 @@ import { Calendar, MapPin, Download, QrCode, UserCog, Sparkles } from "lucide-re
 import { toast } from "sonner";
 import ProfileEditPanel from "@/components/ProfileEditPanel";
 import ProfileWaitlistsPanel from "@/components/ProfileWaitlistsPanel";
+import RefundButton from "@/components/RefundButton";
+import TransferTicketButton from "@/components/TransferTicketButton";
 
 export default function Profile() {
   const { user, setUser } = useAuth();
@@ -121,9 +123,13 @@ export default function Profile() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-xs" style={{ color: "var(--text-dim)" }}>{b.tier_name} · {b.seats?.length || b.quantity}x</span>
-                  <button onClick={() => setActive(b)} className="btn-ghost !py-1.5 !px-3 text-xs" data-testid={`show-qr-${b.booking_id}`}>
-                    <QrCode className="w-3 h-3" /> Show QR
-                  </button>
+                  <div className="flex gap-1.5">
+                    <TransferTicketButton bookingId={b.booking_id} eventTitle={b.event_title} />
+                    <RefundButton bookingId={b.booking_id} eventCurrency={b.currency} />
+                    <button onClick={() => setActive(b)} className="btn-ghost !py-1.5 !px-3 text-xs" data-testid={`show-qr-${b.booking_id}`}>
+                      <QrCode className="w-3 h-3" /> Show QR
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

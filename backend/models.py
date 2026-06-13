@@ -50,6 +50,13 @@ class EventIn(BaseModel):
     seatmap_backdrop_offset_y: int = 0
     seatmap_backdrop_offset_x: int = 0
     seatmap_backdrop_scale: float = 1.0  # 0.4–2.5
+    # Refund-window policy. None / disabled = organizer handles refunds
+    # manually. When enabled, attendees can self-serve a refund up to
+    # `hours_before_event` hours before the event start; the refund_pct is
+    # the % of `face_value` returned (Stripe + platform fees are non-refundable
+    # by default). Backwards compatible — unset = no self-serve refunds.
+    refund_policy: Optional[Dict[str, Any]] = None  # {enabled,hours_before_event,refund_pct}
+    auto_promo_disabled: bool = False  # opt out of the FIRST50 auto-promo
 
 
 class HoldIn(BaseModel):

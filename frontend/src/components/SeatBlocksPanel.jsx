@@ -178,6 +178,20 @@ export default function SeatBlocksPanel({ eventId, event }) {
 
         <div className="space-y-4">
           <div className="border rounded-xl p-4" style={{ borderColor: "var(--border)" }}>
+            <div className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>Bulk range select</div>
+            <BulkRangePicker
+              rows={event.seat_rows}
+              cols={event.seat_cols}
+              numberingRtl={!!event.seatmap_numbering_rtl}
+              onAdd={(seatIds) => {
+                const next = Array.from(new Set([...selected, ...seatIds]));
+                setSelected(next);
+                toast.success(`Added ${seatIds.length} seats to selection`);
+              }}
+            />
+          </div>
+
+          <div className="border rounded-xl p-4" style={{ borderColor: "var(--border)" }}>
             <div className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>Reason</div>
             <div className="grid grid-cols-2 gap-2 mb-4">
               {REASONS.map((r) => {
@@ -285,6 +299,115 @@ export default function SeatBlocksPanel({ eventId, event }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+/**
+ * Bulk range picker — admins/organizers pick row range + col range and we
+ * generate the seat IDs (e.g. A1..A10, B1..B10) for one-shot blocking.
+ *
+ * Rows are 1-indexed letters (A, B, C ... AA, AB ...). Cols are 1-indexed.
+ * The row letter generation matches the public SeatMap component so the
+ * IDs we generate here line up perfectly with what the seatmap renders.
+ */
+function rowLetter(idx) {
+  // 0 -> A, 25 -> Z, 26 -> AA, ...
+  let n = idx;
+  let s = "";
+  do {
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return s;
+}
+
+function BulkRangePicker({ rows, cols, numberingRtl, onAdd }) {
+  const [rowFrom, setRowFrom] = useState(1);
+  const [rowTo, setRowTo] = useState(1);
+  const [colFrom, setColFrom] = useState(1);
+  const [colTo, setColTo] = useState(Math.min(cols || 1, 10));
+
+  const totalRows = Math.max(0, Number(rows) || 0);
+  const totalCols = Math.max(0, Number(cols) || 0);
+
+  const apply = () => {
+    const rStart = Math.max(1, Math.min(rowFrom, rowTo));
+    const rEnd = Math.min(totalRows, Math.max(rowFrom, rowTo));
+    const cStart = Math.max(1, Math.min(colFrom, colTo));
+    const cEnd = Math.min(totalCols, Math.max(colFrom, colTo));
+    if (rEnd < rStart || cEnd < cStart) return;
+    const ids = [];
+    for (let r = rStart - 1; r <= rEnd - 1; r += 1) {
+      const letter = rowLetter(r);
+      for (let c = cStart; c <= cEnd; c += 1) {
+        // Honor right-to-left numbering preference.
+        const colNum = numberingRtl ? totalCols - c + 1 : c;
+        ids.push(`${letter}-${colNum}`);
+      }
+    }
+    onAdd(ids);
+  };
+
+  const previewCount =
+    Math.max(0, Math.min(totalRows, Math.max(rowFrom, rowTo)) - Math.max(1, Math.min(rowFrom, rowTo)) + 1)
+    * Math.max(0, Math.min(totalCols, Math.max(colFrom, colTo)) - Math.max(1, Math.min(colFrom, colTo)) + 1);
+
+  return (
+    <div className="space-y-2" data-testid="bulk-range-picker">
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-[11px]" style={{ color: "var(--text-dim)" }}>Row from</label>
+          <input
+            type="number" min={1} max={totalRows} value={rowFrom}
+            onChange={(e) => setRowFrom(Math.max(1, Math.min(totalRows, Number(e.target.value))))}
+            className="w-full px-2 py-1.5 rounded-md text-sm border bg-transparent"
+            style={{ borderColor: "var(--border)" }}
+            data-testid="bulk-row-from"
+          />
+          <div className="text-[10px] mt-0.5" style={{ color: "var(--text-dim)" }}>{rowLetter(rowFrom - 1)}</div>
+        </div>
+        <div>
+          <label className="text-[11px]" style={{ color: "var(--text-dim)" }}>Row to</label>
+          <input
+            type="number" min={1} max={totalRows} value={rowTo}
+            onChange={(e) => setRowTo(Math.max(1, Math.min(totalRows, Number(e.target.value))))}
+            className="w-full px-2 py-1.5 rounded-md text-sm border bg-transparent"
+            style={{ borderColor: "var(--border)" }}
+            data-testid="bulk-row-to"
+          />
+          <div className="text-[10px] mt-0.5" style={{ color: "var(--text-dim)" }}>{rowLetter(rowTo - 1)}</div>
+        </div>
+        <div>
+          <label className="text-[11px]" style={{ color: "var(--text-dim)" }}>Seat from</label>
+          <input
+            type="number" min={1} max={totalCols} value={colFrom}
+            onChange={(e) => setColFrom(Math.max(1, Math.min(totalCols, Number(e.target.value))))}
+            className="w-full px-2 py-1.5 rounded-md text-sm border bg-transparent"
+            style={{ borderColor: "var(--border)" }}
+            data-testid="bulk-col-from"
+          />
+        </div>
+        <div>
+          <label className="text-[11px]" style={{ color: "var(--text-dim)" }}>Seat to</label>
+          <input
+            type="number" min={1} max={totalCols} value={colTo}
+            onChange={(e) => setColTo(Math.max(1, Math.min(totalCols, Number(e.target.value))))}
+            className="w-full px-2 py-1.5 rounded-md text-sm border bg-transparent"
+            style={{ borderColor: "var(--border)" }}
+            data-testid="bulk-col-to"
+          />
+        </div>
+      </div>
+      <button
+        onClick={apply}
+        className="btn-ghost w-full justify-center text-xs"
+        data-testid="bulk-add-btn"
+        disabled={previewCount === 0}
+      >
+        Add {previewCount} seat{previewCount === 1 ? "" : "s"} to selection
+      </button>
     </div>
   );
 }

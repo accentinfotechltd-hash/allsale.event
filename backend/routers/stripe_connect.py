@@ -357,6 +357,20 @@ async def connect_webhook(request: Request):
     data = (payload.get("data") or {}).get("object") or {}
     acct_id = data.get("id") if event_type.startswith("account.") else data.get("account") or payload.get("account")
 
+    # Audit row — used by /admin/stripe/webhook-health to confirm the
+    # Stripe dashboard is wired correctly.
+    try:
+        await db.webhook_deliveries.insert_one({
+            "delivery_id": payload.get("id") or f"manual_{utc_now().timestamp()}",
+            "source": "stripe_connect",
+            "event_type": event_type,
+            "account_id": acct_id,
+            "signature_verified": bool(secret),
+            "received_at": utc_now().isoformat(),
+        })
+    except Exception:  # noqa: BLE001
+        pass
+
     if event_type == "account.updated" and acct_id:
         refreshed = await _sync_account_from_stripe(acct_id)
         logger.info(f"[stripe-connect] account.updated mirrored for {acct_id} (user={(refreshed or {}).get('user_id')})")
@@ -365,6 +379,64 @@ async def connect_webhook(request: Request):
         # log them for now; payouts router (phase 2) will react.
         logger.info(f"[stripe-connect] webhook noop: type={event_type} acct={acct_id}")
     return {"received": True}
+
+
+@router.get("/admin/stripe/webhook-health")
+async def stripe_webhook_health(user: dict = Depends(get_current_user)):
+    """Diagnostic: did the user wire up the Stripe Connect webhook correctly?
+
+    Returns:
+      - secret_configured: bool   (STRIPE_CONNECT_WEBHOOK_SECRET env var set)
+      - recent_deliveries: list of last 20 received deliveries
+      - event_type_counts: rollup of received event types over last 30 days
+      - last_seen_at:      most recent webhook arrival
+      - critical_events_seen: per-event boolean for the required Connect
+                              event types so the user knows which ones still
+                              need to be enabled in the Stripe dashboard.
+
+    Admin-only.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    secret_configured = bool(os.environ.get("STRIPE_CONNECT_WEBHOOK_SECRET"))
+
+    from datetime import timedelta
+    since = (utc_now() - timedelta(days=30)).isoformat()
+
+    recent = []
+    last_seen_at = None
+    async for d in db.webhook_deliveries.find(
+        {"source": "stripe_connect"}, {"_id": 0},
+    ).sort("received_at", -1).limit(20):
+        recent.append(d)
+        if last_seen_at is None:
+            last_seen_at = d.get("received_at")
+
+    counts: dict[str, int] = {}
+    async for r in db.webhook_deliveries.aggregate([
+        {"$match": {"source": "stripe_connect", "received_at": {"$gte": since}}},
+        {"$group": {"_id": "$event_type", "n": {"$sum": 1}}},
+    ]):
+        counts[r["_id"] or "(unknown)"] = r["n"]
+
+    # The Stripe docs recommend these for our Connect setup
+    required_events = [
+        "account.updated",
+        "transfer.created",
+        "transfer.reversed",
+        "payout.paid",
+        "payout.failed",
+    ]
+    critical_events_seen = {ev: ev in counts for ev in required_events}
+
+    return {
+        "secret_configured": secret_configured,
+        "last_seen_at": last_seen_at,
+        "recent_deliveries": recent,
+        "event_type_counts": counts,
+        "critical_events_seen": critical_events_seen,
+        "required_events": required_events,
+    }
 
 
 # ---------- Event payouts (Batch 2) ----------

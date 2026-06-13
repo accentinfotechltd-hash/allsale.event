@@ -1,0 +1,71 @@
+{
+  "summary": "Iteration 30 — Tested 8 new features (refund policy, follow-organizer, ticket transfers, affiliates, bulk seat-block picker, Stripe admin diagnostics, Stripe Tax flag, PWA install banner). Backend: 4 new pytest suites (test_refund_policy, test_follows, test_transfers, test_affiliates) PASS individually (running together still hits Motor 'Event loop is closed' — known limitation). Live preview backend tests (8/8 PASS): /api/admin/stripe/webhook-health and /tax-status return correct shape and tax.enabled=False; /api/events/{id}/refund-policy returns {event_id, policy:{enabled}}; /api/organizers/{id}/public works without auth and returns organizer+follower_count+upcoming_events; /api/me/following and /api/me/transfers require auth; POST /api/organizers/{self}/follow → 400 'You can't follow yourself.'; /api/affiliate/track?code=NOPECODE returns 404 (silent OK) and /api/affiliate/NOPECODE → 404. Frontend: Admin /admin → Stripe tab renders StripeAdminDiagnostics with stripe-admin-diagnostics, webhook-secret-status (STRIPE_CONNECT_WEBHOOK_SECRET configured), and tax-status='Off' + 4-step activation checklist. OrganizerEvent renders refund-policy-panel (save works → toast 'Refund policy saved' confirmed) and affiliates-panel (affiliate-add-toggle reveals affiliate-code-input). EventDetail renders follow-{orgId} + follower-count='0'. TransferClaim with invalid id correctly shows 404 'Transfer not found' fallback. Discovered ONE critical frontend bug: OrganizerProfile page calls GET /api/organizers/{id} (no /public suffix) which doesn't exist in backend — page always renders 'Organizer not found' even for valid admin. PwaInstallBanner not visible in headless Chrome (expected — browser only fires beforeinstallprompt after heuristic delay).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "Seed data",
+        "issue": "Preview DB event evt_656b89734cd7 has organizer_id='user_926930bed59d' but only admin user (user_b2cf0afabe69) exists in users collection. /api/organizers/user_926930bed59d/public → 404. Doesn't affect new features but blocks end-to-end UI testing of FollowOrganizerButton against a real foreign organizer."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "OrganizerProfile.jsx line 29",
+        "issue": "Calls api.get(`/organizers/${id}`) but the only backend endpoint is /api/organizers/{id}/public. Result: page ALWAYS renders 'Organizer not found' (404) state with [data-testid='organizer-profile-not-found'] even for valid organizers (admin's own user_id). FollowOrganizerButton on this page therefore never renders — entire /organizers/:id route is broken. Note: FollowOrganizerButton on EventDetail still works because it calls /organizers/{id}/follow (with the /follow suffix) directly.",
+        "selector": "GET /api/organizers/{id}",
+        "priority": "HIGH"
+      },
+      {
+        "component": "PwaInstallBanner.jsx",
+        "issue": "Not testable in headless Playwright — banner is gated on browser-fired beforeinstallprompt event which Chrome only emits after a heuristic-based engagement delay. DOM presence check returned null. Per main agent's note this is expected; verified the component file exists and is wired in.",
+        "selector": "[data-testid='pwa-install-banner']",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "View public organizer profile",
+        "issue": "OrganizerProfile page calls /api/organizers/{id} (404) instead of /api/organizers/{id}/public (200). Easy fix: change line 29 of /app/frontend/src/pages/OrganizerProfile.jsx from `await api.get(`/organizers/${id}`)` to `await api.get(`/organizers/${id}/public`)` and adjust the destructuring (response is {organizer, follower_count, upcoming_count, upcoming_events}).",
+        "affected_selectors": ["[data-testid='follow-btn']", "[data-testid='unfollow-btn']", "[data-testid='follower-count']", "[data-testid='organizer-profile-not-found']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_refund_policy.py",
+    "/app/backend/tests/test_follows.py",
+    "/app/backend/tests/test_transfers.py",
+    "/app/backend/tests/test_affiliates.py",
+    "/app/backend/tests/test_live_iter11.py",
+    "/app/test_reports/pytest/iter11_new_features.xml",
+    "/app/test_reports/pytest/iter11_live.xml"
+  ],
+  "action_items": [
+    "(HIGH) Fix OrganizerProfile.jsx:29 — change endpoint from `/organizers/${id}` to `/organizers/${id}/public` and adapt to the {organizer, follower_count, upcoming_count, upcoming_events} response shape so /organizers/:id route works end-to-end (currently always 404).",
+    "(LOW) Seed a second non-admin organizer in the preview DB (e.g. 'user_926930bed59d' referenced by evt_656b89734cd7) so FollowOrganizerButton can be exercised against a foreign organizer in the live preview.",
+    "(LOW) Document the Motor event-loop limitation in conftest.py or split test runs in CI (still pending from iteration 29)."
+  ],
+  "critical_code_review_comments": [
+    "OrganizerProfile.jsx is broken — calls a non-existent endpoint (/api/organizers/{id} without /public). The page renders the 404 fallback for ALL organizers, including the admin viewing their own profile. This blocks FollowOrganizerButton from rendering on the profile route, but the same component works fine on EventDetail (which calls /organizers/{id}/follow with /follow suffix).",
+    "FollowOrganizerButton.jsx is well-coded: handles auth/unauth split (uses /public for unauth read), self-follow returns 400 with a clear toast, and the data-testid pattern (follow-{orgId} wrapper + follow-btn/unfollow-btn child) is consistent.",
+    "RefundPolicyPanel save flow is solid — toggle 'Enable self-serve refunds' → save → success toast 'Refund policy saved'. Sub-field testids (refund-policy-hours, refund-policy-pct) are conditionally rendered only when enabled=true — initial DOM probe before toggle won't find them; tests must toggle first.",
+    "StripeAdminDiagnostics — webhook-secret-status, webhook-recent-deliveries (with 1 account.updated, 0 for the other critical events), tax-status='Off', and activation_checklist all render correctly. tax-kpi-total selector NOT rendered when tax is disabled (only appears when enabled=True) — by design.",
+    "Backend /api/affiliate/track returns 404 (instead of 302) for unknown codes — debatable: spec says 302 with cookie even on miss for noise. Current behaviour is acceptable but adjust if the spec strictly mandates 302-always.",
+    "Pytest still suffers from Motor's lazy client cache binding to the first event loop — running test_refund_policy + test_follows + test_transfers + test_affiliates together fails 3/4 with 'Event loop is closed'. Each passes individually. Recommend a pytest_collection_modifyitems hook or per-test motor client fixture for long-term CI."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_live_iter11.py (new — live preview endpoint smoke tests for stripe/refund/follow/transfer/affiliate)"
+  ],
+  "success_rate": {
+    "backend": "100% (4/4 new feature suites + 8/8 live preview endpoint tests)",
+    "frontend": "85% (StripeAdminDiagnostics, RefundPolicyPanel, AffiliatesPanel, EventDetail follow button, TransferClaim error state — all render; OrganizerProfile route broken; PwaInstallBanner not headless-testable)"
+  },
+  "test_credentials": "admin@allsale.events / admin123 — only seeded user. user_id=user_b2cf0afabe69.",
+  "seed_data_creation": "None — only persistent change was enabling the refund policy (enabled=true, cutoff_hours=48, refund_pct=100) on event evt_656b89734cd7 via the UI save test.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Critical: OrganizerProfile page is broken because of a one-line API path mismatch — /pages/OrganizerProfile.jsx:29 calls `/organizers/${id}` but backend only exposes `/organizers/{id}/public`. This is a small one-line fix. FollowOrganizerButton itself is fine — works on EventDetail at /events/evt_656b89734cd7 (renders follow-{orgId} wrapper with follow-btn/unfollow-btn child + follower-count='0'). To test transfers/refunds end-to-end against the live preview you need a non-admin user with a booking — none seeded. PwaInstallBanner can only be verified visually in a real Chrome with installability heuristics — DOM probe returns null in Playwright (expected).",
+  "rca of the issue": "OrganizerProfile 404 RCA: /app/frontend/src/pages/OrganizerProfile.jsx line 29 does `const { data } = await api.get(`/organizers/${id}`);` but /app/backend/routers/follows.py only registers `@router.get('/organizers/{organizer_id}/public')`. There is NO GET /organizers/{id} route — only the /public variant. The frontend then hits the FastAPI 404, the catch block in OrganizerProfile sets organizer=null, and the page renders the [data-testid='organizer-profile-not-found'] 404 card. Fix: replace `/organizers/${id}` with `/organizers/${id}/public` and adapt: the response is {organizer:{user_id,name,picture,bio,joined_at}, follower_count, upcoming_count, upcoming_events:[...]} — currently the component likely expects the organizer fields at the top level. Verified curl: `GET /api/organizers/user_b2cf0afabe69 → 404 'Organizer not found'`; `GET /api/organizers/user_b2cf0afabe69/public → 200 {organizer:{...}, follower_count:0, ...}`."
+}

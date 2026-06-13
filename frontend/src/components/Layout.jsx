@@ -3,6 +3,7 @@ import { useAuth } from "@/lib/auth";
 import { Search, LogOut, ShieldCheck, LayoutDashboard, Ticket, Sparkles, Menu, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
+import PwaInstallBanner from "@/components/PwaInstallBanner";
 
 /**
  * Site shell with a fully responsive header.
@@ -52,6 +53,7 @@ export default function Layout({ children }) {
 
   return (
     <div className="min-h-screen grain">
+      <PwaInstallBanner />
       <header className="sticky top-0 z-50 glass border-b" style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2 flex items-center gap-3 sm:gap-6">
           <Link to="/" className="inline-flex items-center flex-shrink-0" data-testid="brand-link">

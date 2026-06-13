@@ -204,6 +204,33 @@ async def checkout_session(payload: CheckoutIn, request: Request, user: dict = D
 
     success_url = f"{payload.origin_url}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{payload.origin_url}/checkout/{payload.booking_id}"
+
+    # Stripe Tax — when enabled, use the raw stripe SDK path so we can pass
+    # automatic_tax. Otherwise stick with the emergent wrapper (which is
+    # battle-tested for the legacy buyer-pays-fees flow).
+    try:
+        from routers.stripe_tax import stripe_tax_enabled, build_checkout_session_with_tax
+        if stripe_tax_enabled():
+            tax_sess = await build_checkout_session_with_tax(
+                booking=booking, event=event,
+                success_url=success_url, cancel_url=cancel_url,
+            )
+            await db.payment_transactions.insert_one({
+                "session_id": tax_sess["session_id"],
+                "booking_id": booking["booking_id"],
+                "user_id": user["user_id"],
+                "amount": booking["amount"],
+                "currency": currency,
+                "payment_status": "initiated",
+                "tax_enabled": True,
+                "created_at": utc_now().isoformat(),
+            })
+            return {"url": tax_sess["url"], "session_id": tax_sess["session_id"]}
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 — fall back to legacy path
+        logger.warning(f"[stripe-tax] fallback to legacy checkout: {exc}")
+
     req = CheckoutSessionRequest(
         amount=float(booking["amount"]), currency=currency,
         success_url=success_url, cancel_url=cancel_url,

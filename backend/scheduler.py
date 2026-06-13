@@ -219,6 +219,86 @@ async def _send_stripe_setup_nudges(db: Any) -> int:
     return sent
 
 
+async def _send_follower_weekly_digest(db) -> int:
+    """Sunday 09:00-11:00 UTC: send each follower a digest of new events
+    (approved in the last 7 days) from organizers they follow.
+
+    Dedupe stamp: `follower_digest_sent_at` on the user doc. Skipped when
+    a follower has no new events to surface (so we never send empty mail).
+    """
+    now = datetime.now(timezone.utc)
+    if now.weekday() != 6 or now.hour < 9 or now.hour > 11:
+        return 0
+    today = now.date().isoformat()
+    seven_days_ago = (now - timedelta(days=7)).isoformat()
+    sent = 0
+
+    # Find all unique follower user_ids — there'll be far fewer of them than
+    # event-follower pairs in most apps, so dedupe early.
+    follower_ids = set()
+    async for f in db.follows.find({}, {"_id": 0, "user_id": 1}):
+        follower_ids.add(f["user_id"])
+
+    for uid in follower_ids:
+        user = await db.users.find_one({"user_id": uid}, {"_id": 0})
+        if not user:
+            continue
+        if not _pref_on(user, "email_marketing", True):
+            continue
+        last_sent = user.get("follower_digest_sent_at")
+        if isinstance(last_sent, str) and last_sent.startswith(today):
+            continue
+
+        # Collect all organizer_ids they follow
+        org_ids = []
+        async for f in db.follows.find({"user_id": uid}, {"_id": 0, "organizer_id": 1}):
+            org_ids.append(f["organizer_id"])
+        if not org_ids:
+            continue
+
+        # Recent events from those organizers
+        items = []
+        async for ev in db.events.find(
+            {
+                "organizer_id": {"$in": org_ids},
+                "status": {"$in": ["approved", "published"]},
+                "created_at": {"$gte": seven_days_ago},
+                "date": {"$gte": now.isoformat()},
+            },
+            {"_id": 0, "title": 1, "organizer_id": 1, "date": 1, "venue": 1, "city": 1, "event_id": 1},
+        ).sort("date", 1).limit(10):
+            org = await db.users.find_one({"user_id": ev["organizer_id"]}, {"_id": 0, "name": 1})
+            items.append({
+                "title": ev.get("title", "New event"),
+                "organizer_name": (org or {}).get("name") or "Organizer",
+                "when_human": _format_when(ev.get("date", "")),
+                "venue": f"{ev.get('venue','')}, {ev.get('city','')}",
+                "url": f"https://www.allsale.events/events/{ev['event_id']}",
+            })
+
+        if not items:
+            continue
+
+        target = user.get("notification_email") or user.get("email")
+        if not target:
+            continue
+        try:
+            send_template_fireforget(
+                "follower_weekly_digest",
+                target,
+                {"follower_name": user.get("name") or "there", "items": items},
+                db,
+            )
+            await db.users.update_one(
+                {"user_id": uid},
+                {"$set": {"follower_digest_sent_at": now.isoformat()}},
+            )
+            sent += 1
+        except Exception as exc:  # pragma: no cover
+            logger.exception("follower digest failed for %s: %s", uid, exc)
+    return sent
+
+
 async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
     """Top-level loop — sleeps 30s on startup, then ticks every `interval_seconds`."""
     await asyncio.sleep(30)
@@ -227,11 +307,12 @@ async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
             n_reminders = await _send_24h_reminders(db)
             n_digest = await _send_weekly_digest(db)
             n_nudge = await _send_stripe_setup_nudges(db)
+            n_fdigest = await _send_follower_weekly_digest(db)
             payout_summary = await run_due_event_payouts(db)
-            if n_reminders or n_digest or n_nudge or payout_summary.get("paid") or payout_summary.get("failed"):
+            if n_reminders or n_digest or n_nudge or n_fdigest or payout_summary.get("paid") or payout_summary.get("failed"):
                 logger.info(
-                    "[scheduler] reminders=%s digest=%s nudges=%s payouts=%s",
-                    n_reminders, n_digest, n_nudge, payout_summary,
+                    "[scheduler] reminders=%s digest=%s nudges=%s fdigest=%s payouts=%s",
+                    n_reminders, n_digest, n_nudge, n_fdigest, payout_summary,
                 )
         except Exception as exc:  # pragma: no cover
             logger.exception("[scheduler] tick failed: %s", exc)

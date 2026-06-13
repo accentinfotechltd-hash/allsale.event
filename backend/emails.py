@@ -274,7 +274,121 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "admin_blast": lambda ctx: _t_admin_blast(ctx),
     "admin_new_event_submitted": lambda ctx: _t_admin_new_event_submitted(ctx),
     "organizer_stripe_setup_nudge": lambda ctx: _t_organizer_stripe_setup_nudge(ctx),
+    "follower_new_event": lambda ctx: _t_follower_new_event(ctx),
+    "follower_weekly_digest": lambda ctx: _t_follower_weekly_digest(ctx),
+    "ticket_transfer_offer": lambda ctx: _t_ticket_transfer_offer(ctx),
 }
+
+
+def _t_ticket_transfer_offer(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Email to the recipient of a ticket transfer with a one-click claim link."""
+    sender = (ctx.get("sender_name") or "An Allsale member")[:120]
+    title = (ctx.get("event_title") or "an event")[:200]
+    venue = (ctx.get("venue") or "")[:200]
+    when_iso = ctx.get("event_date_iso") or ""
+    when_human = ""
+    try:
+        if when_iso:
+            dt = datetime.fromisoformat(when_iso.replace("Z", "+00:00"))
+            when_human = dt.strftime("%a %b %d · %I:%M %p").lstrip("0")
+    except Exception:  # noqa: BLE001
+        when_human = when_iso
+    claim_url = (ctx.get("claim_url") or "https://www.allsale.events")
+    note = (ctx.get("note") or "")[:500]
+    note_html = (
+        f"<p style='border-left:3px solid #FF4F00;padding:6px 12px;background:#fff7f0;color:#444;font-style:italic'>{_h(note)}</p>"
+        if note else ""
+    )
+    subj = f"🎁 {sender} sent you a ticket: {title}"
+    html = _wrap_html(
+        f"""
+        <p><strong>{_h(sender)}</strong> has transferred a ticket to you:</p>
+        <h2 style="margin:18px 0 6px;font-family:Georgia,serif;font-size:22px">{_h(title)}</h2>
+        <p style="color:#666;font-size:13px;margin:0 0 14px">{_h(when_human)} · {_h(venue)}</p>
+        {note_html}
+        <p style="margin-top:18px">
+          <a href="{_h(claim_url)}" style="display:inline-block;background:#FF4F00;color:#fff;padding:12px 24px;border-radius:9999px;text-decoration:none;font-weight:600">Accept ticket</a>
+        </p>
+        <p style="color:#999;font-size:12px;margin-top:18px">If the email above doesn't match the address you sign up with, this transfer can't be accepted. Tap the link to sign in or create an account first. The transfer expires in 7 days.</p>
+        """
+    )
+    text = f"{sender} sent you a ticket to {title} ({when_human}, {venue}).\nAccept: {claim_url}"
+    return subj, html, text
+
+
+def _t_follower_new_event(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """One-shot 'new event from an organizer you follow' email.
+    Fired on event approval to each follower (notifications_enabled != False).
+    """
+    follower = (ctx.get("follower_name") or "there")[:80]
+    organizer = (ctx.get("organizer_name") or "an organizer you follow")[:120]
+    title = (ctx.get("event_title") or "New event")[:200]
+    venue = (ctx.get("venue") or "")[:200]
+    when_iso = ctx.get("event_date_iso") or ""
+    when_human = ""
+    try:
+        if when_iso:
+            dt = datetime.fromisoformat(when_iso.replace("Z", "+00:00"))
+            when_human = dt.strftime("%a %b %d · %I:%M %p").lstrip("0")
+    except Exception:  # noqa: BLE001
+        when_human = when_iso
+    event_url = (ctx.get("event_url") or "https://www.allsale.events")
+    subj = f"🎟 {organizer} just announced: {title}"
+    html = _wrap_html(
+        f"""
+        <p>Hey {_h(follower)},</p>
+        <p><strong>{_h(organizer)}</strong> just published a new event you might want to see —</p>
+        <h2 style="margin:24px 0 8px;font-family:Georgia,serif;font-size:24px;line-height:1.2;color:#1a1a1a">{_h(title)}</h2>
+        <p style="color:#666;font-size:13px;margin:0 0 16px">
+          {_h(when_human)} · {_h(venue)}
+        </p>
+        <p>
+          <a href="{_h(event_url)}" style="display:inline-block;background:#FF4F00;color:#fff;padding:12px 24px;border-radius:9999px;text-decoration:none;font-weight:600">View event</a>
+        </p>
+        <p style="color:#999;font-size:12px;margin-top:32px">You're getting this because you follow {_h(organizer)}. <a href="{_h(event_url)}" style="color:#999">Unfollow</a> on their page anytime.</p>
+        """
+    )
+    text = (
+        f"Hey {follower},\n\n{organizer} just published a new event:\n"
+        f"\n  {title}\n  {when_human} — {venue}\n\nView event: {event_url}\n"
+    )
+    return subj, html, text
+
+
+def _t_follower_weekly_digest(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Sunday weekly digest of new events from all the organizers a user
+    follows. Skipped client-side if no new events this week."""
+    follower = (ctx.get("follower_name") or "there")[:80]
+    items = ctx.get("items") or []  # [{title, organizer_name, when_human, venue, url}]
+    if not items:
+        # Caller is responsible for not sending an empty digest, but be safe.
+        items = []
+    items_html = "".join(
+        f"""
+        <div style="border:1px solid #e8e6dc;border-radius:12px;padding:14px;margin-bottom:10px;background:#fafaf8">
+          <div style="font-size:11px;color:#FF4F00;font-weight:600;letter-spacing:0.08em;text-transform:uppercase">{_h(it.get('when_human',''))}</div>
+          <div style="font-size:16px;font-weight:600;margin:4px 0 2px">{_h(it.get('title',''))}</div>
+          <div style="color:#666;font-size:13px;margin-bottom:8px">By {_h(it.get('organizer_name',''))} · {_h(it.get('venue',''))}</div>
+          <a href="{_h(it.get('url',''))}" style="color:#FF4F00;font-weight:600;font-size:13px;text-decoration:none">View event →</a>
+        </div>
+        """
+        for it in items
+    )
+    subj = f"Your Allsale weekly: {len(items)} new event{'s' if len(items)!=1 else ''} from organizers you follow"
+    html = _wrap_html(
+        f"""
+        <p>Hey {_h(follower)},</p>
+        <p>Here's what's new this week from organizers you follow:</p>
+        {items_html}
+        <p style="color:#999;font-size:12px;margin-top:32px">Manage your follows on your <a href="https://www.allsale.events/me/following" style="color:#999">following page</a>.</p>
+        """
+    )
+    text = (
+        f"Hey {follower},\n\nNew this week from organizers you follow:\n\n"
+        + "\n".join(f"- {it.get('title')} ({it.get('when_human')}) — {it.get('url')}" for it in items)
+        + "\n"
+    )
+    return subj, html, text
 
 
 def _t_organizer_contact_message(ctx: Dict[str, Any]) -> tuple[str, str, str]:

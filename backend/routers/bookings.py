@@ -2,7 +2,7 @@
 import uuid
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pymongo.errors import DuplicateKeyError
 
 from core import (
@@ -19,7 +19,7 @@ router = APIRouter(tags=["bookings"])
 
 
 @router.post("/bookings/hold")
-async def create_hold(payload: HoldIn, user: dict = Depends(get_current_user)):
+async def create_hold(payload: HoldIn, request: Request, user: dict = Depends(get_current_user)):
     event = await db.events.find_one({"event_id": payload.event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -172,6 +172,26 @@ async def create_hold(payload: HoldIn, user: dict = Depends(get_current_user)):
         "amount": round(fee_breakdown.buyer_total, 2),
     })
     await db.bookings.insert_one(booking_doc)
+
+    # Affiliate attribution — pull the cookie (or query param fallback) and
+    # attach affiliate_code/id to the booking. Best-effort; never blocks the
+    # hold creation.
+    try:
+        from routers.affiliates import affiliate_code_from_cookie, attribute_booking
+        aff_code = affiliate_code_from_cookie(request) or request.query_params.get("aff")
+        if aff_code:
+            await attribute_booking(booking_doc, aff_code)
+            if booking_doc.get("affiliate_id"):
+                await db.bookings.update_one(
+                    {"booking_id": booking_doc["booking_id"]},
+                    {"$set": {
+                        "affiliate_code": booking_doc["affiliate_code"],
+                        "affiliate_id": booking_doc["affiliate_id"],
+                        "affiliate_commission_pct": booking_doc["affiliate_commission_pct"],
+                    }},
+                )
+    except Exception:  # noqa: BLE001
+        pass
 
     # Live broadcast: tell anyone watching the seatmap/tier counts changed
     if seats:

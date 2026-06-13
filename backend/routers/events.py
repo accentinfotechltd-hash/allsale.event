@@ -209,6 +209,8 @@ async def create_event(payload: EventIn, user: dict = Depends(get_current_user))
         "seatmap_backdrop_offset_y": payload.seatmap_backdrop_offset_y,
         "seatmap_backdrop_offset_x": payload.seatmap_backdrop_offset_x,
         "seatmap_backdrop_scale": payload.seatmap_backdrop_scale,
+        "refund_policy": payload.refund_policy,
+        "auto_promo_disabled": bool(payload.auto_promo_disabled),
         "status": "approved" if user.get("role") == "admin" else "pending",
         "featured": False,
         "created_at": utc_now().isoformat(),
@@ -266,7 +268,7 @@ async def update_event(event_id: str, payload: dict, user: dict = Depends(get_cu
         "seatmap_curved", "seatmap_numbering_rtl", "seatmap_sections",
         "seatmap_backdrop_opacity", "seatmap_backdrop_offset_y",
         "seatmap_backdrop_offset_x", "seatmap_backdrop_scale",
-        "currency",
+        "currency", "refund_policy", "auto_promo_disabled",
     }
     update = {k: v for k, v in (payload or {}).items() if k in EDITABLE}
     if not update:
