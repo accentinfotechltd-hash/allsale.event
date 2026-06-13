@@ -70,7 +70,7 @@ export default function Landing() {
               <br /> Tickets are <em>limited</em>.
             </h1>
             <p className="text-base sm:text-lg max-w-xl mb-8" style={{ color: "var(--text-muted)" }}>
-              Aotearoa&apos;s ticketing platform where <strong style={{ color: "var(--text)" }}>organizers keep 100%</strong> of the ticket price and fans pay one transparent service fee. Concerts, comedy, sports, theatre, festivals — locked seats, no scalpers, refundable on the organizer&apos;s terms.
+              Aotearoa&apos;s ticketing platform where <strong style={{ color: "var(--text)" }}>organizers keep 100%</strong> of the ticket price. Concerts, comedy, sports, theatre, festivals — locked seats, no scalpers, refundable on the organizer&apos;s terms.
             </p>
             <form
               onSubmit={(e) => { e.preventDefault(); nav(`/events?q=${encodeURIComponent(q)}`); }}
