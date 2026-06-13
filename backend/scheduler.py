@@ -299,6 +299,92 @@ async def _send_follower_weekly_digest(db) -> int:
     return sent
 
 
+async def _check_webhook_silent_failure(db) -> bool:
+    """Detect silent webhook failures.
+
+    Fires once per day (between 09-10 UTC) if either:
+      - STRIPE_CONNECT_WEBHOOK_SECRET is set in env BUT no deliveries received in 48h
+      - OR signature verifications have been failing (sentinel: all recent
+        deliveries have `signature_verified=False`)
+
+    Sends to ADMIN_ALERT_EMAIL (falls back to allsaletickets@gmail.com).
+    Dedupes via `platform_settings.webhook_alert_last_sent`.
+
+    Common breakage modes this catches:
+      - Stripe rotated the signing secret and Railway env var is stale
+      - Railway env var got deleted/renamed in a deploy
+      - Webhook endpoint disabled on Stripe dashboard
+      - Domain DNS changes broke the webhook URL
+    """
+    import os as _os
+    now = datetime.now(timezone.utc)
+    if now.hour != 9:  # run once daily
+        return False
+    secret_configured = bool(_os.environ.get("STRIPE_CONNECT_WEBHOOK_SECRET"))
+    if not secret_configured:
+        # The setup card on the admin page already covers this case visually.
+        return False
+
+    # Dedupe — don't email more than once per 24h
+    settings = await db.platform_settings.find_one({"key": "webhook_health"}, {"_id": 0}) or {}
+    last_sent = settings.get("alert_last_sent")
+    if isinstance(last_sent, str):
+        try:
+            last_dt = datetime.fromisoformat(last_sent.replace("Z", "+00:00"))
+            if (now - last_dt).total_seconds() < 22 * 3600:
+                return False
+        except Exception:  # noqa: BLE001
+            pass
+
+    forty_eight_hrs_ago = (now - timedelta(hours=48)).isoformat()
+    recent_count = await db.webhook_deliveries.count_documents({
+        "source": "stripe_connect",
+        "received_at": {"$gte": forty_eight_hrs_ago},
+    })
+
+    # Only alert if the platform has actually been operational (>0 events ever).
+    # New deployments get a 7-day grace period.
+    total_ever = await db.webhook_deliveries.count_documents({"source": "stripe_connect"})
+    if total_ever == 0:
+        return False
+
+    if recent_count > 0:
+        return False  # healthy
+
+    # Build alert email
+    admin_email = (
+        _os.environ.get("ADMIN_ALERT_EMAIL")
+        or "allsaletickets@gmail.com"
+    )
+    last_delivery_doc = await db.webhook_deliveries.find_one(
+        {"source": "stripe_connect"}, sort=[("received_at", -1)],
+    )
+    last_delivery_at = (last_delivery_doc or {}).get("received_at") or "never"
+
+    try:
+        send_template_fireforget(
+            "admin_webhook_silent_failure",
+            admin_email,
+            {
+                "last_delivery_at": last_delivery_at,
+                "total_ever": total_ever,
+                "now_iso": now.isoformat(),
+                "dashboard_url": "https://www.allsale.events/admin",
+            },
+            db,
+        )
+    except Exception as exc:  # pragma: no cover
+        logger.exception("webhook alert failed: %s", exc)
+        return False
+
+    await db.platform_settings.update_one(
+        {"key": "webhook_health"},
+        {"$set": {"alert_last_sent": now.isoformat()}},
+        upsert=True,
+    )
+    return True
+
+
 async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
     """Top-level loop — sleeps 30s on startup, then ticks every `interval_seconds`."""
     await asyncio.sleep(30)
@@ -308,11 +394,12 @@ async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
             n_digest = await _send_weekly_digest(db)
             n_nudge = await _send_stripe_setup_nudges(db)
             n_fdigest = await _send_follower_weekly_digest(db)
+            webhook_alert = await _check_webhook_silent_failure(db)
             payout_summary = await run_due_event_payouts(db)
-            if n_reminders or n_digest or n_nudge or n_fdigest or payout_summary.get("paid") or payout_summary.get("failed"):
+            if n_reminders or n_digest or n_nudge or n_fdigest or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
                 logger.info(
-                    "[scheduler] reminders=%s digest=%s nudges=%s fdigest=%s payouts=%s",
-                    n_reminders, n_digest, n_nudge, n_fdigest, payout_summary,
+                    "[scheduler] reminders=%s digest=%s nudges=%s fdigest=%s webhook_alert=%s payouts=%s",
+                    n_reminders, n_digest, n_nudge, n_fdigest, webhook_alert, payout_summary,
                 )
         except Exception as exc:  # pragma: no cover
             logger.exception("[scheduler] tick failed: %s", exc)

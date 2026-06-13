@@ -277,7 +277,44 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "follower_new_event": lambda ctx: _t_follower_new_event(ctx),
     "follower_weekly_digest": lambda ctx: _t_follower_weekly_digest(ctx),
     "ticket_transfer_offer": lambda ctx: _t_ticket_transfer_offer(ctx),
+    "admin_webhook_silent_failure": lambda ctx: _t_admin_webhook_silent_failure(ctx),
 }
+
+
+def _t_admin_webhook_silent_failure(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Operational alert: Stripe Connect webhook hasn't delivered in 48h."""
+    last_at = (ctx.get("last_delivery_at") or "never")[:30]
+    total = ctx.get("total_ever") or 0
+    dash = (ctx.get("dashboard_url") or "https://www.allsale.events/admin")
+    subj = "⚠️ Allsale: Stripe Connect webhook silent for 48h"
+    html = _wrap_html(
+        f"""
+        <p>Heads-up — your Stripe Connect webhook hasn&apos;t delivered any events in the last 48 hours.</p>
+        <p><strong>Status</strong></p>
+        <ul>
+          <li>Last delivery: <code>{_h(last_at)}</code></li>
+          <li>Total deliveries ever: <strong>{total}</strong></li>
+          <li>Signing secret env var: <strong>set</strong> (otherwise this alert wouldn&apos;t fire)</li>
+        </ul>
+        <p><strong>Common causes</strong></p>
+        <ol>
+          <li>Stripe rotated the signing secret — Railway env <code>STRIPE_CONNECT_WEBHOOK_SECRET</code> is now stale.</li>
+          <li>Webhook destination disabled on the Stripe dashboard.</li>
+          <li>Railway env var deleted/renamed in a deploy.</li>
+          <li>DNS / SSL change broke <code>www.allsale.events/api/webhook/stripe/connect</code>.</li>
+        </ol>
+        <p>
+          <a href="{_h(dash)}" style="display:inline-block;background:#FF4F00;color:#fff;padding:12px 24px;border-radius:9999px;text-decoration:none;font-weight:600">Open Admin → Stripe diagnostics</a>
+        </p>
+        <p style="color:#999;font-size:12px;margin-top:24px">This alert fires once per day max. To stop: set <code>ADMIN_ALERT_EMAIL=</code> to silence, or fix the webhook so events flow again.</p>
+        """
+    )
+    text = (
+        f"Stripe Connect webhook silent for 48h.\n"
+        f"Last delivery: {last_at}\nTotal ever: {total}\n"
+        f"Investigate: {dash}\n"
+    )
+    return subj, html, text
 
 
 def _t_ticket_transfer_offer(ctx: Dict[str, Any]) -> tuple[str, str, str]:

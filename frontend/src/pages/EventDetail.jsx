@@ -7,6 +7,7 @@ import DemandSparkline from "@/components/DemandSparkline";
 import useEventLiveUpdates from "@/lib/useEventLiveUpdates";
 import { ContactOrganizerButton } from "@/components/ContactOrganizerDialog";
 import FollowOrganizerButton from "@/components/FollowOrganizerButton";
+import AffiliateBanner from "@/components/AffiliateBanner";
 import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/currencies";
@@ -260,6 +261,7 @@ export default function EventDetail() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 grid lg:grid-cols-[1fr_400px] gap-8 lg:gap-12">
         {/* Main */}
         <div>
+          <AffiliateBanner />
           <div className="flex flex-wrap gap-3 sm:gap-5 mb-6 sm:mb-8 text-sm" style={{ color: "var(--text-muted)" }}>
             <div className="flex items-center gap-2"><Calendar className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> {date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}, {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
             <div className="flex items-center gap-2"><MapPin className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> {event.venue}, {event.city}</div>
