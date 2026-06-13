@@ -278,7 +278,103 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "follower_weekly_digest": lambda ctx: _t_follower_weekly_digest(ctx),
     "ticket_transfer_offer": lambda ctx: _t_ticket_transfer_offer(ctx),
     "admin_webhook_silent_failure": lambda ctx: _t_admin_webhook_silent_failure(ctx),
+    "organizer_welcome_1_signup": lambda ctx: _t_organizer_welcome_1_signup(ctx),
+    "organizer_welcome_2_publish": lambda ctx: _t_organizer_welcome_2_publish(ctx),
+    "organizer_welcome_3_first_sale": lambda ctx: _t_organizer_welcome_3_first_sale(ctx),
+    "organizer_welcome_4_reactivate": lambda ctx: _t_organizer_welcome_4_reactivate(ctx),
 }
+
+
+def _t_organizer_welcome_1_signup(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Email 1 — fired immediately after an organizer account is created."""
+    name = (ctx.get("organizer_name") or "there")[:80]
+    subj = "Welcome to Allsale 🎟️ — let's get your first event live"
+    html = _wrap_html(
+        f"""
+        <p>Kia ora {_h(name)},</p>
+        <p>Welcome to <strong>Allsale Events</strong> — Aotearoa&apos;s ticketing platform where organizers keep 100% of the ticket price.</p>
+        <h3 style="font-family:Georgia,serif;font-size:20px;margin-top:24px">3 things to do today</h3>
+        <ol style="line-height:1.7">
+          <li><strong>Create your first event</strong> — title, date, venue, tiers. Takes ~5 minutes.<br><a href="https://www.allsale.events/organizer/new" style="color:#FF4F00">→ Create event</a></li>
+          <li><strong>Connect your Stripe account</strong> so you can get paid (we use Stripe Connect Express — quick onboarding, payouts straight to your bank).<br><a href="https://www.allsale.events/organizer" style="color:#FF4F00">→ Open Payouts</a></li>
+          <li><strong>Set your refund policy</strong> — e.g. &ldquo;full refund up to 48h before&rdquo;. Attendees self-serve; you don&apos;t lift a finger.</li>
+        </ol>
+        <p>Questions? Just reply to this email — it goes straight to our team.</p>
+        <p>– The Allsale crew</p>
+        """
+    )
+    text = f"Kia ora {name},\n\nWelcome to Allsale. Create your first event: https://www.allsale.events/organizer/new\nConnect Stripe to get paid: https://www.allsale.events/organizer\n"
+    return subj, html, text
+
+
+def _t_organizer_welcome_2_publish(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Email 2 — fired 48h after signup if no event submitted yet."""
+    name = (ctx.get("organizer_name") or "there")[:80]
+    subj = "Still thinking about your first event? Here's what works ✨"
+    html = _wrap_html(
+        f"""
+        <p>Hey {_h(name)},</p>
+        <p>Noticed you haven&apos;t listed your first event yet. No worries — here&apos;s a quick playbook from organizers who&apos;ve sold out on Allsale:</p>
+        <ul style="line-height:1.8">
+          <li><strong>One sharp photo</strong> beats a wall of copy. Square or 4:5 ratio for the hero image.</li>
+          <li><strong>Tiered pricing</strong> (e.g. Early Bird → GA → VIP) creates urgency from day one.</li>
+          <li><strong>Auto FIRST50 promo</strong> — every approved event gets a 10% off &ldquo;first 50 buyers&rdquo; code automatically. We&apos;ve seen it convert 3-4× faster on launch day.</li>
+          <li><strong>Affiliate codes for influencers</strong> — generate a code in 30 seconds, hand it to a local micro-influencer, watch trackable traffic roll in.</li>
+        </ul>
+        <p><a href="https://www.allsale.events/organizer/new" style="display:inline-block;background:#FF4F00;color:#fff;padding:12px 24px;border-radius:9999px;text-decoration:none;font-weight:600;margin-top:8px">Create your event →</a></p>
+        <p style="color:#999;font-size:12px;margin-top:24px">Need help? Reply to this email and we&apos;ll set it up with you on a 15-min call.</p>
+        """
+    )
+    text = f"Hey {name}, here's how organizers sell out on Allsale.\nCreate event: https://www.allsale.events/organizer/new"
+    return subj, html, text
+
+
+def _t_organizer_welcome_3_first_sale(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Email 3 — fired on the FIRST paid booking on any of the organizer's events."""
+    name = (ctx.get("organizer_name") or "there")[:80]
+    event_title = (ctx.get("event_title") or "your event")[:200]
+    amount = ctx.get("amount") or 0
+    currency = (ctx.get("currency") or "NZD")[:6].upper()
+    subj = f"🎉 You just made your first sale on {_h(event_title)}"
+    html = _wrap_html(
+        f"""
+        <p>Massive moment, {_h(name)} —</p>
+        <p>You just sold your first ticket to <strong>{_h(event_title)}</strong> for <strong>{currency} {amount:.2f}</strong>. 🍾</p>
+        <p>Here&apos;s what happens next:</p>
+        <ul style="line-height:1.7">
+          <li>Funds are <strong>held by Stripe for 5 days post-event</strong> (industry-standard chargeback window), then auto-transferred to your bank.</li>
+          <li>Track live sales in your dashboard → <a href="https://www.allsale.events/organizer" style="color:#FF4F00">organizer dashboard</a></li>
+          <li>Want more sales? <strong>Create an affiliate code</strong> for a local influencer or DJ — they paste your link, you track conversions, pay commission only on actual sales.</li>
+        </ul>
+        <p>Keep the momentum — share your event on socials, in WhatsApp groups, and use the embed widget to drop a live event list on your own website.</p>
+        <p>– The Allsale crew</p>
+        """
+    )
+    text = f"You just made your first sale on {event_title}! Track sales: https://www.allsale.events/organizer"
+    return subj, html, text
+
+
+def _t_organizer_welcome_4_reactivate(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Email 4 — fired 14d after an event ends if the organizer hasn't created
+    a new one. Encourages a follow-up to drive repeat revenue."""
+    name = (ctx.get("organizer_name") or "there")[:80]
+    last_event = (ctx.get("last_event_title") or "your last event")[:200]
+    subj = "Time to do it again? 👀"
+    html = _wrap_html(
+        f"""
+        <p>Hey {_h(name)},</p>
+        <p>It&apos;s been a couple of weeks since <strong>{_h(last_event)}</strong> wrapped. People are already asking when the next one drops 📣</p>
+        <p>3 ways to ride the momentum:</p>
+        <ol style="line-height:1.7">
+          <li><strong>Announce now</strong> — your followers from {_h(last_event)} will see it first (they get an auto-email from Allsale).</li>
+          <li><strong>Reuse the seat map</strong> — duplicate your old event in 2 clicks, change the date, done.</li>
+          <li><strong>Run a presale</strong> with a promo code only for past attendees — instant warm conversions.</li>
+        </ol>
+        <p><a href="https://www.allsale.events/organizer/new" style="display:inline-block;background:#FF4F00;color:#fff;padding:12px 24px;border-radius:9999px;text-decoration:none;font-weight:600">Plan your next event →</a></p>
+        """
+    )
+    text = f"Hey {name}, time for your next event? Plan: https://www.allsale.events/organizer/new"
+    return subj, html, text
 
 
 def _t_admin_webhook_silent_failure(ctx: Dict[str, Any]) -> tuple[str, str, str]:

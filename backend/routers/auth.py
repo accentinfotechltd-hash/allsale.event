@@ -40,6 +40,18 @@ async def register(payload: RegisterIn, response: Response):
         await attach_pending_team_invites(doc)
     except Exception:
         pass
+    # Fire welcome email #1 to organizers — fire-and-forget, never blocks signup.
+    if payload.role == "organizer":
+        try:
+            from emails import send_template_fireforget
+            send_template_fireforget(
+                "organizer_welcome_1_signup",
+                email,
+                {"organizer_name": payload.name},
+                db,
+            )
+        except Exception:
+            pass
     token = create_access_token(user_id, email)
     set_jwt_cookie(response, token)
     return {
@@ -282,6 +294,17 @@ async def become_organizer(user: dict = Depends(get_current_user)):
         {"user_id": user["user_id"]},
         {"$set": {"role": "organizer", "upgraded_at": utc_now().isoformat()}},
     )
+    # Welcome them as a new organizer.
+    try:
+        from emails import send_template_fireforget
+        send_template_fireforget(
+            "organizer_welcome_1_signup",
+            user.get("email"),
+            {"organizer_name": user.get("name") or "there"},
+            db,
+        )
+    except Exception:
+        pass
     refreshed = await db.users.find_one({"user_id": user["user_id"]}, {"_id": 0, "password_hash": 0})
     return {**refreshed, "upgraded": True}
 

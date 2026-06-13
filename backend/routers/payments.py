@@ -292,6 +292,45 @@ async def _finalize_paid_booking(booking_id: str, session_id: str | None = None)
         )
     await _send_booking_confirmation_email(booking_id)
     logger.info(f"[booking_paid] {booking_id} — confirmation email queued")
+
+    # Welcome email #3 — fired ONCE on the organizer's first ever paid sale.
+    # Guarded by `organizer.first_sale_email_sent_at` to be idempotent.
+    try:
+        booking_for_org = await db.bookings.find_one(
+            {"booking_id": booking_id},
+            {"_id": 0, "event_id": 1, "amount": 1, "currency": 1},
+        )
+        if booking_for_org:
+            event_doc = await db.events.find_one(
+                {"event_id": booking_for_org["event_id"]},
+                {"_id": 0, "organizer_id": 1, "title": 1, "currency": 1},
+            )
+            if event_doc and event_doc.get("organizer_id"):
+                organizer = await db.users.find_one(
+                    {"user_id": event_doc["organizer_id"], "first_sale_email_sent_at": {"$exists": False}},
+                    {"_id": 0, "email": 1, "notification_email": 1, "name": 1, "user_id": 1},
+                )
+                if organizer:
+                    target = organizer.get("notification_email") or organizer.get("email")
+                    if target:
+                        from emails import send_template_fireforget as _ff
+                        _ff(
+                            "organizer_welcome_3_first_sale",
+                            target,
+                            {
+                                "organizer_name": organizer.get("name") or "there",
+                                "event_title": event_doc.get("title", "your event"),
+                                "amount": float(booking_for_org.get("amount") or 0),
+                                "currency": event_doc.get("currency") or booking_for_org.get("currency") or "NZD",
+                            },
+                            db,
+                        )
+                        await db.users.update_one(
+                            {"user_id": organizer["user_id"]},
+                            {"$set": {"first_sale_email_sent_at": utc_now().isoformat()}},
+                        )
+    except Exception:  # noqa: BLE001 — never block payment confirmation
+        pass
     # Live broadcast — seats went from held → booked.
     booking_doc = await db.bookings.find_one({"booking_id": booking_id}, {"_id": 0})
     if booking_doc:

@@ -70,7 +70,7 @@ export default function Landing() {
               <br /> Tickets are <em>limited</em>.
             </h1>
             <p className="text-base sm:text-lg max-w-xl mb-8" style={{ color: "var(--text-muted)" }}>
-              Discover concerts, comedy, sports, theater and festivals — and lock your seat with a 10-minute hold while you check out. No surprises, no scalpers.
+              Aotearoa&apos;s ticketing platform where <strong style={{ color: "var(--text)" }}>organizers keep 100%</strong> of the ticket price and fans pay one transparent service fee. Concerts, comedy, sports, theatre, festivals — locked seats, no scalpers, refundable on the organizer&apos;s terms.
             </p>
             <form
               onSubmit={(e) => { e.preventDefault(); nav(`/events?q=${encodeURIComponent(q)}`); }}
@@ -94,7 +94,7 @@ export default function Landing() {
 
             <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mt-10 text-sm" style={{ color: "var(--text-muted)" }}>
               <div className="flex items-center gap-2 whitespace-nowrap"><Zap className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> Instant e-tickets</div>
-              <div className="flex items-center gap-2 whitespace-nowrap"><Award className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> Verified organizers</div>
+              <div className="flex items-center gap-2 whitespace-nowrap"><Award className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> Paid out in 5 days</div>
               <div className="flex items-center gap-2 whitespace-nowrap"><Calendar className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> 10-min seat hold</div>
             </div>
           </div>
@@ -230,6 +230,30 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* WHY ORGANIZERS — comparison strip */}
+      <section className="max-w-7xl mx-auto px-6 pb-16" data-testid="why-organizers">
+        <div className="text-xs uppercase tracking-[0.3em] mb-2 text-center" style={{ color: "var(--accent)" }}>Why promoters move to Allsale</div>
+        <h2 className="serif text-4xl text-center mb-10">Keep more. Sell faster. Stress less.</h2>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[
+            { kpi: "100%", label: "of face value kept", sub: "Buyers pay the service fee — you keep every cent of the ticket price." },
+            { kpi: "5 days", label: "payout after event", sub: "Most platforms hold 30+. We release straight to your bank in five." },
+            { kpi: "70 / 30", label: "auto revenue splits", sub: "Co-promoting? Split a single event between multiple Stripe accounts automatically." },
+            { kpi: "0 ¢", label: "to list", sub: "Free event listing, free seat map builder, free QR scanning. You pay zero up-front." },
+          ].map((item, i) => (
+            <div
+              key={item.kpi}
+              className="rounded-xl border p-5 fade-up"
+              style={{ borderColor: "var(--border)", animationDelay: `${i * 0.05}s`, background: "var(--bg-card)" }}
+            >
+              <div className="serif text-4xl mb-1" style={{ color: "var(--accent)" }}>{item.kpi}</div>
+              <div className="text-sm font-semibold mb-2" style={{ color: "var(--text)" }}>{item.label}</div>
+              <div className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>{item.sub}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* CTA */}
       <section className="max-w-7xl mx-auto px-6 pb-16">
         <div className="rounded-3xl border p-10 lg:p-16 relative overflow-hidden" style={{ borderColor: "var(--border)", background: "linear-gradient(135deg, rgba(255,79,0,0.08), transparent 60%)" }}>
@@ -238,14 +262,14 @@ export default function Landing() {
               <div className="text-xs uppercase tracking-[0.3em] mb-3" style={{ color: "var(--accent)" }}>For organizers</div>
               <h3 className="serif text-4xl lg:text-5xl leading-tight mb-4">Sell out your next show in <em style={{ color: "var(--accent)" }}>minutes</em>.</h3>
               <p className="mb-6 max-w-md" style={{ color: "var(--text-muted)" }}>
-                Set up your event, pick a seating layout, and start selling. Real-time analytics, on-the-door check-in, and zero scalper anxiety.
+                Drag-build your seat map, set tier prices, hand out affiliate codes to influencers, and watch sales hit your dashboard live. On-the-door QR scanning, refunds on your terms, and payouts in 5 days — no spreadsheets, no scalper drama, no platform tax.
               </p>
               <Link to="/signup" className="btn-primary" data-testid="cta-signup-organizer">
                 Become an organizer <ArrowRight className="w-4 h-4" />
               </Link>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              {["Live sales tracking", "Tiered pricing", "Seat maps", "QR check-in"].map((s, i) => (
+              {["Live sales tracking", "Affiliate codes", "Custom seat maps", "Auto QR check-in"].map((s, i) => (
                 <div key={s} className="glass rounded-xl p-5 fade-up" style={{ animationDelay: `${i * 0.05}s` }}>
                   <div className="serif text-2xl mb-1">0{i + 1}</div>
                   <div className="text-sm" style={{ color: "var(--text-muted)" }}>{s}</div>

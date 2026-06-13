@@ -299,6 +299,94 @@ async def _send_follower_weekly_digest(db) -> int:
     return sent
 
 
+async def _send_organizer_welcome_followups(db) -> int:
+    """Welcome email sequence:
+      #2 fires 48h after signup if the organizer hasn't published any event.
+      #4 fires 14d after their most-recent event ended if no new event scheduled.
+
+    Both are deduped via per-user stamps (`welcome_2_sent_at`, `welcome_4_sent_at`).
+    """
+    now = datetime.now(timezone.utc)
+    sent = 0
+    forty_eight_ago = (now - timedelta(hours=48)).isoformat()
+    fourteen_days_ago = (now - timedelta(days=14)).isoformat()
+    seventy_two_ago = (now - timedelta(hours=72)).isoformat()
+
+    # --- Email #2: signed up 48-72h ago, no event published ---
+    async for u in db.users.find(
+        {
+            "role": "organizer",
+            "created_at": {"$gte": seventy_two_ago, "$lte": forty_eight_ago},
+            "welcome_2_sent_at": {"$exists": False},
+        },
+        {"_id": 0, "user_id": 1, "email": 1, "name": 1, "notification_email": 1},
+    ):
+        has_event = await db.events.find_one({"organizer_id": u["user_id"]}, {"_id": 1})
+        if has_event:
+            continue
+        target = u.get("notification_email") or u.get("email")
+        if not target:
+            continue
+        try:
+            send_template_fireforget(
+                "organizer_welcome_2_publish",
+                target,
+                {"organizer_name": u.get("name") or "there"},
+                db,
+            )
+            await db.users.update_one(
+                {"user_id": u["user_id"]},
+                {"$set": {"welcome_2_sent_at": now.isoformat()}},
+            )
+            sent += 1
+        except Exception as exc:  # pragma: no cover
+            logger.warning("welcome_2 failed for %s: %s", u["user_id"], exc)
+
+    # --- Email #4: last event ended 14d ago, no future event ---
+    async for u in db.users.find(
+        {"role": "organizer", "welcome_4_sent_at": {"$exists": False}},
+        {"_id": 0, "user_id": 1, "email": 1, "name": 1, "notification_email": 1},
+    ):
+        # Most-recent past event for this organizer
+        last = await db.events.find_one(
+            {
+                "organizer_id": u["user_id"],
+                "status": {"$in": ["approved", "published", "archived"]},
+                "date": {"$lt": fourteen_days_ago},
+            },
+            {"_id": 0, "event_id": 1, "title": 1, "date": 1},
+            sort=[("date", -1)],
+        )
+        if not last:
+            continue
+        # Skip if they already have a future event scheduled.
+        future = await db.events.find_one(
+            {"organizer_id": u["user_id"], "date": {"$gte": now.isoformat()}},
+            {"_id": 1},
+        )
+        if future:
+            continue
+        target = u.get("notification_email") or u.get("email")
+        if not target:
+            continue
+        try:
+            send_template_fireforget(
+                "organizer_welcome_4_reactivate",
+                target,
+                {"organizer_name": u.get("name") or "there",
+                 "last_event_title": last.get("title", "your last event")},
+                db,
+            )
+            await db.users.update_one(
+                {"user_id": u["user_id"]},
+                {"$set": {"welcome_4_sent_at": now.isoformat()}},
+            )
+            sent += 1
+        except Exception as exc:  # pragma: no cover
+            logger.warning("welcome_4 failed for %s: %s", u["user_id"], exc)
+    return sent
+
+
 async def _check_webhook_silent_failure(db) -> bool:
     """Detect silent webhook failures.
 
@@ -394,12 +482,13 @@ async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
             n_digest = await _send_weekly_digest(db)
             n_nudge = await _send_stripe_setup_nudges(db)
             n_fdigest = await _send_follower_weekly_digest(db)
+            n_welcome = await _send_organizer_welcome_followups(db)
             webhook_alert = await _check_webhook_silent_failure(db)
             payout_summary = await run_due_event_payouts(db)
-            if n_reminders or n_digest or n_nudge or n_fdigest or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
+            if n_reminders or n_digest or n_nudge or n_fdigest or n_welcome or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
                 logger.info(
-                    "[scheduler] reminders=%s digest=%s nudges=%s fdigest=%s webhook_alert=%s payouts=%s",
-                    n_reminders, n_digest, n_nudge, n_fdigest, webhook_alert, payout_summary,
+                    "[scheduler] reminders=%s digest=%s nudges=%s fdigest=%s welcome=%s webhook_alert=%s payouts=%s",
+                    n_reminders, n_digest, n_nudge, n_fdigest, n_welcome, webhook_alert, payout_summary,
                 )
         except Exception as exc:  # pragma: no cover
             logger.exception("[scheduler] tick failed: %s", exc)
