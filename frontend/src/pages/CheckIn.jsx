@@ -23,6 +23,25 @@ export default function CheckIn() {
 
   const isTokenMode = Boolean(scannerToken);
 
+  // When loaded via the public /scan/:eventId path, install the dedicated
+  // Scanner PWA manifest so iOS/Android offers an "Add to Home Screen"
+  // prompt branded as "Allsale Scanner" (separate icon from the main app).
+  useEffect(() => {
+    if (!window.location.pathname.startsWith("/scan/")) return;
+    const id = "allsale-scanner-manifest";
+    if (!document.getElementById(id)) {
+      const link = document.createElement("link");
+      link.id = id;
+      link.rel = "manifest";
+      link.href = "/scanner.webmanifest";
+      document.head.appendChild(link);
+    }
+    const theme = document.querySelector("meta[name=theme-color]");
+    const orig = theme?.getAttribute("content");
+    theme?.setAttribute("content", "#0e0e10");
+    return () => { if (theme && orig) theme.setAttribute("content", orig); };
+  }, []);
+
   const loadStats = async () => {
     try {
       if (isTokenMode) {

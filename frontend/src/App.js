@@ -28,6 +28,7 @@ import About from "@/pages/About";
 import Contact from "@/pages/Contact";
 import OrganizerProfile from "@/pages/OrganizerProfile";
 import TransferClaim from "@/pages/TransferClaim";
+import ScannerEntry from "@/pages/ScannerEntry";
 import RequireOrganizer from "@/components/RequireOrganizer";
 
 function AppRouter() {
@@ -35,6 +36,16 @@ function AppRouter() {
   // Handle OAuth callback session_id in URL fragment BEFORE any other route logic
   if (location.hash?.includes("session_id=")) {
     return <AuthCallback />;
+  }
+  // Scanner PWA — render WITHOUT the main Layout (no nav, no footer, no
+  // banners). Scoped to /scan/* so install prompt has the right scope.
+  if (location.pathname.startsWith("/scan")) {
+    return (
+      <Routes>
+        <Route path="/scan" element={<ScannerEntry />} />
+        <Route path="/scan/:eventId" element={<CheckIn />} />
+      </Routes>
+    );
   }
   return (
     <Layout>
@@ -58,9 +69,6 @@ function AppRouter() {
         <Route path="/organizer/events/:eventId/edit" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId" element={<RequireOrganizer><OrganizerEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId/checkin" element={<RequireOrganizer><CheckIn /></RequireOrganizer>} />
-        {/* Public scanner — no login required, validated by token query param.
-            Lets door staff / volunteers scan via a shareable link. */}
-        <Route path="/scan/:eventId" element={<CheckIn />} />
         <Route path="/organizer/codes" element={<RequireOrganizer><DiscountCodes /></RequireOrganizer>} />
         <Route path="/organizer/payouts" element={<RequireOrganizer><OrganizerPayouts /></RequireOrganizer>} />
         <Route path="/organizer/transfers" element={<RequireOrganizer><OrganizerTransfers /></RequireOrganizer>} />

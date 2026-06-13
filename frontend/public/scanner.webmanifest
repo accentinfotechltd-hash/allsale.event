@@ -1,0 +1,17 @@
+{
+  "name": "Allsale Scanner",
+  "short_name": "Scanner",
+  "description": "Door check-in QR scanner for Allsale Events",
+  "id": "/scan",
+  "start_url": "/scan",
+  "scope": "/scan",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0e0e10",
+  "theme_color": "#FF4F00",
+  "categories": ["business", "utilities"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
