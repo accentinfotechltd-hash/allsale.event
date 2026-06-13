@@ -233,13 +233,16 @@ export default function Landing() {
       {/* WHY ORGANIZERS — comparison strip */}
       <section className="max-w-7xl mx-auto px-6 pb-16" data-testid="why-organizers">
         <div className="text-xs uppercase tracking-[0.3em] mb-2 text-center" style={{ color: "var(--accent)" }}>Why promoters move to Allsale</div>
-        <h2 className="serif text-4xl text-center mb-10">Keep more. Sell faster. Stress less.</h2>
+        <h2 className="serif text-4xl text-center mb-3">Price the show. Keep the show.</h2>
+        <p className="text-sm text-center max-w-xl mx-auto mb-10" style={{ color: "var(--text-muted)" }}>
+          Built in Aotearoa for promoters tired of giving away 15-20% to platforms that don&apos;t lift a finger past launch day.
+        </p>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {[
-            { kpi: "100%", label: "of face value kept", sub: "Buyers pay the service fee — you keep every cent of the ticket price." },
-            { kpi: "5 days", label: "payout after event", sub: "Most platforms hold 30+. We release straight to your bank in five." },
-            { kpi: "70 / 30", label: "auto revenue splits", sub: "Co-promoting? Split a single event between multiple Stripe accounts automatically." },
-            { kpi: "0 ¢", label: "to list", sub: "Free event listing, free seat map builder, free QR scanning. You pay zero up-front." },
+            { kpi: "100%", label: "of face value, yours", sub: "Set your price. Keep every dollar. No platform cut — ever." },
+            { kpi: "5 days", label: "payout after event", sub: "Industry-fastest. Straight to your bank — while other platforms still hold the cash." },
+            { kpi: "70 / 30", label: "auto revenue splits", sub: "Co-promoting? Split a single event across multiple Stripe accounts — automatically." },
+            { kpi: "0 ¢", label: "to list", sub: "Free event listing, free seat-map builder, free QR scanning. Sell first, pay never." },
           ].map((item, i) => (
             <div
               key={item.kpi}
@@ -260,9 +263,9 @@ export default function Landing() {
           <div className="grid md:grid-cols-2 gap-8 items-center">
             <div>
               <div className="text-xs uppercase tracking-[0.3em] mb-3" style={{ color: "var(--accent)" }}>For organizers</div>
-              <h3 className="serif text-4xl lg:text-5xl leading-tight mb-4">Sell out your next show in <em style={{ color: "var(--accent)" }}>minutes</em>.</h3>
+              <h3 className="serif text-4xl lg:text-5xl leading-tight mb-4">Sell out your next show. <em style={{ color: "var(--accent)" }}>Keep&nbsp;every dollar.</em></h3>
               <p className="mb-6 max-w-md" style={{ color: "var(--text-muted)" }}>
-                Drag-build your seat map, set tier prices, hand out affiliate codes to influencers, and watch sales hit your dashboard live. On-the-door QR scanning, refunds on your terms, and payouts in 5 days — no spreadsheets, no scalper drama, no platform tax.
+                Drag-build your seat map. Set tier prices. Hand affiliate codes to local influencers. Watch sales hit your dashboard live. On-the-door QR scanning, refunds on your terms, payouts in 5 days. No spreadsheets, no scalper drama, <strong style={{ color: "var(--text)" }}>no platform tax</strong>.
               </p>
               <Link to="/signup" className="btn-primary" data-testid="cta-signup-organizer">
                 Become an organizer <ArrowRight className="w-4 h-4" />

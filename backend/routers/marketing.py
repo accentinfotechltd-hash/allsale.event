@@ -125,16 +125,16 @@ _PITCH_HTML = """<!doctype html>
     <div class="brand-name">Allsale Events</div>
   </div>
 
-  <h1>Sell out faster. <em>Keep&nbsp;more.</em></h1>
+  <h1>Sell out faster. <em>Keep&nbsp;every dollar.</em></h1>
   <p class="sub">
-    Aotearoa's ticketing platform built for independent promoters, venues and event organizers. Buyer-pays-fees pricing means you keep 100% of the ticket price, and payouts hit your bank just 5 days after the event.
+    Aotearoa's ticketing platform for independent promoters, venues and event organizers. You set the ticket price. You keep 100% of it. Payouts hit your bank just 5 days after the event.
   </p>
 
   <div class="kpis">
     <div class="kpi">
       <div class="kpi-big">100%</div>
-      <div class="kpi-label">Face value kept</div>
-      <div class="kpi-sub">Buyers pay one transparent service fee.</div>
+      <div class="kpi-label">Face value, yours</div>
+      <div class="kpi-sub">Price the show. Keep every dollar. No platform cut — ever.</div>
     </div>
     <div class="kpi">
       <div class="kpi-big">5 days</div>
@@ -149,7 +149,7 @@ _PITCH_HTML = """<!doctype html>
     <div class="kpi">
       <div class="kpi-big">70/30</div>
       <div class="kpi-label">Auto revenue splits</div>
-      <div class="kpi-sub">Co-promoting? Split a single event across multiple Stripe accounts.</div>
+      <div class="kpi-sub">Co-promoting? Split one event across multiple Stripe accounts — automatically.</div>
     </div>
   </div>
 
@@ -180,12 +180,12 @@ _PITCH_HTML = """<!doctype html>
         </tr>
       </thead>
       <tbody>
-        <tr><td>Platform cut from ticket price</td><td class="allsale">0%</td><td>10–20%</td></tr>
+        <tr><td>Platform cut from your ticket price</td><td class="allsale">0%</td><td>10–20%</td></tr>
         <tr><td>Payout window</td><td class="allsale">5 days post-event</td><td>30+ days</td></tr>
-        <tr><td>Affiliate codes for influencers</td><td class="allsale">Built-in, free</td><td>Add-on or unavailable</td></tr>
+        <tr><td>Influencer affiliate codes (built-in)</td><td class="allsale">Free</td><td>Add-on or unavailable</td></tr>
         <tr><td>Multi-organizer revenue splits</td><td class="allsale">Automatic per booking</td><td>Manual spreadsheets</td></tr>
-        <tr><td>Custom seat maps</td><td class="allsale">Drag-build, free</td><td>Paid feature</td></tr>
-        <tr><td>Embed widget on your own site</td><td class="allsale">Free</td><td>Usually paid</td></tr>
+        <tr><td>Custom seat maps + bulk seat-block</td><td class="allsale">Free</td><td>Paid feature</td></tr>
+        <tr><td>Embed widget on your own website</td><td class="allsale">Free</td><td>Usually paid</td></tr>
       </tbody>
     </table>
   </div>
@@ -196,8 +196,8 @@ _PITCH_HTML = """<!doctype html>
 
   <div class="cta">
     <div class="cta-text">
-      <strong>Ready to take a look?</strong>
-      Set up your first event in under 10 minutes — no card required, no platform fee, no scalpers.
+      <strong>Bring your next event home.</strong>
+      Build, list, and start selling in under 10 minutes. No platform tax. No payout delays. No scalpers.
     </div>
     <a class="cta-btn" href="https://www.allsale.events/signup">Get started →</a>
   </div>
