@@ -135,20 +135,10 @@ export default function Landing() {
             </div>
           )}
         </div>
-
-        {/* Ticker */}
-        <div className="border-y overflow-hidden whitespace-nowrap py-4" style={{ borderColor: "var(--border)" }}>
-          <div className="marquee-track inline-flex gap-12 text-sm uppercase tracking-[0.25em]" style={{ color: "var(--text-dim)" }}>
-            {Array(2).fill(0).map((_, k) => (
-              <div key={k} className="inline-flex gap-12">
-                <span>Auckland</span><span>·</span><span>Wellington</span><span>·</span><span>Christchurch</span><span>·</span>
-                <span>Queenstown</span><span>·</span><span>Hamilton</span><span>·</span><span>Tauranga</span><span>·</span>
-                <span>Dunedin</span><span>·</span><span>Napier</span><span>·</span>
-              </div>
-            ))}
-          </div>
-        </div>
       </section>
+
+      {/* PREMIUM FEATURE SHOWCASE — moved to top so visitors see Allsale's full power immediately */}
+      <FeatureShowcase />
 
       {/* CATEGORIES */}
       <section className="max-w-7xl mx-auto px-6 py-16">
@@ -230,9 +220,6 @@ export default function Landing() {
           {(Array.isArray(featured) ? featured : []).slice(0, 8).map((e, i) => <EventCard key={e.event_id} event={e} index={i} />)}
         </div>
       </section>
-
-      {/* PREMIUM FEATURE SHOWCASE */}
-      <FeatureShowcase />
 
       {/* WHY ORGANIZERS — comparison strip */}
       <section className="max-w-7xl mx-auto px-6 pb-16" data-testid="why-organizers">
