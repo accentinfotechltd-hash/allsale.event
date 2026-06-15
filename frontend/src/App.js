@@ -35,6 +35,7 @@ import InfluencerCampaigns from "@/pages/InfluencerCampaigns";
 import InfluencerPayouts from "@/pages/InfluencerPayouts";
 import InfluencerMarketplace from "@/pages/InfluencerMarketplace";
 import InfluencerProfile from "@/pages/InfluencerProfile";
+import Flyer from "@/pages/Flyer";
 import RequireOrganizer from "@/components/RequireOrganizer";
 
 function AppRouter() {
@@ -50,6 +51,14 @@ function AppRouter() {
       <Routes>
         <Route path="/scan" element={<ScannerEntry />} />
         <Route path="/scan/:eventId" element={<CheckIn />} />
+      </Routes>
+    );
+  }
+  // Marketing flyer — chrome-less so Ctrl+P produces a clean A4 PDF.
+  if (location.pathname === "/flyer") {
+    return (
+      <Routes>
+        <Route path="/flyer" element={<Flyer />} />
       </Routes>
     );
   }
@@ -76,6 +85,7 @@ function AppRouter() {
         <Route path="/influencer/onboarding" element={<InfluencerOnboarding />} />
         <Route path="/influencer/campaigns" element={<InfluencerCampaigns />} />
         <Route path="/influencer/payouts" element={<InfluencerPayouts />} />
+        <Route path="/flyer" element={<Flyer />} />
         <Route path="/organizer" element={<RequireOrganizer><Organizer /></RequireOrganizer>} />
         <Route path="/organizer/new" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId/edit" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
