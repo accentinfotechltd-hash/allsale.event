@@ -516,3 +516,24 @@ See `/app/memory/test_credentials.md`
 - 14 backend pytest suites pass individually. Combined runs still hit Motor's "Event loop is closed" — known limitation, deferred fix (subprocess-per-test plugin).
 - Iteration 11 testing agent report: 100% backend pass, 85% frontend (PWA banner not testable in headless Playwright by design; OrganizerProfile bug fixed in-loop).
 
+
+
+## Iteration 12 (2026-02-23) — Custom Google OAuth white-labeling completed ✅
+- ✅ Replaced Emergent-managed Google OAuth proxy with direct Google OAuth (Allsale's own Client ID/Secret) so consent screen now shows `allsale.events` instead of `emergentagent.com`.
+- ✅ Backend: `POST /api/auth/google-code` handles standard authorization-code grant (`oauth2.googleapis.com/token` → `userinfo` → mint JWT + session).
+- ✅ Frontend: `Login.jsx` redirects to `accounts.google.com/o/oauth2/v2/auth` with Allsale's Client ID (via `REACT_APP_GOOGLE_CLIENT_ID`). `AuthCallback.jsx` exchanges code → JWT.
+- ✅ **Bugfix (2026-02-23)**: `/auth/google-code` was crashing post-success because `create_access_token({"sub": ..., ...})` was called with a dict instead of `(user_id, email)` positional strings. Fixed in `routers/auth.py:310` → now `create_access_token(user_id, email)`. Users were landing on home page without a valid token. Verified live on production.
+
+## 🚀 PRODUCTION LIVE (2026-02-23)
+- **Frontend**: `www.allsale.events` (Vercel)
+- **Backend**: Railway (auto-deploys from `main` via Save to GitHub)
+- **DB**: MongoDB Atlas
+- **Stripe**: LIVE mode (Connect Express + Tax scaffold)
+- **Resend**: LIVE
+- **Google OAuth**: Direct (Allsale-branded consent screen)
+- **Status**: Fully launched. All MVP + 30 sub-features shipped.
+
+## Backlog / Future
+- **P2**: Activate Stripe Tax flag (`STRIPE_TAX_ENABLED=true` on Railway) once user activates Tax in Stripe Dashboard.
+- **P2**: Combined-pytest event-loop fix (subprocess-per-test plugin). Individual files all pass.
+- **P3**: Post-launch user feedback iteration loop.
