@@ -1,7 +1,9 @@
 import "@/App.css";
+import { useEffect } from "react";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider } from "@/lib/auth";
+import { initAnalytics, trackPageView } from "@/lib/analytics";
 
 import Layout from "@/components/Layout";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -40,6 +42,14 @@ import RequireOrganizer from "@/components/RequireOrganizer";
 
 function AppRouter() {
   const location = useLocation();
+
+  // Fire a GA4 page_view event on every SPA route change. React Router doesn't
+  // trigger real browser navigations, so we need to do this manually otherwise
+  // Google sees only the initial landing.
+  useEffect(() => {
+    trackPageView(location.pathname + location.search);
+  }, [location.pathname, location.search]);
+
   // Handle OAuth callback session_id in URL fragment BEFORE any other route logic
   if (location.hash?.includes("session_id=")) {
     return <AuthCallback />;
@@ -101,6 +111,9 @@ function AppRouter() {
 }
 
 function App() {
+  // One-time gtag.js injection. No-ops when REACT_APP_GA_MEASUREMENT_ID is unset.
+  useEffect(() => { initAnalytics(); }, []);
+
   return (
     <div className="App">
       <BrowserRouter>

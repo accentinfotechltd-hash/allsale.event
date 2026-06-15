@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { trackSignup } from "@/lib/analytics";
 import { Mail, Lock, User, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import Logo from "@/components/Logo";
@@ -21,6 +22,7 @@ export default function Signup() {
       const { data } = await api.post("/auth/register", form);
       if (data.token) localStorage.setItem("aura_token", data.token);
       setUser(data);
+      trackSignup("email", data.role || form.role);
       toast.success("Welcome to Allsale Events!");
       nav("/");
     } catch (err) {

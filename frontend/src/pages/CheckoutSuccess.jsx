@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import api from "@/lib/api";
+import { trackPurchase } from "@/lib/analytics";
 import { CheckCircle2, Ticket, ArrowRight } from "lucide-react";
 
 export default function CheckoutSuccess() {
@@ -21,6 +22,15 @@ export default function CheckoutSuccess() {
         if (data.payment_status === "paid") {
           setStatus("paid");
           setBookingId(data.booking_id);
+          // Fire the GA4 `purchase` conversion exactly once per session.
+          trackPurchase({
+            bookingId: data.booking_id,
+            eventId: data.event_id,
+            eventTitle: data.event_title || "",
+            amount: data.amount_total != null ? data.amount_total / 100 : data.amount,
+            currency: (data.currency || "NZD").toUpperCase(),
+            quantity: data.quantity || 1,
+          });
           return;
         }
         if (data.status === "expired" || data.payment_status === "expired") {
