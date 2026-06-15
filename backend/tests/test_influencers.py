@@ -61,8 +61,9 @@ async def test_full_influencer_lifecycle():
         # 2. Create an attendee, enable influencer mode
         inf_token, _ = await _signup_and_token(client, role="attendee")
         inf_auth = {"Authorization": f"Bearer {inf_token}"}
+        unique_name = f"QA Creator {uuid.uuid4().hex[:6]}"
         r = await client.post(f"{API}/influencer/enable", json={
-            "display_name": "QA Creator",
+            "display_name": unique_name,
             "bio": "Test creator",
             "follower_count_total": 12345,
             "categories": ["music", "comedy"],
@@ -71,7 +72,7 @@ async def test_full_influencer_lifecycle():
         }, headers=inf_auth)
         assert r.status_code == 200, r.text
         prof = r.json()
-        assert prof["display_name"] == "QA Creator"
+        assert prof["display_name"] == unique_name
         assert prof["follower_count_total"] == 12345
 
         # 3. /me should now report enabled=true
@@ -83,13 +84,13 @@ async def test_full_influencer_lifecycle():
         r = await client.get(f"{API}/influencers")
         assert r.status_code == 200
         names = [p["display_name"] for p in r.json()]
-        assert "QA Creator" in names
+        assert unique_name in names
 
         # 5. Public profile
         r = await client.get(f"{API}/influencers/{prof['user_id']}")
         assert r.status_code == 200
         body = r.json()
-        assert body["display_name"] == "QA Creator"
+        assert body["display_name"] == unique_name
         assert body["follower_count_total"] == 12345
         assert "stats" in body
 
@@ -146,10 +147,10 @@ async def test_full_influencer_lifecycle():
         r = await client.post(f"{API}/influencer/disable", headers=inf_auth)
         assert r.status_code == 200
 
-        # marketplace should no longer list them
+        # marketplace should no longer list THIS user's display name
         r = await client.get(f"{API}/influencers")
-        names = [p["display_name"] for p in r.json()]
-        assert "QA Creator" not in names
+        ids = [p["user_id"] for p in r.json()]
+        assert prof["user_id"] not in ids
 
 
 @pytest.mark.asyncio

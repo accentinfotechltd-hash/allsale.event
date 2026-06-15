@@ -537,3 +537,42 @@ See `/app/memory/test_credentials.md`
 - **P2**: Activate Stripe Tax flag (`STRIPE_TAX_ENABLED=true` on Railway) once user activates Tax in Stripe Dashboard.
 - **P2**: Combined-pytest event-loop fix (subprocess-per-test plugin). Individual files all pass.
 - **P3**: Post-launch user feedback iteration loop.
+
+## Iteration 13 (2026-02-23) — Influencer / Creator marketplace (5 features) ✅
+Built a full two-sided creator marketplace on top of the existing affiliate plumbing.
+
+### Backend (`/app/backend/routers/influencers.py`)
+- ✅ `POST /api/influencer/enable` — flips `users.is_influencer=true` and (re)writes creator profile (idempotent).
+- ✅ `GET /api/influencer/me` — returns enabled state + profile + stripe_payouts_ready flag.
+- ✅ `POST /api/influencer/disable` — soft-hide (keeps history).
+- ✅ `GET /api/influencer/dashboard` — clicks/conversions/conversion-rate/revenue/commission/pending-payout rollup.
+- ✅ `GET /api/influencer/campaigns/available` — open events the user hasn't joined.
+- ✅ `POST /api/influencer/campaigns/join` — self-join creates an `affiliates` row tagged with `influencer_id`. Re-join returns `{already_joined:true}`.
+- ✅ `GET /api/influencer/payouts` + `POST /api/influencer/payouts/request` — threshold-gated ($50 default), requires Stripe-Connect-enabled account.
+- ✅ `POST /api/influencer/stripe/onboard` — Stripe Connect Express link, reuses `users.stripe_account_id` so one Stripe account serves both organizer payouts and influencer commissions.
+- ✅ `GET /api/influencers` — public marketplace, filterable by category/city/min_followers.
+- ✅ `GET /api/influencers/:user_id` — public profile with stats (campaigns_total, total_clicks_driven).
+- ✅ `POST /api/organizer/utm-link` — UTM wrapper with optional affiliate-code tagging (`aff=` param) for paid-ad attribution.
+
+### Schema changes
+- Events: `affiliate_program_open: bool`, `affiliate_default_commission_pct: float=10` (whitelisted on create + PATCH).
+- New collections: `influencers`, `influencer_payouts`. `affiliates` extended with `influencer_id`.
+
+### Frontend
+- ✅ `/influencer` (`InfluencerHub.jsx`) — stats cards, campaigns list, copy-link, Stripe-connect CTA.
+- ✅ `/influencer/onboarding` (`InfluencerOnboarding.jsx`) — form with handles, follower count, city, 5-category picker.
+- ✅ `/influencer/campaigns` (`InfluencerCampaigns.jsx`) — browse + 1-click self-join.
+- ✅ `/influencer/payouts` (`InfluencerPayouts.jsx`) — Stripe Connect onboarding link + payout history + threshold-aware Request Payout.
+- ✅ `/influencers` (`InfluencerMarketplace.jsx`) — public discovery with filters.
+- ✅ `/influencers/:id` (`InfluencerProfile.jsx`) — public profile with social links + stats.
+- ✅ `SocialShareButtons.jsx` — mounted on EventDetail; auto-injects logged-in influencer's affiliate code into the share URL.
+- ✅ `UtmLinkGenerator.jsx` — mounted on OrganizerEvent.
+- ✅ `InfluencerProgramPanel.jsx` — toggles `affiliate_program_open` + edits default %.
+- ✅ Layout nav (desktop + mobile) gained "Creator" link; footer added "Creator marketplace" + "Become a creator".
+
+### Bugfix during this iteration
+- ⚠️→✅ All 4 protected influencer pages were redirecting signed-in users to `/login` on page refresh because they ignored `AuthContext.loading`. Fixed by adding `if (authLoading) return;` to each `useEffect`.
+
+### Tests
+- `/app/backend/tests/test_influencers.py` — 2 suites covering full lifecycle (enable → marketplace → join → dashboard → payout validation → UTM → disable) and closed-program 403. ✅ PASS.
+- Iteration 12 testing-agent run: 9/9 backend assertions PASS against live preview; frontend marketplace renders + filters work + share buttons appear.

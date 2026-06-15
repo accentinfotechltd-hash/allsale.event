@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth";
 const CATEGORY_OPTIONS = ["music", "comedy", "sports", "tech", "food", "art", "fitness", "nightlife", "family"];
 
 export default function InfluencerOnboarding() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const nav = useNavigate();
   const [loading, setLoading] = useState(false);
   const [existing, setExisting] = useState(null);
@@ -22,6 +22,7 @@ export default function InfluencerOnboarding() {
   });
 
   useEffect(() => {
+    if (authLoading) return;
     if (!user) { nav("/login"); return; }
     (async () => {
       try {
@@ -48,7 +49,7 @@ export default function InfluencerOnboarding() {
         setForm((f) => ({ ...f, display_name: user?.name || "" }));
       }
     })();
-  }, [user, nav]);
+  }, [user, authLoading, nav]);
 
   const toggleCategory = (cat) => {
     setForm((f) => ({

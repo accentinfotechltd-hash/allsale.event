@@ -6,7 +6,7 @@ import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 export default function InfluencerPayouts() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const nav = useNavigate();
   const [profile, setProfile] = useState(null);
   const [payouts, setPayouts] = useState([]);
@@ -29,7 +29,11 @@ export default function InfluencerPayouts() {
     }
   };
 
-  useEffect(() => { if (!user) { nav("/login"); return; } reload(); }, [user]); // eslint-disable-line
+  useEffect(() => {
+    if (authLoading) return;
+    if (!user) { nav("/login"); return; }
+    reload();
+  }, [user, authLoading]); // eslint-disable-line
 
   const connectStripe = async () => {
     setBusy(true);

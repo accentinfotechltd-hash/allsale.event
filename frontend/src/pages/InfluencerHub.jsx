@@ -15,13 +15,14 @@ const Stat = ({ icon: Icon, label, value, accent }) => (
 );
 
 export default function InfluencerHub() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const nav = useNavigate();
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState(null);
   const [dash, setDash] = useState(null);
 
   useEffect(() => {
+    if (authLoading) return;
     if (!user) { nav("/login"); return; }
     (async () => {
       try {
@@ -37,7 +38,7 @@ export default function InfluencerHub() {
         setLoading(false);
       }
     })();
-  }, [user, nav]);
+  }, [user, authLoading, nav]);
 
   if (loading) return <div className="container mx-auto px-6 py-20 text-center opacity-70">Loading creator hub…</div>;
   if (!dash) return null;

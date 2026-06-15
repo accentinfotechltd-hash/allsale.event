@@ -6,7 +6,7 @@ import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 export default function InfluencerCampaigns() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const nav = useNavigate();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -24,9 +24,10 @@ export default function InfluencerCampaigns() {
   };
 
   useEffect(() => {
+    if (authLoading) return;
     if (!user) { nav("/login"); return; }
     reload();
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user, authLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const join = async (eventId) => {
     try {
