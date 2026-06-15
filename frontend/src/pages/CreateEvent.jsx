@@ -7,6 +7,7 @@ import ImageUploader from "@/components/ImageUploader";
 import SeatDesigner from "@/components/SeatDesigner";
 import DateTimePicker from "@/components/DateTimePicker";
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, currencySymbol } from "@/lib/currencies";
+import { COUNTRIES, DEFAULT_COUNTRY, currencyForCountry, timezoneForCountry } from "@/lib/countries";
 
 const CATEGORIES = [
   { id: "movies", name: "Movies" },
@@ -30,6 +31,8 @@ export default function CreateEvent() {
     category: "music",
     venue: "",
     city: "",
+    country: DEFAULT_COUNTRY,
+    timezone: timezoneForCountry(DEFAULT_COUNTRY),
     date: "",
     image_url: "",
     banner_url: "",
@@ -64,6 +67,8 @@ export default function CreateEvent() {
           category: data.category || "music",
           venue: data.venue || "",
           city: data.city || "",
+          country: data.country || DEFAULT_COUNTRY,
+          timezone: data.timezone || timezoneForCountry(data.country || DEFAULT_COUNTRY),
           // Trim the timezone suffix for the datetime-local input
           date: data.date ? data.date.slice(0, 16) : "",
           image_url: data.image_url || "",
@@ -238,7 +243,41 @@ export default function CreateEvent() {
             <input required value={form.venue} onChange={(e) => update("venue", e.target.value)} />
           </Field>
           <Field label="City">
-            <input required value={form.city} onChange={(e) => update("city", e.target.value)} />
+            <input required value={form.city} onChange={(e) => update("city", e.target.value)} data-testid="event-city" />
+          </Field>
+          <Field label="Country">
+            <select
+              required
+              value={form.country}
+              onChange={(e) => {
+                const code = e.target.value;
+                // Auto-update timezone + currency when the country changes — the
+                // organizer can still override afterwards.
+                setForm(prev => ({
+                  ...prev,
+                  country: code,
+                  timezone: timezoneForCountry(code),
+                  // Only auto-switch currency if the user hasn't manually
+                  // changed it from the previous country's default.
+                  currency: prev.currency === currencyForCountry(prev.country)
+                    ? currencyForCountry(code)
+                    : prev.currency,
+                }));
+              }}
+              data-testid="event-country"
+            >
+              {COUNTRIES.map(c => (
+                <option key={c.code} value={c.code}>{c.flag} {c.name}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Timezone" hint="Auto-picked from country; override for events that span timezones.">
+            <input
+              value={form.timezone || ""}
+              onChange={(e) => update("timezone", e.target.value)}
+              placeholder="e.g. Pacific/Auckland"
+              data-testid="event-timezone"
+            />
           </Field>
         </div>
 
@@ -455,11 +494,12 @@ export default function CreateEvent() {
   );
 }
 
-function Field({ label, children }) {
+function Field({ label, children, hint }) {
   return (
     <div>
       <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>{label}</label>
       {children}
+      {hint && <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>{hint}</div>}
     </div>
   );
 }

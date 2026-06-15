@@ -95,6 +95,9 @@ def event_to_public(e: dict) -> dict:
     # Ensure currency is always present so the frontend can format prices safely
     if not e.get("currency"):
         e["currency"] = "NZD"
+    # Default country to NZ for legacy events created before country was a field
+    if not e.get("country"):
+        e["country"] = "NZ"
     return e
 
 

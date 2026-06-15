@@ -37,6 +37,7 @@ async def list_events(
     q: Optional[str] = None,
     category: Optional[str] = None,
     city: Optional[str] = None,
+    country: Optional[str] = None,
     past: bool = False,
     limit: int = 50,
 ):
@@ -60,6 +61,8 @@ async def list_events(
         query["category"] = category
     if city:
         query["city"] = {"$regex": city, "$options": "i"}
+    if country:
+        query["country"] = country.upper()
     cursor = db.events.find(query, {"_id": 0}).sort(sort_spec).limit(limit)
     items = [event_to_public(e) async for e in cursor]
     # Annotate events with waitlist_count (cheap aggregate) — only meaningful
@@ -119,6 +122,27 @@ async def public_event_stats():
         "date": {"$gte": now_iso},
     })
     return {"live_events": live_count}
+
+
+@router.get("/events/countries")
+async def public_event_countries():
+    """Distinct country codes that currently have at least one approved
+    upcoming event. Frontend uses this to populate the country filter on
+    the Browse page (so we never show countries with zero events).
+    """
+    cutoff_iso = _event_finished_cutoff_iso()
+    pipeline = [
+        {"$match": {
+            "status": {"$in": ["approved", "published"]},
+            "date": {"$gte": cutoff_iso},
+        }},
+        {"$group": {"_id": {"$ifNull": ["$country", "NZ"]}, "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+    ]
+    out = []
+    async for row in db.events.aggregate(pipeline):
+        out.append({"country": row["_id"] or "NZ", "count": row["count"]})
+    return out
 
 
 @router.get("/events/{event_id}")
@@ -192,9 +216,12 @@ async def create_event(payload: EventIn, user: dict = Depends(get_current_user))
         "category": payload.category,
         "venue": payload.venue,
         "city": payload.city,
+        "country": (payload.country or "NZ").upper(),
+        "timezone": payload.timezone,
         "date": payload.date,
         "image_url": payload.image_url,
         "banner_url": payload.banner_url or payload.image_url,
+        "currency": (payload.currency or "NZD").upper(),
         "tiers": payload.tiers,
         "has_seatmap": payload.has_seatmap,
         "seat_rows": payload.seat_rows,
@@ -263,7 +290,7 @@ async def update_event(event_id: str, payload: dict, user: dict = Depends(get_cu
         raise HTTPException(status_code=403, detail="Not your event")
 
     EDITABLE = {
-        "title", "description", "category", "venue", "city", "date",
+        "title", "description", "category", "venue", "city", "country", "timezone", "date",
         "image_url", "banner_url", "tiers",
         "has_seatmap", "seat_rows", "seat_cols", "seat_price",
         "aisles", "seat_map_image_url",

@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { MapPin } from "lucide-react";
 import { formatMoney } from "@/lib/currencies";
+import { flagForCountry } from "@/lib/countries";
 
 export default function EventCard({ event, index = 0 }) {
   const date = new Date(event.date);
@@ -61,6 +62,9 @@ export default function EventCard({ event, index = 0 }) {
         <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
           <MapPin className="w-3 h-3" />
           {event.venue} · {event.city}
+          {event.country && (
+            <span className="ml-1" title={event.country} data-testid={`event-flag-${event.event_id}`}>{flagForCountry(event.country)}</span>
+          )}
         </div>
       </div>
     </Link>

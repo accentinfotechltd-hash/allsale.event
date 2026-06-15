@@ -30,6 +30,13 @@ class EventIn(BaseModel):
     category: str
     venue: str
     city: str
+    # ISO 3166-1 alpha-2 (e.g. "NZ", "IN", "AE"). Optional for backward compat
+    # — events created before this field existed default to NZ.
+    country: str = "NZ"
+    # IANA tz (e.g. "Pacific/Auckland", "Asia/Kolkata"). When omitted, the
+    # event's date string is treated as UTC. Powers per-visitor local-time
+    # conversion on the event detail page.
+    timezone: Optional[str] = None
     date: str
     image_url: str
     banner_url: Optional[str] = None

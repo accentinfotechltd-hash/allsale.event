@@ -2,24 +2,31 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import api from "@/lib/api";
 import EventCard from "@/components/EventCard";
+import { COUNTRY_BY_CODE, flagForCountry, nameForCountry } from "@/lib/countries";
 import { SlidersHorizontal, Calendar, Archive } from "lucide-react";
 
 export default function Events() {
   const [params, setParams] = useSearchParams();
   const [events, setEvents] = useState([]);
   const [cats, setCats] = useState([]);
+  const [countries, setCountries] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const q = params.get("q") || "";
   const category = params.get("category") || "";
   const city = params.get("city") || "";
+  const country = params.get("country") || "";
   const past = params.get("past") === "1";
 
   useEffect(() => {
     (async () => {
       try {
-        const c = await api.get("/events/categories");
+        const [c, cnt] = await Promise.all([
+          api.get("/events/categories"),
+          api.get("/events/countries").catch(() => ({ data: [] })),
+        ]);
         setCats(Array.isArray(c.data) ? c.data : []);
+        setCountries(Array.isArray(cnt.data) ? cnt.data : []);
       } catch (e) { /* ignore */ }
     })();
   }, []);
@@ -28,11 +35,11 @@ export default function Events() {
     setLoading(true);
     (async () => {
       try {
-        const { data } = await api.get("/events", { params: { q, category, city, past: past ? "true" : "false" } });
+        const { data } = await api.get("/events", { params: { q, category, city, country, past: past ? "true" : "false" } });
         setEvents(Array.isArray(data) ? data : []);
       } finally { setLoading(false); }
     })();
-  }, [q, category, city, past]);
+  }, [q, category, city, country, past]);
 
   const updateParam = (k, v) => {
     const next = new URLSearchParams(params);
@@ -126,6 +133,40 @@ export default function Events() {
                   {c.name}
                 </button>
               ))}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-widest mb-3" style={{ color: "var(--text-dim)" }}>Country</div>
+            <div className="space-y-1" data-testid="events-country-filter">
+              <button
+                onClick={() => updateParam("country", "")}
+                className="block w-full text-left px-3 py-2 rounded-lg text-sm transition"
+                style={{
+                  background: !country ? "var(--accent-soft)" : "transparent",
+                  color: !country ? "var(--accent)" : "var(--text-muted)",
+                }}
+                data-testid="country-filter-all"
+              >
+                🌐 All countries
+              </button>
+              {countries.map((row) => {
+                const c = COUNTRY_BY_CODE[row.country];
+                if (!c) return null;
+                return (
+                  <button
+                    key={row.country}
+                    onClick={() => updateParam("country", row.country)}
+                    className="block w-full text-left px-3 py-2 rounded-lg text-sm transition"
+                    style={{
+                      background: country === row.country ? "var(--accent-soft)" : "transparent",
+                      color: country === row.country ? "var(--accent)" : "var(--text-muted)",
+                    }}
+                    data-testid={`country-filter-${row.country}`}
+                  >
+                    {c.flag} {c.name} <span className="opacity-60">({row.count})</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
           <div>
