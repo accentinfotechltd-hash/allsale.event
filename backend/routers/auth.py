@@ -307,7 +307,7 @@ async def google_code(payload: GoogleCodeIn, response: Response):
     })
     set_session_cookie(response, session_token)
     # Also mint a JWT for the API client to put in Authorization headers
-    jwt_token = create_access_token({"sub": user_id, "email": email, "role": role})
+    jwt_token = create_access_token(user_id, email)
     set_jwt_cookie(response, jwt_token)
     return {
         "user_id": user_id, "email": email, "name": name, "picture": picture,
