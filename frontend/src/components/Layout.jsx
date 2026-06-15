@@ -1,6 +1,6 @@
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
-import { Search, LogOut, ShieldCheck, LayoutDashboard, Ticket, Sparkles, Menu, X } from "lucide-react";
+import { Search, LogOut, ShieldCheck, LayoutDashboard, Ticket, Sparkles, Menu, X, ScanLine } from "lucide-react";
 import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
 import PwaInstallBanner from "@/components/PwaInstallBanner";
@@ -169,6 +169,7 @@ export default function Layout({ children }) {
                   {user.role === "organizer" && <MobileLink to="/organizer" label="Organizer dashboard" icon={<LayoutDashboard className="w-4 h-4" />} testid="m-nav-organizer" />}
                   {user.role === "attendee" && <MobileLink to="/become-organizer" label="Host an event" icon={<Sparkles className="w-4 h-4" />} testid="m-nav-host" />}
                   {user.role === "admin" && <MobileLink to="/admin" label="Admin" icon={<ShieldCheck className="w-4 h-4" />} testid="m-nav-admin" />}
+                  {(user.role === "organizer" || user.role === "admin") && <MobileLink to="/scan" label="Door scanner" icon={<ScanLine className="w-4 h-4" />} testid="m-nav-scanner" />}
                   <MobileLink to="/profile" label="My tickets" icon={<Ticket className="w-4 h-4" />} testid="m-nav-profile" />
                   <MobileLink to={user.is_influencer ? "/influencer" : "/influencer/onboarding"} label={user.is_influencer ? "Creator hub" : "Become a creator"} icon={<Sparkles className="w-4 h-4" />} testid="m-nav-creator" />
                   <button onClick={() => { logout(); setMenuOpen(false); }} className="text-left px-3 py-3 rounded-lg text-sm flex items-center gap-2" style={{ color: "var(--text-dim)" }} data-testid="m-nav-logout">
@@ -211,6 +212,7 @@ export default function Layout({ children }) {
               <li><Link to={user && user.role !== "attendee" ? "/organizer" : "/become-organizer"} style={{ color: "var(--text-muted)" }}>Dashboard</Link></li>
               <li><Link to="/influencers" style={{ color: "var(--text-muted)" }} data-testid="footer-influencers-link">Creator marketplace</Link></li>
               <li><Link to={user?.is_influencer ? "/influencer" : "/influencer/onboarding"} style={{ color: "var(--text-muted)" }} data-testid="footer-become-creator-link">Become a creator</Link></li>
+              <li><Link to="/scan" style={{ color: "var(--text-muted)" }} data-testid="footer-scanner-link">Door scanner app</Link></li>
             </ul>
           </div>
           <div>
