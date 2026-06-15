@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import EventCard from "@/components/EventCard";
+import FeatureShowcase from "@/components/FeatureShowcase";
 import { useAuth } from "@/lib/auth";
 import { ArrowRight, Search, Calendar, Zap, Award, Sparkles } from "lucide-react";
 
@@ -229,6 +230,9 @@ export default function Landing() {
           {(Array.isArray(featured) ? featured : []).slice(0, 8).map((e, i) => <EventCard key={e.event_id} event={e} index={i} />)}
         </div>
       </section>
+
+      {/* PREMIUM FEATURE SHOWCASE */}
+      <FeatureShowcase />
 
       {/* WHY ORGANIZERS — comparison strip */}
       <section className="max-w-7xl mx-auto px-6 pb-16" data-testid="why-organizers">
