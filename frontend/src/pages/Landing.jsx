@@ -13,7 +13,9 @@ export default function Landing() {
   const [recs, setRecs] = useState([]);
   const [recsLoading, setRecsLoading] = useState(false);
   const [liveCount, setLiveCount] = useState(null);
-  const [editorPick, setEditorPick] = useState({ event: null, blurb: "", badge_text: "Editor's Pick" });
+  const [editorPick, setEditorPick] = useState({ picks: [], event: null, blurb: "", badge_text: "Editor's Pick" });
+  // Carousel index for multi-pick hero rotation.
+  const [heroIdx, setHeroIdx] = useState(0);
   const [q, setQ] = useState("");
   const nav = useNavigate();
 
@@ -24,12 +26,12 @@ export default function Landing() {
           api.get("/events/featured"),
           api.get("/events/categories"),
           api.get("/events/stats/public").catch(() => ({ data: { live_events: 0 } })),
-          api.get("/site-settings/editor-pick").catch(() => ({ data: { event: null, blurb: "", badge_text: "Editor's Pick" } })),
+          api.get("/site-settings/editor-pick").catch(() => ({ data: { picks: [], event: null, blurb: "", badge_text: "Editor's Pick" } })),
         ]);
         setFeatured(Array.isArray(f.data) ? f.data : []);
         setCats(Array.isArray(c.data) ? c.data : []);
         setLiveCount(typeof s?.data?.live_events === "number" ? s.data.live_events : 0);
-        setEditorPick(ep.data || { event: null, blurb: "", badge_text: "Editor's Pick" });
+        setEditorPick(ep.data || { picks: [], event: null, blurb: "", badge_text: "Editor's Pick" });
       } catch (e) { console.error(e); }
     })();
   }, []);
@@ -43,12 +45,29 @@ export default function Landing() {
       .finally(() => setRecsLoading(false));
   }, [user?.user_id]);
 
-  // Editor's Pick overrides the default "first featured" hero. Falls back when
-  // no pick is set or when the picked event was deleted/un-approved.
-  const hero = editorPick.event || (Array.isArray(featured) && featured.length > 0 ? featured[0] : null);
-  const heroIsEditorPick = !!editorPick.event;
-  const heroBlurb = heroIsEditorPick ? editorPick.blurb : "";
+  // Build the rotation list:
+  //   - If admin pinned 1+ editor picks → rotate through those.
+  //   - Otherwise fall back to the first featured event so the hero is never empty.
+  const heroPicks = Array.isArray(editorPick.picks) && editorPick.picks.length > 0
+    ? editorPick.picks
+    : (Array.isArray(featured) && featured.length > 0
+        ? [{ event: featured[0], blurb: "" }]
+        : []);
+  const heroIsEditorPick = Array.isArray(editorPick.picks) && editorPick.picks.length > 0;
   const heroBadge = heroIsEditorPick ? (editorPick.badge_text || "Editor's Pick") : "Featured";
+  const safeIdx = heroPicks.length > 0 ? heroIdx % heroPicks.length : 0;
+  const currentPick = heroPicks[safeIdx] || null;
+  const hero = currentPick?.event || null;
+  const heroBlurb = currentPick?.blurb || "";
+
+  // Auto-rotate every 6 seconds when there are 2+ picks. Stops if the user
+  // manually clicks a dot (we don't track that explicitly — rotation just
+  // resumes on the next interval, which is fine for a hero spotlight).
+  useEffect(() => {
+    if (heroPicks.length < 2) return undefined;
+    const id = setInterval(() => setHeroIdx((i) => (i + 1) % heroPicks.length), 6000);
+    return () => clearInterval(id);
+  }, [heroPicks.length]);
 
   return (
     <div>
@@ -132,6 +151,50 @@ export default function Landing() {
                   </p>
                 </div>
               </Link>
+
+              {/* Carousel controls — only visible when 2+ picks are pinned */}
+              {heroPicks.length > 1 && (
+                <div className="flex items-center justify-between mt-3 px-1" data-testid="hero-carousel-controls">
+                  <button
+                    type="button"
+                    onClick={() => setHeroIdx((i) => (i - 1 + heroPicks.length) % heroPicks.length)}
+                    className="text-sm hover:opacity-80 inline-flex items-center gap-1"
+                    style={{ color: "var(--text-muted)" }}
+                    data-testid="hero-prev"
+                    aria-label="Previous pick"
+                  >
+                    ← Prev
+                  </button>
+                  <div className="flex items-center gap-1.5" data-testid="hero-dots">
+                    {heroPicks.map((_, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setHeroIdx(i)}
+                        className="transition-all"
+                        style={{
+                          width: i === safeIdx ? 22 : 6,
+                          height: 6,
+                          borderRadius: 99,
+                          background: i === safeIdx ? "var(--accent)" : "var(--border-strong)",
+                        }}
+                        aria-label={`Show pick ${i + 1}`}
+                        data-testid={`hero-dot-${i}`}
+                      />
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setHeroIdx((i) => (i + 1) % heroPicks.length)}
+                    className="text-sm hover:opacity-80 inline-flex items-center gap-1"
+                    style={{ color: "var(--text-muted)" }}
+                    data-testid="hero-next"
+                    aria-label="Next pick"
+                  >
+                    Next →
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

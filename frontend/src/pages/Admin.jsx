@@ -971,8 +971,8 @@ function EditorPickPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [events, setEvents] = useState([]);
-  const [eventId, setEventId] = useState("");
-  const [blurb, setBlurb] = useState("");
+  // `picks` is now an array — [{event_id, blurb}, ...]
+  const [picks, setPicks] = useState([]);
   const [badge, setBadge] = useState("Editor's Pick");
 
   useEffect(() => {
@@ -983,10 +983,14 @@ function EditorPickPanel() {
           api.get("/admin/events"),
         ]);
         const ep = settings.data?.editor_pick || {};
-        setEventId(ep.event_id || "");
-        setBlurb(ep.blurb || "");
+        // Hydrate the array: prefer the new `picks` list, fall back to the
+        // legacy singular `event_id` so old admins don't lose their pick.
+        const rawPicks = Array.isArray(ep.picks) ? ep.picks.filter(p => p?.event_id) : [];
+        if (rawPicks.length === 0 && ep.event_id) {
+          rawPicks.push({ event_id: ep.event_id, blurb: ep.blurb || "" });
+        }
+        setPicks(rawPicks.map(p => ({ event_id: p.event_id, blurb: p.blurb || "" })));
         setBadge(ep.badge_text || "Editor's Pick");
-        // Only approved events qualify for the landing-page hero spotlight.
         setEvents(
           (Array.isArray(list.data) ? list.data : [])
             .filter((e) => e.status === "approved")
@@ -999,31 +1003,43 @@ function EditorPickPanel() {
   const save = async () => {
     setSaving(true);
     try {
+      const clean = picks.filter(p => p.event_id);
       const { data } = await api.patch("/admin/site-settings", {
         editor_pick: {
-          event_id: eventId || null,
-          blurb: blurb.trim(),
+          // Clear the legacy single field so it never overrides `picks` again.
+          event_id: null,
+          blurb: "",
           badge_text: (badge || "").trim() || "Editor's Pick",
+          picks: clean,
         },
       });
       const ep = data.editor_pick || {};
-      setEventId(ep.event_id || "");
-      setBlurb(ep.blurb || "");
+      const newPicks = Array.isArray(ep.picks) ? ep.picks : [];
+      setPicks(newPicks.map(p => ({ event_id: p.event_id, blurb: p.blurb || "" })));
       setBadge(ep.badge_text || "Editor's Pick");
-      toast.success(eventId ? "Editor's Pick updated — visible on the landing page" : "Editor's Pick cleared — landing page reverts to the first featured event");
+      toast.success(clean.length === 0
+        ? "All Editor's Picks cleared — landing page reverts to the first featured event"
+        : `Saved ${clean.length} Editor's Pick${clean.length === 1 ? "" : "s"} — visible on the landing page`);
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Could not save Editor's Pick");
+      toast.error(e?.response?.data?.detail || "Could not save Editor's Picks");
     } finally { setSaving(false); }
   };
 
-  const clear = () => {
-    setEventId("");
-    setBlurb("");
+  const addPick = () => setPicks(prev => [...prev, { event_id: "", blurb: "" }]);
+  const removePick = (i) => setPicks(prev => prev.filter((_, idx) => idx !== i));
+  const updatePick = (i, patch) => setPicks(prev => prev.map((p, idx) => idx === i ? { ...p, ...patch } : p));
+  const movePick = (i, dir) => {
+    const j = i + dir;
+    if (j < 0 || j >= picks.length) return;
+    const next = [...picks];
+    [next[i], next[j]] = [next[j], next[i]];
+    setPicks(next);
   };
 
   if (loading) return null;
 
-  const picked = events.find((e) => e.event_id === eventId);
+  // Events already selected — don't show them in subsequent dropdowns to avoid dupes.
+  const taken = new Set(picks.map(p => p.event_id).filter(Boolean));
 
   return (
     <div
@@ -1032,95 +1048,111 @@ function EditorPickPanel() {
       data-testid="editor-pick-panel"
     >
       <h2 className="serif text-2xl mb-1 flex items-center gap-2">
-        <Sparkles className="w-5 h-5" style={{ color: "var(--accent)" }} /> Editor's Pick
+        <Sparkles className="w-5 h-5" style={{ color: "var(--accent)" }} /> Editor's Picks
       </h2>
       <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
-        Pin one curated event to the landing-page hero spotlight with a short curator blurb. Falls back to the first featured event when no pick is set.
+        Pin one or more curated events to the landing-page hero spotlight. When multiple picks are set the landing page auto-rotates between them.
       </p>
 
-      <div className="space-y-4">
-        <label className="block">
-          <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--text-dim)" }}>Pinned event</div>
-          <select
-            value={eventId}
-            onChange={(e) => setEventId(e.target.value)}
-            className="w-full"
-            data-testid="editor-pick-select"
-          >
-            <option value="">— No pick (use first featured event) —</option>
-            {events.map((e) => (
-              <option key={e.event_id} value={e.event_id}>
-                {e.title} · {e.venue}, {e.city}
-              </option>
-            ))}
-          </select>
-          {events.length === 0 && (
-            <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
-              No approved events yet. Once you approve an event, it appears here.
-            </div>
-          )}
-        </label>
-
-        <label className="block">
-          <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--text-dim)" }}>Curator blurb</div>
-          <textarea
-            value={blurb}
-            onChange={(e) => setBlurb(e.target.value)}
-            rows={3}
-            maxLength={220}
-            placeholder={`e.g. "Two-night-only premiere — five-piece live band, sunset on Lake Wakatipu. Don't scroll past this one."`}
-            className="w-full"
-            data-testid="editor-pick-blurb"
-          />
-          <div className="text-xs mt-1 flex justify-between" style={{ color: "var(--text-dim)" }}>
-            <span>Renders in italics under the event title on the landing hero.</span>
-            <span>{blurb.length}/220</span>
-          </div>
-        </label>
-
-        <label className="block">
-          <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--text-dim)" }}>Badge text</div>
-          <input
-            value={badge}
-            onChange={(e) => setBadge(e.target.value)}
-            maxLength={32}
-            placeholder="Editor's Pick"
-            className="w-full"
-            data-testid="editor-pick-badge"
-          />
-          <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
-            Override to e.g. "Trending now", "Don't miss", "Last 50 seats". Defaults to "Editor's Pick".
-          </div>
-        </label>
-
-        {picked && (
-          <div
-            className="p-4 rounded-xl border flex gap-3 items-center"
-            style={{ borderColor: "var(--accent)", background: "rgba(240,138,42,0.06)" }}
-            data-testid="editor-pick-preview"
-          >
-            {picked.image_url && (
-              <img src={picked.image_url} alt="" className="w-16 h-16 rounded-lg object-cover flex-shrink-0" />
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--accent)" }}>{badge || "Editor's Pick"}</div>
-              <div className="font-medium truncate">{picked.title}</div>
-              <div className="text-xs" style={{ color: "var(--text-dim)" }}>{picked.venue} · {picked.city}</div>
-              {blurb && <div className="text-xs italic mt-1 line-clamp-2" style={{ color: "var(--text-muted)" }}>"{blurb}"</div>}
-            </div>
+      <div className="space-y-3 mb-5">
+        {picks.length === 0 && (
+          <div className="text-sm py-4 px-3 rounded-lg" style={{ background: "var(--bg-elev)", color: "var(--text-muted)" }} data-testid="editor-pick-empty">
+            No picks yet — the landing-page hero will show the first featured event. Click "Add pick" below to spotlight specific events.
           </div>
         )}
+        {picks.map((pick, i) => {
+          const picked = events.find(e => e.event_id === pick.event_id);
+          return (
+            <div
+              key={i}
+              className="border rounded-xl p-4 space-y-3"
+              style={{ borderColor: "var(--border)", background: "var(--bg-elev)" }}
+              data-testid={`editor-pick-row-${i}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs uppercase tracking-widest" style={{ color: "var(--accent)" }}>Pick #{i + 1}</div>
+                <div className="flex items-center gap-1">
+                  <button type="button" onClick={() => movePick(i, -1)} disabled={i === 0} className="btn-ghost !p-1 text-xs disabled:opacity-30" data-testid={`pick-up-${i}`} title="Move up">↑</button>
+                  <button type="button" onClick={() => movePick(i, 1)} disabled={i === picks.length - 1} className="btn-ghost !p-1 text-xs disabled:opacity-30" data-testid={`pick-down-${i}`} title="Move down">↓</button>
+                  <button type="button" onClick={() => removePick(i)} className="btn-ghost !p-1 text-xs" data-testid={`pick-remove-${i}`} title="Remove">✕</button>
+                </div>
+              </div>
 
-        <div className="flex justify-end gap-2 pt-2">
-          {eventId && (
-            <button type="button" onClick={clear} className="btn-ghost" data-testid="editor-pick-clear">
-              Clear
-            </button>
-          )}
-          <button type="button" onClick={save} disabled={saving} className="btn-primary" data-testid="editor-pick-save">
-            {saving ? "Saving…" : "Save Editor's Pick"}
-          </button>
+              <select
+                value={pick.event_id}
+                onChange={(e) => updatePick(i, { event_id: e.target.value })}
+                className="w-full"
+                data-testid={`editor-pick-select-${i}`}
+              >
+                <option value="">— Choose an event —</option>
+                {events
+                  .filter(e => e.event_id === pick.event_id || !taken.has(e.event_id))
+                  .map((e) => (
+                    <option key={e.event_id} value={e.event_id}>
+                      {e.title} · {e.venue}, {e.city}
+                    </option>
+                  ))}
+              </select>
+
+              <textarea
+                value={pick.blurb}
+                onChange={(e) => updatePick(i, { blurb: e.target.value })}
+                rows={2}
+                maxLength={220}
+                placeholder="Optional curator blurb — appears under the event title on the hero."
+                className="w-full"
+                data-testid={`editor-pick-blurb-${i}`}
+              />
+
+              {picked && (
+                <div
+                  className="p-3 rounded-lg border flex gap-3 items-center"
+                  style={{ borderColor: "var(--accent)", background: "rgba(240,138,42,0.06)" }}
+                  data-testid={`editor-pick-preview-${i}`}
+                >
+                  {picked.image_url && (
+                    <img src={picked.image_url} alt="" className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--accent)" }}>{badge || "Editor's Pick"}</div>
+                    <div className="font-medium truncate text-sm">{picked.title}</div>
+                    <div className="text-xs" style={{ color: "var(--text-dim)" }}>{picked.venue} · {picked.city}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={addPick}
+          className="btn-ghost text-sm w-full justify-center"
+          data-testid="editor-pick-add"
+        >
+          + Add another pick
+        </button>
+      </div>
+
+      <label className="block mb-4">
+        <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--text-dim)" }}>Badge text (shared across all picks)</div>
+        <input
+          value={badge}
+          onChange={(e) => setBadge(e.target.value)}
+          maxLength={32}
+          placeholder="Editor's Pick"
+          className="w-full"
+          data-testid="editor-pick-badge"
+        />
+        <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
+          Override to e.g. "Trending now", "Don't miss", "Hand-picked". Defaults to "Editor's Pick".
         </div>
+      </label>
+
+      <div className="flex justify-end gap-2 pt-2">
+        <button type="button" onClick={save} disabled={saving} className="btn-primary" data-testid="editor-pick-save">
+          {saving ? "Saving…" : `Save ${picks.length || ""} pick${picks.length === 1 ? "" : "s"}`.replace(/\s+/g, " ")}
+        </button>
       </div>
     </div>
   );

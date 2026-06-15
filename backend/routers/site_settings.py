@@ -32,15 +32,37 @@ DEFAULTS = {
         "organizer_note": "Organizers: for payout, refund and Stripe support, please include your event ID so we can resolve faster.",
     },
     "editor_pick": {
-        # Empty = no pick set; falls back to the first featured event on the
-        # landing page hero. When `event_id` is set, the landing page shows
-        # this event with the curator blurb beneath the title and an
-        # "Editor's Pick" badge instead of "Featured".
-        "event_id": None,
-        "blurb": "",
+        # `picks` is the new multi-event list. Each item has its own event_id
+        # and curator blurb so the curator can write a different blurb per
+        # event. The landing page auto-rotates through them.
+        #
+        # Legacy compatibility: the old singular `event_id` + `blurb` keys
+        # are still read in `_load` and merged into `picks` when present,
+        # so existing data keeps working untouched.
+        "picks": [],   # [{event_id: str, blurb: str}]
+        "event_id": None,   # legacy singular
+        "blurb": "",        # legacy singular
         "badge_text": "Editor's Pick",
     },
 }
+
+
+def _normalize_picks(ep: dict) -> list[dict]:
+    """Return a clean `picks` list, merging in the legacy singular `event_id`
+    if present so saved-once-long-ago data still surfaces."""
+    raw = ep.get("picks") or []
+    out: list[dict] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        eid = (item.get("event_id") or "").strip()
+        if not eid:
+            continue
+        out.append({"event_id": eid, "blurb": (item.get("blurb") or "").strip()})
+    legacy_eid = (ep.get("event_id") or "").strip()
+    if legacy_eid and not any(p["event_id"] == legacy_eid for p in out):
+        out.insert(0, {"event_id": legacy_eid, "blurb": (ep.get("blurb") or "").strip()})
+    return out
 
 
 async def _load() -> dict:
@@ -62,29 +84,34 @@ async def public_site_settings():
 
 @router.get("/site-settings/editor-pick")
 async def public_editor_pick():
-    """Public read used by the landing-page hero. Returns the curator-picked
-    event (joined into a public event payload) + the blurb to render under
-    the title. Returns `{event: null}` when no pick is set or the picked
-    event was deleted / un-approved — frontend falls back to the first
-    featured event in that case.
+    """Public read used by the landing-page hero. Now returns a `picks` array
+    so the landing page can auto-rotate through multiple curator picks.
+
+    Backward-compat: also returns the singular `event` / `blurb` keys
+    pointing at the FIRST pick, so older clients keep working.
     """
     settings = await _load()
-    pick = settings.get("editor_pick") or {}
-    event_id = pick.get("event_id")
-    if not event_id:
-        return {"event": None, "blurb": "", "badge_text": pick.get("badge_text", "Editor's Pick")}
+    ep = settings.get("editor_pick") or {}
+    badge_text = ep.get("badge_text") or "Editor's Pick"
+    picks_raw = _normalize_picks(ep)
 
-    event = await db.events.find_one(
-        {"event_id": event_id, "status": {"$in": ["approved", "published"]}},
-        {"_id": 0},
-    )
-    if not event:
-        # Stale pick — fall through so the landing page uses its featured fallback.
-        return {"event": None, "blurb": "", "badge_text": pick.get("badge_text", "Editor's Pick")}
+    picks: list[dict] = []
+    for p in picks_raw:
+        ev = await db.events.find_one(
+            {"event_id": p["event_id"], "status": {"$in": ["approved", "published"]}},
+            {"_id": 0},
+        )
+        if not ev:
+            continue  # stale pick, silently skip
+        picks.append({"event": event_to_public(ev), "blurb": p.get("blurb", "")})
+
+    first = picks[0] if picks else {"event": None, "blurb": ""}
     return {
-        "event": event_to_public(event),
-        "blurb": pick.get("blurb") or "",
-        "badge_text": pick.get("badge_text") or "Editor's Pick",
+        "picks": picks,
+        "badge_text": badge_text,
+        # Legacy single-pick fields:
+        "event": first["event"],
+        "blurb": first["blurb"],
     }
 
 
@@ -106,10 +133,17 @@ class ContactIn(BaseModel):
     organizer_note: str | None = None
 
 
+class EditorPickItemIn(BaseModel):
+    event_id: str
+    blurb: str | None = None
+
+
 class EditorPickIn(BaseModel):
-    event_id: str | None = None  # `null` to clear the pick
+    event_id: str | None = None  # legacy single — still accepted for backward compat
     blurb: str | None = None
     badge_text: str | None = None
+    # New multi-pick payload — when set, fully replaces `picks`.
+    picks: list[EditorPickItemIn] | None = None
 
 
 class SettingsPatchIn(BaseModel):
@@ -131,6 +165,14 @@ async def update_site_settings(payload: SettingsPatchIn, user: dict = Depends(ge
     # pick by sending `{"event_id": null}` without losing the blurb/badge.
     if payload.editor_pick is not None:
         ep_in = payload.editor_pick.model_dump(exclude_unset=True)
+        # When the admin sends `picks`, it fully replaces the array.
+        if "picks" in ep_in and ep_in["picks"] is not None:
+            ep_in["picks"] = [
+                {"event_id": (p.get("event_id") or "").strip(),
+                 "blurb": (p.get("blurb") or "").strip()}
+                for p in ep_in["picks"]
+                if isinstance(p, dict) and (p.get("event_id") or "").strip()
+            ]
         new_editor_pick = {**(existing.get("editor_pick") or {}), **ep_in}
     else:
         new_editor_pick = existing.get("editor_pick") or {}
