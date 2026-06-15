@@ -12,6 +12,8 @@ import SwapSeatsDialog from "@/components/SwapSeatsDialog";
 import RevenueSplitsPanel from "@/components/RevenueSplitsPanel";
 import RefundPolicyPanel from "@/components/RefundPolicyPanel";
 import AffiliatesPanel from "@/components/AffiliatesPanel";
+import UtmLinkGenerator from "@/components/UtmLinkGenerator";
+import InfluencerProgramPanel from "@/components/InfluencerProgramPanel";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
@@ -163,6 +165,12 @@ export default function OrganizerEvent() {
       <RefundPolicyPanel eventId={eventId} event={event} />
 
       <AffiliatesPanel eventId={eventId} />
+
+      <InfluencerProgramPanel event={event} />
+
+      <div className="mb-8" data-testid="utm-section">
+        <UtmLinkGenerator event={event} affiliateCodes={[]} />
+      </div>
 
       <SeatBlocksPanel eventId={eventId} event={event} />
 

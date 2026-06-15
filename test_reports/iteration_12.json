@@ -1,0 +1,54 @@
+{
+  "summary": "Iteration 12 — End-to-end tests of the 5 new influencer features against the live preview backend + frontend. Backend: 9/9 pytest assertions PASS against https://seathold.preview.emergentagent.com — all 11 endpoints exercised (enable/me idempotency, marketplace + filters + email leak guard, public profile + 404, events affiliate flag PATCH persistence, campaign self-join + already_joined + closed-program 403, /available + dashboard rollup keys, payout threshold/stripe gating, stripe onboard endpoint shape, UTM link generator + ownership 403 + bad URL 400). Frontend: /influencers marketplace renders (container + filters + 19 creator cards). /influencer unauth → /login redirect works. SocialShareButtons on /events/evt_656b89734cd7 renders all 5 buttons (whatsapp/twitter/facebook/telegram/copy). Footer 'Creator marketplace' + 'Become a creator' links present. CRITICAL BUG: InfluencerHub, InfluencerOnboarding, InfluencerCampaigns, InfluencerPayouts all redirect SIGNED-IN users to /login on direct URL access / page refresh because they inline-check `if (!user) nav('/login')` in useEffect WITHOUT awaiting the AuthContext's `loading` flag. AuthContext exposes `loading=true` until /api/auth/me resolves but these 4 new pages ignore it, so the redirect fires synchronously before the auth state hydrates. Verified by registering via in-page fetch (200), setting localStorage.aura_token (length 208), then goto /influencer/onboarding — page redirected to /login even though nav header shows logged-in state ('My Tickets', 'Creator' visible).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "InfluencerHub.jsx:25, InfluencerOnboarding.jsx:25, InfluencerCampaigns.jsx:27, InfluencerPayouts.jsx:32",
+        "issue": "All four new influencer pages do `if (!user) { nav('/login'); return; }` inside their first useEffect without checking AuthContext's `loading` flag. On hard navigation/refresh, `user` is null while AuthContext is still resolving (/api/auth/me in flight), so legitimate signed-in users get bounced to /login. RequireOrganizer wrapper handles this correctly — these new pages should adopt the same pattern OR gate on `if (!loading && !user)`.",
+        "selector": "useEffect inline auth guard",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Influencer onboarding / hub / campaigns / payouts deep link or refresh",
+        "issue": "After signup or page refresh while signed in, direct navigation to /influencer/* lands on /login. The token IS in localStorage, the nav bar shows the logged-in user, but the page-level guard fires before AuthContext hydrates. End-to-end UI flow (signup → onboard → hub → campaigns → join → payouts) is currently un-testable through Playwright because the second hop loses the auth check.",
+        "affected_selectors": ["[data-testid='influencer-onboarding']", "[data-testid='influencer-hub']", "[data-testid='influencer-campaigns']", "[data-testid='influencer-payouts']"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration12_influencer_features.py",
+    "/app/test_reports/pytest/iter12_influencers.xml"
+  ],
+  "action_items": [
+    "(HIGH) Fix auth guard race in InfluencerHub.jsx, InfluencerOnboarding.jsx, InfluencerCampaigns.jsx, InfluencerPayouts.jsx — destructure `loading` from useAuth() and gate redirects with `if (!loading && !user) nav('/login')`. Alternatively wrap routes in a <RequireUser> HOC (same shape as RequireOrganizer) so the guard waits for auth hydration.",
+    "(LOW) Investigate the 3 unrelated 404 console errors that fired during event detail page load (likely existing assets, not new features).",
+    "(LOW) Existing /app/backend/tests/test_influencers.py::test_full_influencer_lifecycle still fails because it calls POST /api/organizer/affiliates with an org user that doesn't have explicit team-manager perms for the event (returns 403). Pre-existing affiliate router behaviour — not a new-feature regression. The new test suite (test_iteration12_influencer_features.py) sidesteps this by using influencer self-join codes for the UTM test."
+  ],
+  "critical_code_review_comments": [
+    "All 11 new influencer endpoints are well-shaped: marketplace correctly projects only public fields (no email/_id/stripe_account_id), `enable` is properly idempotent (replace-by-user_id), `campaigns/join` returns identical code on retry, dashboard summary has the full 7-key shape, and PATCH /api/events/:id persists affiliate_program_open + affiliate_default_commission_pct.",
+    "POST /api/organizer/utm-link ownership check is correct (403 for non-owner; bad URL → 400). Note however that influencers themselves cannot use this endpoint (`role not in {organizer,admin}` → 403) — that's by design but should be documented since an influencer might want to generate a tracked link for their own code.",
+    "Frontend auth race condition (see ui_bugs) affects every new authed influencer page. This is the single highest-priority fix — without it, the entire influencer hub is unreachable via deep-link or refresh.",
+    "SocialShareButtons on /events/:id renders all 5 share variants with the documented data-testids. Could not verify the 'with affiliate code' pill end-to-end because the influencer flow (#joining a campaign) is gated behind the broken auth-race redirect.",
+    "Pre-existing /api/organizer/affiliates endpoint requires team-manager perms even for the event owner organizer, which breaks the old test_influencers.py::test_full_influencer_lifecycle (403 on POST). Worth aligning the permission model — an organizer creating an affiliate code for THEIR OWN event should not require a separate team-manager grant."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration12_influencer_features.py (new — 8 pytest functions covering all 11 endpoints in the review request)"
+  ],
+  "success_rate": {
+    "backend": "100% (9/9 — all 11 endpoints; iter11 regressions not re-run but no influencer router touches existing collections destructively)",
+    "frontend": "60% — marketplace ✅, /influencer unauth → /login ✅, SocialShareButtons ✅, footer links ✅; 4 authed pages (hub/onboarding/campaigns/payouts) BROKEN by auth-race redirect"
+  },
+  "test_credentials": "admin@allsale.events / admin123. Fresh attendees created in-test via /api/auth/register.",
+  "seed_data_creation": "Created ~14 throwaway influencer profiles + ~4 events (titles include 'Influencer Test Event', 'Open Prog', 'Closed Prog', 'UTM Event', 'Affiliate flag test') in the preview DB during pytest runs. Visible in /influencers marketplace (Updated Name, Tagged_*, Other Creator, PayoutQA, StripeQA, etc.). Recommend a cleanup pass before production deploy.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is fully green (9/9 pytest in /app/backend/tests/test_iteration12_influencer_features.py). Frontend marketplace + social share + footer + unauth redirect work. The HIGH-priority fix is the auth-race in 4 pages — once that's fixed by gating on AuthContext.loading, the full signup → onboarding → hub → join campaign → SocialShareButtons-with-affiliate-pill flow becomes testable. Use page.evaluate fetch() for in-test register/login because outbound httpx from the playwright sandbox is 403-blocked.",
+  "rca of the issue": "InfluencerHub.jsx:24-40, InfluencerOnboarding.jsx:25, InfluencerCampaigns.jsx:27, InfluencerPayouts.jsx:32 all run `if (!user) { nav('/login'); return; }` inside useEffect tied to `[user]`. AuthContext (src/lib/auth.jsx) initializes `user=null, loading=true`, then calls checkAuth() which sets user from /api/auth/me before flipping loading=false. The 4 new pages never consume `loading`, so the first render of useEffect sees user=null and fires the /login redirect before /api/auth/me resolves. Reproduction: register via in-page fetch (200), localStorage.setItem('aura_token', ...), goto('/influencer/onboarding') → lands on /login despite the nav header rendering the logged-in state ('My Tickets', 'Creator' visible) two frames later. Fix: `const { user, loading } = useAuth(); useEffect(() => { if (loading) return; if (!user) { nav('/login'); return; } ... }, [user, loading]);` — or wrap routes in a <RequireUser> HOC mirroring RequireOrganizer."
+}

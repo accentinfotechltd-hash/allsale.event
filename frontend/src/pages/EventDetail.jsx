@@ -8,6 +8,7 @@ import useEventLiveUpdates from "@/lib/useEventLiveUpdates";
 import { ContactOrganizerButton } from "@/components/ContactOrganizerDialog";
 import FollowOrganizerButton from "@/components/FollowOrganizerButton";
 import AffiliateBanner from "@/components/AffiliateBanner";
+import SocialShareButtons from "@/components/SocialShareButtons";
 import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/currencies";
@@ -301,7 +302,11 @@ export default function EventDetail() {
             </div>
           </div>
 
-          <p className="text-base sm:text-lg leading-relaxed max-w-3xl mb-10 sm:mb-12" style={{ color: "var(--text-muted)" }}>{event.description}</p>
+          <p className="text-base sm:text-lg leading-relaxed max-w-3xl mb-6 sm:mb-8" style={{ color: "var(--text-muted)" }}>{event.description}</p>
+
+          <div className="max-w-3xl mb-10 sm:mb-12">
+            <SocialShareButtons event={event} />
+          </div>
 
           {event.has_seatmap && (
             <div className="border rounded-2xl p-4 sm:p-6 lg:p-8" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>

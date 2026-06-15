@@ -29,6 +29,12 @@ import Contact from "@/pages/Contact";
 import OrganizerProfile from "@/pages/OrganizerProfile";
 import TransferClaim from "@/pages/TransferClaim";
 import ScannerEntry from "@/pages/ScannerEntry";
+import InfluencerHub from "@/pages/InfluencerHub";
+import InfluencerOnboarding from "@/pages/InfluencerOnboarding";
+import InfluencerCampaigns from "@/pages/InfluencerCampaigns";
+import InfluencerPayouts from "@/pages/InfluencerPayouts";
+import InfluencerMarketplace from "@/pages/InfluencerMarketplace";
+import InfluencerProfile from "@/pages/InfluencerProfile";
 import RequireOrganizer from "@/components/RequireOrganizer";
 
 function AppRouter() {
@@ -64,6 +70,12 @@ function AppRouter() {
         <Route path="/contact" element={<Contact />} />
         <Route path="/organizers/:id" element={<OrganizerProfile />} />
         <Route path="/transfer/:id" element={<TransferClaim />} />
+        <Route path="/influencers" element={<InfluencerMarketplace />} />
+        <Route path="/influencers/:id" element={<InfluencerProfile />} />
+        <Route path="/influencer" element={<InfluencerHub />} />
+        <Route path="/influencer/onboarding" element={<InfluencerOnboarding />} />
+        <Route path="/influencer/campaigns" element={<InfluencerCampaigns />} />
+        <Route path="/influencer/payouts" element={<InfluencerPayouts />} />
         <Route path="/organizer" element={<RequireOrganizer><Organizer /></RequireOrganizer>} />
         <Route path="/organizer/new" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId/edit" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />

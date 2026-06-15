@@ -115,6 +115,14 @@ export default function Layout({ children }) {
                 <Link to="/profile" className="btn-ghost !py-2 !px-3 md:!px-4 text-sm" data-testid="nav-profile-link">
                   <Ticket className="w-4 h-4" /> <span className="hidden md:inline">My Tickets</span>
                 </Link>
+                <Link
+                  to={user.is_influencer ? "/influencer" : "/influencer/onboarding"}
+                  className="px-2 md:px-3 py-2 text-sm hidden md:inline-flex items-center gap-1.5"
+                  style={{ color: "var(--text-muted)" }}
+                  data-testid="nav-creator-link"
+                >
+                  <Sparkles className="w-4 h-4" /> Creator
+                </Link>
                 <button onClick={logout} className="p-2 text-sm" style={{ color: "var(--text-dim)" }} data-testid="nav-logout-btn" title="Log out">
                   <LogOut className="w-4 h-4" />
                 </button>
@@ -162,6 +170,7 @@ export default function Layout({ children }) {
                   {user.role === "attendee" && <MobileLink to="/become-organizer" label="Host an event" icon={<Sparkles className="w-4 h-4" />} testid="m-nav-host" />}
                   {user.role === "admin" && <MobileLink to="/admin" label="Admin" icon={<ShieldCheck className="w-4 h-4" />} testid="m-nav-admin" />}
                   <MobileLink to="/profile" label="My tickets" icon={<Ticket className="w-4 h-4" />} testid="m-nav-profile" />
+                  <MobileLink to={user.is_influencer ? "/influencer" : "/influencer/onboarding"} label={user.is_influencer ? "Creator hub" : "Become a creator"} icon={<Sparkles className="w-4 h-4" />} testid="m-nav-creator" />
                   <button onClick={() => { logout(); setMenuOpen(false); }} className="text-left px-3 py-3 rounded-lg text-sm flex items-center gap-2" style={{ color: "var(--text-dim)" }} data-testid="m-nav-logout">
                     <LogOut className="w-4 h-4" /> Log out
                   </button>
@@ -200,6 +209,8 @@ export default function Layout({ children }) {
             <ul className="space-y-2 text-sm">
               <li><Link to={user ? (user.role === "attendee" ? "/become-organizer" : "/organizer") : "/signup"} style={{ color: "var(--text-muted)" }}>Sell Tickets</Link></li>
               <li><Link to={user && user.role !== "attendee" ? "/organizer" : "/become-organizer"} style={{ color: "var(--text-muted)" }}>Dashboard</Link></li>
+              <li><Link to="/influencers" style={{ color: "var(--text-muted)" }} data-testid="footer-influencers-link">Creator marketplace</Link></li>
+              <li><Link to={user?.is_influencer ? "/influencer" : "/influencer/onboarding"} style={{ color: "var(--text-muted)" }} data-testid="footer-become-creator-link">Become a creator</Link></li>
             </ul>
           </div>
           <div>

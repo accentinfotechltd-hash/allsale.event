@@ -57,6 +57,10 @@ class EventIn(BaseModel):
     # by default). Backwards compatible — unset = no self-serve refunds.
     refund_policy: Optional[Dict[str, Any]] = None  # {enabled,hours_before_event,refund_pct}
     auto_promo_disabled: bool = False  # opt out of the FIRST50 auto-promo
+    # Open influencer marketplace — when True, any influencer can self-join
+    # this event's affiliate program with the default commission %.
+    affiliate_program_open: bool = False
+    affiliate_default_commission_pct: float = 10.0
 
 
 class HoldIn(BaseModel):
