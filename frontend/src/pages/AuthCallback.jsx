@@ -12,6 +12,26 @@ export default function AuthCallback() {
     if (processed.current) return;
     processed.current = true;
 
+    // Path 1: Custom Google OAuth — code grant comes back as ?code=...
+    const qs = new URLSearchParams(window.location.search || "");
+    const code = qs.get("code");
+    if (code) {
+      (async () => {
+        try {
+          const redirectUri = window.location.origin + "/auth/callback";
+          const { data } = await api.post("/auth/google-code", { code, redirect_uri: redirectUri });
+          if (data?.token) localStorage.setItem("aura_token", data.token);
+          setUser(data);
+          window.history.replaceState({}, "", "/");
+          nav("/", { state: { user: data } });
+        } catch {
+          nav("/login");
+        }
+      })();
+      return;
+    }
+
+    // Path 2: Legacy Emergent-managed flow — session_id in URL fragment.
     const hash = window.location.hash || "";
     const m = hash.match(/session_id=([^&]+)/);
     if (!m) {
@@ -24,10 +44,9 @@ export default function AuthCallback() {
       try {
         const { data } = await api.post("/auth/google-session", { session_id: sessionId });
         setUser(data);
-        // Clear hash and go home
         window.history.replaceState({}, "", "/");
         nav("/", { state: { user: data } });
-      } catch (e) {
+      } catch {
         nav("/login");
       }
     })();

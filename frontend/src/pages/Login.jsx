@@ -33,8 +33,27 @@ export default function Login() {
 
   const onGoogle = () => {
     // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-    const redirectUrl = window.location.origin + "/auth/callback";
-    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
+    // Custom Google OAuth — uses Allsale's own Client ID (env var exposed at
+    // build time via REACT_APP_GOOGLE_CLIENT_ID) so the consent screen shows
+    // `allsale.events` instead of the platform's brand. Falls back to the
+    // Emergent-managed proxy in environments where the env var isn't set
+    // (e.g. preview tier without custom OAuth).
+    const redirectUri = window.location.origin + "/auth/callback";
+    const clientId = process.env.REACT_APP_GOOGLE_CLIENT_ID;
+    if (clientId) {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: "code",
+        scope: "openid email profile",
+        access_type: "online",
+        prompt: "select_account",
+      });
+      window.location.href = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+      return;
+    }
+    // Legacy Emergent-managed Google Auth fallback.
+    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUri)}`;
   };
 
   return (

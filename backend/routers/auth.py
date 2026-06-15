@@ -228,7 +228,94 @@ async def update_me(payload: ProfileUpdateIn, user: dict = Depends(get_current_u
     return {"updated": True, **refreshed}
 
 
-# Emergent Google Auth — exchange session_id for session_token, fetch profile
+class GoogleCodeIn(BaseModel):
+    code: str
+    redirect_uri: str  # client-built via window.location.origin + "/auth/callback"
+
+
+# Custom Google OAuth (authorization code flow) — uses the user's OWN
+# Google Cloud Console Client ID + Secret so the consent screen shows
+# `allsale.events`, not the platform's branding.
+# REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
+@router.post("/google-code")
+async def google_code(payload: GoogleCodeIn, response: Response):
+    import os as _os
+    client_id = _os.environ.get("GOOGLE_CLIENT_ID")
+    client_secret = _os.environ.get("GOOGLE_CLIENT_SECRET")
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=500, detail="Google OAuth not configured")
+
+    async with httpx.AsyncClient(timeout=15) as hc:
+        token_resp = await hc.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": payload.code,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "redirect_uri": payload.redirect_uri,
+                "grant_type": "authorization_code",
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        if token_resp.status_code != 200:
+            raise HTTPException(status_code=401, detail=f"Token exchange failed: {token_resp.text[:200]}")
+        tok = token_resp.json()
+        access_token = tok.get("access_token")
+        if not access_token:
+            raise HTTPException(status_code=401, detail="No access token returned")
+
+        profile_resp = await hc.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        if profile_resp.status_code != 200:
+            raise HTTPException(status_code=401, detail="Failed to fetch Google profile")
+        data = profile_resp.json()
+
+    email = (data.get("email") or "").lower().strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="No email returned from Google")
+    name = data.get("name") or email.split("@")[0]
+    picture = data.get("picture")
+
+    user = await db.users.find_one({"email": email}, {"_id": 0})
+    if user:
+        await db.users.update_one(
+            {"email": email}, {"$set": {"name": name, "picture": picture}},
+        )
+        user_id = user["user_id"]
+        role = user["role"]
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        role = "attendee"
+        new_user_doc = {
+            "user_id": user_id, "email": email, "name": name, "picture": picture,
+            "role": role, "created_at": utc_now().isoformat(), "auth_provider": "google",
+        }
+        await db.users.insert_one(new_user_doc)
+        try:
+            from routers.team import attach_pending_team_invites
+            await attach_pending_team_invites(new_user_doc)
+        except Exception:
+            pass
+
+    session_token = uuid.uuid4().hex + uuid.uuid4().hex
+    await db.user_sessions.insert_one({
+        "user_id": user_id, "session_token": session_token,
+        "expires_at": (utc_now() + timedelta(days=SESSION_DAYS)).isoformat(),
+        "created_at": utc_now().isoformat(),
+    })
+    set_session_cookie(response, session_token)
+    # Also mint a JWT for the API client to put in Authorization headers
+    jwt_token = create_access_token({"sub": user_id, "email": email, "role": role})
+    set_jwt_cookie(response, jwt_token)
+    return {
+        "user_id": user_id, "email": email, "name": name, "picture": picture,
+        "role": role, "token": jwt_token,
+    }
+
+
+# Emergent Google Auth — kept for legacy preview/dev fallback only.
 # REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
 @router.post("/google-session")
 async def google_session(payload: GoogleSessionIn, response: Response):
