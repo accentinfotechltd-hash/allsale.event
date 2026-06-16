@@ -112,6 +112,15 @@ async def admin_approve(event_id: str, user: dict = Depends(get_current_user)):
         except Exception as exc:  # noqa: BLE001
             import logging as _l
             _l.getLogger(__name__).warning(f"[follow-notify] failed: {exc}")
+
+        # Referral program — first-event-approved triggers $100 credit
+        # to both referrer + referred organizer. Idempotent.
+        try:
+            from routers.organizer_referrals import maybe_grant_referral_on_first_approval
+            await maybe_grant_referral_on_first_approval(event)
+        except Exception as exc:  # noqa: BLE001
+            import logging as _l
+            _l.getLogger(__name__).warning(f"[referral] grant failed: {exc}")
     return {"ok": True}
 
 

@@ -68,6 +68,9 @@ class EventIn(BaseModel):
     # this event's affiliate program with the default commission %.
     affiliate_program_open: bool = False
     affiliate_default_commission_pct: float = 10.0
+    # Group-booking auto-discount: when buyers purchase >= `min_qty` tickets in
+    # one go they get `pct_off` % off automatically. Set min_qty=0 to disable.
+    group_discount: Optional[Dict[str, Any]] = None  # {min_qty: int, pct_off: float}
 
 
 class HoldIn(BaseModel):
@@ -76,6 +79,7 @@ class HoldIn(BaseModel):
     quantity: int = 1
     seats: Optional[List[str]] = None
     code: Optional[str] = Field(default=None, max_length=24)  # optional discount code
+    gift_card_code: Optional[str] = Field(default=None, max_length=32)  # optional gift card
 
 
 class CheckoutIn(BaseModel):

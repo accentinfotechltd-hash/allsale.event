@@ -203,6 +203,7 @@ export default function Layout({ children }) {
               <li><Link to="/events?category=sports" style={{ color: "var(--text-muted)" }}>Sports</Link></li>
               <li><Link to="/events?category=theater" style={{ color: "var(--text-muted)" }}>Theater</Link></li>
               <li><Link to="/events?past=1" style={{ color: "var(--text-muted)" }} data-testid="footer-past-events-link">Past Events</Link></li>
+              <li><Link to="/gift-cards" style={{ color: "var(--text-muted)" }} data-testid="footer-gift-cards-link">Gift cards</Link></li>
             </ul>
           </div>
           <div>

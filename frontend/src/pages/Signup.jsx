@@ -1,19 +1,40 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { trackSignup } from "@/lib/analytics";
-import { Mail, Lock, User, ArrowRight } from "lucide-react";
+import { Mail, Lock, User, ArrowRight, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import Logo from "@/components/Logo";
 
 export default function Signup() {
   const { setUser } = useAuth();
   const nav = useNavigate();
+  const [params] = useSearchParams();
+  const refCode = (params.get("ref") || "").trim().toLowerCase();
   const [form, setForm] = useState({ name: "", email: "", password: "", role: "attendee" });
   const [loading, setLoading] = useState(false);
 
+  // Persist the referral code in localStorage so it survives the Google OAuth
+  // round-trip (Google callback is a separate page).
+  useEffect(() => {
+    if (refCode && refCode.startsWith("ref_")) {
+      try { localStorage.setItem("allsale_ref_code", refCode); } catch { /* noop */ }
+    }
+  }, [refCode]);
+
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  const stampReferralBestEffort = async () => {
+    let stored = "";
+    try { stored = localStorage.getItem("allsale_ref_code") || ""; } catch { /* noop */ }
+    const code = (refCode || stored).trim().toLowerCase();
+    if (!code.startsWith("ref_")) return;
+    try {
+      await api.post("/auth/register/stamp-referral", { ref_code: code });
+      try { localStorage.removeItem("allsale_ref_code"); } catch { /* noop */ }
+    } catch { /* silent — non-blocking */ }
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -22,6 +43,7 @@ export default function Signup() {
       const { data } = await api.post("/auth/register", form);
       if (data.token) localStorage.setItem("aura_token", data.token);
       setUser(data);
+      await stampReferralBestEffort();
       trackSignup("email", data.role || form.role);
       toast.success("Welcome to Allsale Events!");
       nav("/");
@@ -43,6 +65,19 @@ export default function Signup() {
           <Link to="/" className="inline-flex"><Logo size={88} /></Link>
           <h1 className="serif text-4xl mt-8 mb-2">Create your account</h1>
           <p className="mb-8 text-sm" style={{ color: "var(--text-muted)" }}>Book tickets, save events, or list your own show.</p>
+
+          {refCode && (
+            <div
+              className="mb-6 flex items-center gap-2 p-3 rounded-xl"
+              style={{ background: "var(--accent-soft)", border: "1px solid var(--accent)" }}
+              data-testid="referral-banner"
+            >
+              <Sparkles size={14} style={{ color: "var(--accent)" }} />
+              <div className="text-xs" style={{ color: "var(--accent)" }}>
+                Referral active — launch your first event and get <strong>$100 NZD credit</strong>.
+              </div>
+            </div>
+          )}
 
           <button onClick={onGoogle} className="btn-ghost w-full justify-center !py-3" data-testid="google-signup-btn">
             <img src="https://www.google.com/favicon.ico" alt="" className="w-4 h-4" />

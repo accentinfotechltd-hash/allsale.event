@@ -44,6 +44,11 @@ export default function Checkout() {
         booking_id: bookingId,
         origin_url: origin,
       });
+      if (data.direct_paid) {
+        // Booking was fully covered (gift card / comp) — skip Stripe.
+        window.location.href = `/checkout/success?booking_id=${bookingId}`;
+        return;
+      }
       window.location.href = data.url;
     } catch (e) {
       toast.error(formatApiErrorDetail(e?.response?.data?.detail) || "Checkout failed");

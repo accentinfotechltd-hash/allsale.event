@@ -170,6 +170,12 @@ async def checkout_session(payload: CheckoutIn, request: Request, user: dict = D
     if booking["status"] == "paid":
         raise HTTPException(status_code=400, detail="Already paid")
 
+    # Gift card covered the entire buyer-total — no Stripe round-trip needed.
+    # We finalize the booking directly (creates QR, sends email, frees holds).
+    if float(booking.get("amount", 0)) <= 0:
+        await _finalize_paid_booking(booking["booking_id"], session_id=None)
+        return {"url": None, "session_id": None, "direct_paid": True}
+
     exp = booking["hold_expires_at"]
     if isinstance(exp, str):
         exp = datetime.fromisoformat(exp)
@@ -493,7 +499,22 @@ async def stripe_webhook(request: Request):
         logger.error(f"Stripe webhook signature verification failed: {e}")
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
     if evt.payment_status == "paid" and evt.session_id:
-        booking_id = (evt.metadata or {}).get("booking_id")
-        if booking_id:
-            await _finalize_paid_booking(booking_id, session_id=evt.session_id)
+        meta = evt.metadata or {}
+        kind = meta.get("kind")
+        if kind == "gift_card":
+            try:
+                from routers.gift_cards import finalize_gift_card_purchase
+                await finalize_gift_card_purchase(meta.get("card_id"))
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to finalize gift card from webhook")
+        elif kind == "bundle":
+            try:
+                from routers.bundles import finalize_bundle_purchase
+                await finalize_bundle_purchase(meta.get("purchase_id"))
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to finalize bundle from webhook")
+        else:
+            booking_id = meta.get("booking_id")
+            if booking_id:
+                await _finalize_paid_booking(booking_id, session_id=evt.session_id)
     return {"ok": True}

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet, ScanLine, Pencil, Trash2 } from "lucide-react";
+import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet, ScanLine, Pencil, Trash2, Package, Sparkles } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { formatMoney } from "@/lib/currencies";
 import DoorCheckinPanel from "@/components/DoorCheckinPanel";
@@ -60,6 +60,12 @@ export default function Organizer() {
           </Link>
           <Link to="/organizer/payouts" className="btn-ghost" data-testid="manage-payouts-btn">
             <Wallet className="w-4 h-4" /> Payouts
+          </Link>
+          <Link to="/organizer/bundles" className="btn-ghost" data-testid="manage-bundles-btn">
+            <Package className="w-4 h-4" /> Bundles
+          </Link>
+          <Link to="/organizer/referral" className="btn-ghost" data-testid="referral-btn">
+            <Sparkles className="w-4 h-4" /> Refer & earn
           </Link>
           <Link to="/organizer/new" className="btn-primary" data-testid="create-event-btn">
             <Plus className="w-4 h-4" /> Create event

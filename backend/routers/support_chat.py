@@ -633,3 +633,191 @@ async def export_chat_csv(session_id: str, user: dict = Depends(get_current_user
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{fname}"'},
     )
+
+
+# -------------------- FAQ Chatbot (b3) --------------------
+
+# Hardcoded knowledge base — concise & domain-specific so the LLM stays
+# grounded. Edit here when policies change; no DB hop needed.
+FAQ_KNOWLEDGE_BASE = """
+Allsale Events — Help knowledge base
+
+Bookings & Tickets
+- A booking is held for 10 minutes once you start checkout. If you don't pay, the seats release.
+- Tickets appear in Profile → My Tickets immediately after payment. They include a QR code.
+- You can re-download a ticket any time from Profile → My Tickets → Show QR.
+- If you can't find a confirmation email, check spam, or sign in and the ticket will be there.
+
+Refunds & Cancellations
+- Refunds depend on the event's refund policy (shown on the event page). When self-serve refunds
+  are enabled, request from Profile → My Tickets → Request Refund up to the cut-off (e.g. 48h before).
+- Stripe processing fees and the platform fee are non-refundable by default.
+- If the event is cancelled, organizers issue full refunds via the dashboard.
+
+Transfers
+- Send a ticket to someone else from Profile → My Tickets → Transfer. They get an email link to claim.
+
+Group Bookings & Discounts
+- Some events offer an automatic group discount when you buy a minimum number of tickets in one order.
+- Promo codes are entered on the event page before checkout.
+
+Organizer & Selling
+- To sell tickets, sign up as an organizer (Get Started → I want to sell tickets) then Create Event.
+- Payouts go to your Stripe-connected account ~5 days after the event finishes.
+- See the organizer dashboard for live sales, attendees, and scanner QR.
+
+Door Check-in
+- Use the Scanner kiosk PWA (link in organizer dashboard footer or /scan) to scan QR codes.
+
+Account
+- Log in with email/password or Google. To reset, use "Forgot password" on the login page.
+
+Currencies, Countries & Time
+- The platform supports multiple countries / currencies; event times are shown in event-local tz
+  and your local tz on the event page.
+
+What this bot CAN'T do:
+- Issue refunds, change ticket holder names, or modify orders. For those, ask to "Talk to a human"
+  and a support agent will jump in.
+"""
+
+
+class FaqAskIn(BaseModel):
+    session_id: str = Field(min_length=8, max_length=64)
+    question: str = Field(min_length=2, max_length=500)
+
+
+@router.post("/support/faq/ask")
+async def faq_ask(payload: FaqAskIn, request: Request):
+    """Visitor FAQ bot. Persists the visitor question + the bot answer to the
+    same `support_messages` thread so it shows alongside any human messages.
+
+    The bot is grounded in `FAQ_KNOWLEDGE_BASE` and instructed to recommend
+    escalation when out of scope. Returns `{answer, can_help, message_id}`
+    so the frontend can render the new bubble immediately.
+    """
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key or not LlmChat:
+        raise HTTPException(status_code=503, detail="AI not configured")
+
+    session_id = payload.session_id
+    question = payload.question.strip()
+    now_iso = utc_now().isoformat()
+
+    # Make sure the chat session exists so admins can see context if escalated.
+    existing = await db.support_chats.find_one({"session_id": session_id}, {"_id": 0})
+    if not existing:
+        await db.support_chats.insert_one({
+            "session_id": session_id,
+            "visitor_name": None,
+            "visitor_email": None,
+            "user_id": None,
+            "status": "bot",  # marker so admin queue knows it's bot-handled
+            "created_at": now_iso,
+            "last_visitor_msg_at": now_iso,
+            "unread_admin": 0,
+        })
+
+    # Save the visitor's question first.
+    q_doc = {
+        "message_id": f"msg_{uuid.uuid4().hex[:12]}",
+        "session_id": session_id,
+        "sender": "visitor",
+        "text": question,
+        "created_at": now_iso,
+    }
+    await db.support_messages.insert_one(q_doc)
+    await db.support_chats.update_one(
+        {"session_id": session_id},
+        {"$set": {"last_visitor_msg_at": now_iso}},
+    )
+
+    # Build short prior context (last 6 messages, this session) for follow-ups.
+    prior = []
+    async for m in db.support_messages.find(
+        {"session_id": session_id, "sender": {"$in": ["visitor", "bot"]}},
+        {"_id": 0, "sender": 1, "text": 1, "created_at": 1},
+    ).sort("created_at", -1).limit(6):
+        prior.append(m)
+    prior.reverse()
+    transcript = "\n".join(
+        f"{m['sender'].upper()}: {m.get('text','')}" for m in prior if m.get("text")
+    )
+
+    system_msg = (
+        "You are the Allsale Events FAQ assistant. Answer ONLY using the knowledge "
+        "base below. Keep answers to 2-3 short sentences. If the visitor needs an "
+        "action you cannot perform (refund, name change, payout, custom invoice), "
+        "say briefly that a human agent will help and END your reply with exactly "
+        "the token <ESCALATE>. Never invent policies, dates, or prices.\n\n"
+        f"KNOWLEDGE BASE:\n{FAQ_KNOWLEDGE_BASE}\n\n"
+        f"PRIOR CONVERSATION:\n{transcript}"
+    )
+
+    try:
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"faq-{session_id[:12]}-{uuid.uuid4().hex[:6]}",
+            system_message=system_msg,
+        ).with_model("openai", "gpt-5.1")
+        resp = await chat.send_message(UserMessage(text=question))
+        answer_raw = (resp or "").strip().strip('"').strip("'")
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("FAQ ask failed")
+        raise HTTPException(status_code=502, detail=f"AI unavailable: {exc}") from exc
+
+    escalate = "<ESCALATE>" in answer_raw
+    answer = answer_raw.replace("<ESCALATE>", "").strip()
+    if not answer:
+        answer = "I couldn't find a confident answer. A human agent can help — tap 'Talk to a human'."
+        escalate = True
+
+    bot_doc = {
+        "message_id": f"msg_{uuid.uuid4().hex[:12]}",
+        "session_id": session_id,
+        "sender": "bot",
+        "text": answer,
+        "escalate": escalate,
+        "created_at": utc_now().isoformat(),
+    }
+    await db.support_messages.insert_one(bot_doc)
+
+    return {
+        "answer": answer,
+        "can_help": not escalate,
+        "message_id": bot_doc["message_id"],
+    }
+
+
+@router.post("/support/faq/escalate")
+async def faq_escalate(payload: FaqAskIn):
+    """Visitor clicked 'Talk to a human' — flip the session out of bot mode so
+    it appears in the admin queue, and notify admins (using the same throttled
+    path as a regular new-visitor-message)."""
+    session_id = payload.session_id
+    sess = await db.support_chats.find_one({"session_id": session_id}, {"_id": 0})
+    if not sess:
+        raise HTTPException(status_code=404, detail="Session not found")
+    now_iso = utc_now().isoformat()
+    await db.support_chats.update_one(
+        {"session_id": session_id},
+        {"$set": {"status": "open", "last_visitor_msg_at": now_iso}},
+    )
+    # Add the system marker so admin sees the handoff happened.
+    await db.support_messages.insert_one({
+        "message_id": f"msg_{uuid.uuid4().hex[:12]}",
+        "session_id": session_id,
+        "sender": "system",
+        "kind": "bot_handoff",
+        "text": payload.question or "Visitor asked for a human agent",
+        "created_at": now_iso,
+    })
+    # Fire the admin email/Slack notification best-effort.
+    try:
+        visitor_name = sess.get("visitor_name") or "Visitor"
+        preview = (payload.question or "(escalated from bot)")[:120]
+        asyncio.create_task(_maybe_notify_admins(session_id, visitor_name, preview))
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "status": "open"}
+

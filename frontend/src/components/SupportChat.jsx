@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { MessageCircle, X, Send, Paperclip, Star } from "lucide-react";
+import { MessageCircle, X, Send, Paperclip, Star, Sparkles, UserRound } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -36,6 +36,10 @@ export default function SupportChat() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [attachment, setAttachment] = useState(null); // {filename, mime, data_url}
+  // FAQ bot mode — defaults ON so first-time visitors get instant AI answers.
+  // Flips OFF when (a) visitor taps "Talk to a human", or (b) the thread
+  // already contains an admin message (visitor returning to a human convo).
+  const [botMode, setBotMode] = useState(true);
   const sessionRef = useRef(null);
   const listRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -63,8 +67,12 @@ export default function SupportChat() {
       try {
         const { data } = await api.get(`/support/chat/${sid}`);
         if (!cancelled) {
-          setMessages(data.messages || []);
+          const msgs = data.messages || [];
+          setMessages(msgs);
           setAdminTyping(!!data.session?.admin_is_typing);
+          // If an admin has already replied in this thread, drop bot mode so
+          // the visitor talks straight to the human from now on.
+          if (msgs.some((m) => m.sender === "admin")) setBotMode(false);
         }
       } catch { /* network blip — silent */ }
     };
@@ -113,19 +121,61 @@ export default function SupportChat() {
     const sentAttachment = attachment;
     setAttachment(null);
     try {
-      await api.post("/support/chat/messages", {
-        session_id: getSessionId(),
-        text: body || undefined,
-        attachment: sentAttachment || undefined,
-        name: name?.trim() || undefined,
-        email: email?.trim() || undefined,
-      });
+      // Bot mode → /support/faq/ask. We only route TEXT questions through
+      // the bot; attachments always go to humans (the bot can't see files).
+      if (botMode && body && !sentAttachment) {
+        const { data } = await api.post("/support/faq/ask", {
+          session_id: getSessionId(),
+          question: body,
+        });
+        const botMsg = {
+          message_id: data.message_id || `bot_${Date.now()}`,
+          sender: "bot",
+          text: data.answer,
+          escalate: !data.can_help,
+          created_at: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev.filter((m) => m.message_id !== optimistic.message_id), { ...optimistic, message_id: `v_${Date.now()}` }, botMsg]);
+      } else {
+        await api.post("/support/chat/messages", {
+          session_id: getSessionId(),
+          text: body || undefined,
+          attachment: sentAttachment || undefined,
+          name: name?.trim() || undefined,
+          email: email?.trim() || undefined,
+        });
+      }
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.message_id !== optimistic.message_id));
       toast.error(err?.response?.data?.detail || "Couldn't send");
     } finally {
       setSending(false);
     }
+  };
+
+  // Visitor taps "Talk to a human" → escalate the session out of bot mode
+  // so admins see it in the queue.
+  const escalateToHuman = async () => {
+    try {
+      await api.post("/support/faq/escalate", {
+        session_id: getSessionId(),
+        question: "Visitor requested a human agent",
+      });
+      setBotMode(false);
+      toast.success("Connected you with our team — they'll reply shortly.");
+    } catch {
+      toast.error("Couldn't reach support — please try again");
+    }
+  };
+
+  // Quick FAQ chips visible when the thread is empty. Sends as a normal
+  // visitor question through the bot flow.
+  const askQuick = async (q) => {
+    setText(q);
+    // Slight defer so React syncs the textarea before submit fires
+    setTimeout(() => {
+      send({ preventDefault: () => {} });
+    }, 0);
   };
 
   // Convert a picked file → base64 data URL → state. Validates size and type
@@ -198,7 +248,9 @@ export default function SupportChat() {
           >
             <div>
               <div className="font-semibold text-sm">Allsale Support</div>
-              <div className="text-[10px] opacity-80">Replies in a few minutes</div>
+              <div className="text-[10px] opacity-80">
+                {botMode ? "AI assistant — humans on standby" : "Replies in a few minutes"}
+              </div>
             </div>
             <button
               onClick={() => setOpen(false)}
@@ -218,8 +270,32 @@ export default function SupportChat() {
             data-testid="support-chat-messages"
           >
             {messages.length === 0 && (
-              <div className="text-center text-sm py-6" style={{ color: "var(--text-muted)" }}>
-                👋 Hi there! Send us a message and we'll get back to you soon.
+              <div className="py-2" data-testid="faq-quick-help">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles size={14} style={{ color: "var(--accent)" }} />
+                  <div className="text-sm font-medium">Hi! I&apos;m the Allsale assistant</div>
+                </div>
+                <div className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
+                  Ask me anything, or pick a common question:
+                </div>
+                <div className="flex flex-col gap-2">
+                  {[
+                    "How do I find my ticket?",
+                    "Can I get a refund?",
+                    "How do I transfer a ticket?",
+                    "How do I sell tickets on Allsale?",
+                  ].map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => askQuick(q)}
+                      className="text-left text-xs px-3 py-2 rounded-lg border hover:opacity-80"
+                      style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+                      data-testid={`faq-chip-${q.slice(0, 12).replace(/\s+/g, '-').toLowerCase()}`}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             {messages.map((m) => {
@@ -236,31 +312,50 @@ export default function SupportChat() {
                 );
               }
               return (
-                <div key={m.message_id} className={`group flex ${m.sender === "admin" ? "" : "justify-end"}`}>
+                <div key={m.message_id} className={`group flex ${m.sender === "admin" || m.sender === "bot" ? "" : "justify-end"}`}>
                   <div className="flex flex-col" style={{ maxWidth: "80%" }}>
                     <div
                       className="px-3 py-2 rounded-2xl text-sm leading-snug"
                       style={{
-                        background: m.sender === "admin" ? "var(--bg-card)" : "var(--accent)",
-                        color: m.sender === "admin" ? "var(--text)" : "#0F2A3A",
-                        border: m.sender === "admin" ? "1px solid var(--border)" : "none",
-                        borderRadius: m.sender === "admin" ? "14px 14px 14px 4px" : "14px 14px 4px 14px",
+                        background: m.sender === "bot"
+                          ? "var(--bg-card)"
+                          : (m.sender === "admin" ? "var(--bg-card)" : "var(--accent)"),
+                        color: (m.sender === "admin" || m.sender === "bot") ? "var(--text)" : "#0F2A3A",
+                        border: (m.sender === "admin" || m.sender === "bot") ? "1px solid var(--border)" : "none",
+                        borderRadius: (m.sender === "admin" || m.sender === "bot")
+                          ? "14px 14px 14px 4px"
+                          : "14px 14px 4px 14px",
                       }}
                       data-testid={`msg-${m.sender}`}
                     >
+                      {m.sender === "bot" && (
+                        <div className="flex items-center gap-1 text-[10px] mb-1 opacity-70">
+                          <Sparkles size={10} /> AI assistant
+                        </div>
+                      )}
                       {m.attachment && <Attachment att={m.attachment} />}
                       {m.text}
                       {m.sender === "admin" && m.sender_name && (
                         <div className="text-[10px] mt-1 opacity-60">{m.sender_name}</div>
                       )}
                     </div>
-                    <div className={`mt-1 ${m.sender === "admin" ? "self-start" : "self-end"}`}>
+                    {m.sender === "bot" && m.escalate && botMode && (
+                      <button
+                        onClick={escalateToHuman}
+                        className="mt-2 self-start flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border hover:opacity-80"
+                        style={{ borderColor: "var(--border)", color: "var(--accent)" }}
+                        data-testid="escalate-to-human-btn"
+                      >
+                        <UserRound size={11} /> Talk to a human
+                      </button>
+                    )}
+                    <div className={`mt-1 ${(m.sender === "admin" || m.sender === "bot") ? "self-start" : "self-end"}`}>
                       <MessageReactions
                         message={{ ...m, session_id: m.session_id || sessionRef.current }}
                         onReact={(reactions) => {
                           setMessages((prev) => prev.map((p) => p.message_id === m.message_id ? { ...p, reactions } : p));
                         }}
-                        align={m.sender === "admin" ? "left" : "right"}
+                        align={(m.sender === "admin" || m.sender === "bot") ? "left" : "right"}
                       />
                     </div>
                   </div>
@@ -367,6 +462,17 @@ export default function SupportChat() {
                 <Send size={16} />
               </button>
             </div>
+            {botMode && messages.length > 0 && (
+              <button
+                type="button"
+                onClick={escalateToHuman}
+                className="text-[10px] self-center opacity-70 hover:opacity-100"
+                style={{ color: "var(--text-muted)" }}
+                data-testid="composer-escalate-link"
+              >
+                Need a human? Talk to support →
+              </button>
+            )}
           </form>
         </div>
       )}

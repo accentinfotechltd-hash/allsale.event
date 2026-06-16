@@ -40,6 +40,12 @@ import InfluencerMarketplace from "@/pages/InfluencerMarketplace";
 import InfluencerProfile from "@/pages/InfluencerProfile";
 import Flyer from "@/pages/Flyer";
 import Feedback from "@/pages/Feedback";
+import GiftCards from "@/pages/GiftCards";
+import GiftCardSuccess from "@/pages/GiftCardSuccess";
+import BundleDetail from "@/pages/BundleDetail";
+import BundleSuccess from "@/pages/BundleSuccess";
+import BundleManager from "@/pages/BundleManager";
+import OrganizerReferral from "@/pages/OrganizerReferral";
 import RequireOrganizer from "@/components/RequireOrganizer";
 
 function AppRouter() {
@@ -99,6 +105,10 @@ function AppRouter() {
         <Route path="/influencer/payouts" element={<InfluencerPayouts />} />
         <Route path="/flyer" element={<Flyer />} />
         <Route path="/feedback/:id" element={<Feedback />} />
+        <Route path="/gift-cards" element={<GiftCards />} />
+        <Route path="/gift-cards/success" element={<GiftCardSuccess />} />
+        <Route path="/bundles/:bundleId" element={<BundleDetail />} />
+        <Route path="/bundles/:bundleId/success" element={<BundleSuccess />} />
         <Route path="/organizer" element={<RequireOrganizer><Organizer /></RequireOrganizer>} />
         <Route path="/organizer/new" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId/edit" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
@@ -107,6 +117,8 @@ function AppRouter() {
         <Route path="/organizer/codes" element={<RequireOrganizer><DiscountCodes /></RequireOrganizer>} />
         <Route path="/organizer/payouts" element={<RequireOrganizer><OrganizerPayouts /></RequireOrganizer>} />
         <Route path="/organizer/transfers" element={<RequireOrganizer><OrganizerTransfers /></RequireOrganizer>} />
+        <Route path="/organizer/bundles" element={<RequireOrganizer><BundleManager /></RequireOrganizer>} />
+        <Route path="/organizer/referral" element={<RequireOrganizer><OrganizerReferral /></RequireOrganizer>} />
         <Route path="/admin" element={<Admin />} />
       </Routes>
     </Layout>

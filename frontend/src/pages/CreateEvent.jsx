@@ -50,6 +50,8 @@ export default function CreateEvent() {
     seatmap_backdrop_offset_y: 0,
     seatmap_backdrop_offset_x: 0,
     seatmap_backdrop_scale: 1,
+    group_discount_min_qty: 0,
+    group_discount_pct_off: 0,
   });
   const [tiers, setTiers] = useState([{ name: "General", price: 50.0, capacity: 200 }]);
   const [submitting, setSubmitting] = useState(false);
@@ -83,6 +85,8 @@ export default function CreateEvent() {
           seatmap_curved: !!data.seatmap_curved,
           seatmap_numbering_rtl: !!data.seatmap_numbering_rtl,
           seatmap_sections: data.seatmap_sections || [],
+          group_discount_min_qty: data?.group_discount?.min_qty || 0,
+          group_discount_pct_off: data?.group_discount?.pct_off || 0,
         });
         if (Array.isArray(data.tiers) && data.tiers.length) setTiers(data.tiers);
       } catch {
@@ -162,7 +166,12 @@ export default function CreateEvent() {
         ...form,
         date: parsedDate.toISOString(),
         tiers: form.has_seatmap ? [] : tiers,
+        group_discount: (Number(form.group_discount_min_qty) > 0 && Number(form.group_discount_pct_off) > 0)
+          ? { min_qty: Number(form.group_discount_min_qty), pct_off: Number(form.group_discount_pct_off) }
+          : null,
       };
+      delete payload.group_discount_min_qty;
+      delete payload.group_discount_pct_off;
       if (isEdit) {
         const { data } = await api.patch(`/events/${eventId}`, payload);
         toast.success("Event updated");
@@ -484,6 +493,41 @@ export default function CreateEvent() {
             </div>
           </div>
         )}
+
+        <div data-testid="group-discount-section">
+          <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>
+            Group booking discount <span className="opacity-60">(optional)</span>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <input
+                type="number"
+                min="0"
+                placeholder="Min tickets (e.g. 10)"
+                value={form.group_discount_min_qty || ""}
+                onChange={(e) => update("group_discount_min_qty", parseInt(e.target.value) || 0)}
+                data-testid="group-discount-min-qty"
+              />
+              <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>Min tickets to qualify</div>
+            </div>
+            <div>
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                placeholder="% off (e.g. 15)"
+                value={form.group_discount_pct_off || ""}
+                onChange={(e) => update("group_discount_pct_off", parseFloat(e.target.value) || 0)}
+                data-testid="group-discount-pct-off"
+              />
+              <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>Discount % off subtotal</div>
+            </div>
+          </div>
+          <div className="text-xs mt-2" style={{ color: "var(--text-dim)" }}>
+            Buyers automatically get the discount when their cart hits the threshold. Set both to 0 to disable.
+          </div>
+        </div>
 
         <button type="submit" disabled={submitting} className="btn-primary" data-testid="submit-event-btn">
           {submitting ? (isEdit ? "Saving..." : "Submitting...") : (isEdit ? "Save changes" : "Submit for approval")}

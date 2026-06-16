@@ -1,0 +1,202 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Gift, Sparkles, Mail, ArrowRight, Copy, Check } from "lucide-react";
+import { toast } from "sonner";
+import api from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+
+/**
+ * GiftCards — buy or view Allsale Events gift cards.
+ *
+ * Top half: pick amount + recipient → Stripe Checkout.
+ * Bottom half: any cards I purchased OR received (matched on email).
+ */
+const PRESET_AMOUNTS = [25, 50, 100, 200];
+
+export default function GiftCards() {
+  const { user } = useAuth();
+  const nav = useNavigate();
+  const [amount, setAmount] = useState(50);
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [recipientName, setRecipientName] = useState("");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [myCards, setMyCards] = useState([]);
+  const [copied, setCopied] = useState(null);
+
+  useEffect(() => {
+    if (!user) return;
+    api.get("/me/gift-cards").then(({ data }) => setMyCards(data || [])).catch(() => {});
+  }, [user]);
+
+  const onPurchase = async () => {
+    if (!user) {
+      toast("Please sign in to purchase a gift card");
+      nav("/login");
+      return;
+    }
+    if (!recipientEmail.trim()) { toast.error("Add a recipient email"); return; }
+    if (amount < 10 || amount > 1000) { toast.error("Amount must be NZD $10–$1000"); return; }
+    setSubmitting(true);
+    try {
+      const { data } = await api.post("/gift-cards/purchase", {
+        amount: Number(amount),
+        recipient_email: recipientEmail.trim(),
+        recipient_name: recipientName.trim() || undefined,
+        personal_note: note.trim() || undefined,
+        currency: "NZD",
+        origin_url: window.location.origin,
+      });
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Couldn't start checkout");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const copyCode = async (code) => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(code);
+      toast.success("Code copied");
+      setTimeout(() => setCopied(null), 2000);
+    } catch {
+      toast.error("Couldn't copy");
+    }
+  };
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 py-12">
+      <div className="mb-8">
+        <div className="inline-flex items-center gap-2 text-xs uppercase tracking-widest mb-3" style={{ color: "var(--accent)" }}>
+          <Sparkles size={14} /> Gift cards
+        </div>
+        <h1 className="serif text-4xl sm:text-5xl mb-2">Give the gift of <span style={{ color: "var(--accent)" }}>live moments</span>.</h1>
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+          They pick the event. You pick the amount. Delivered by email instantly after payment.
+        </p>
+      </div>
+
+      <div className="rounded-2xl border p-6 mb-12" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }} data-testid="gift-card-purchase-form">
+        <div className="mb-5">
+          <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>Amount (NZD)</label>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {PRESET_AMOUNTS.map((a) => (
+              <button
+                key={a}
+                onClick={() => setAmount(a)}
+                className={`px-4 py-2 rounded-lg border text-sm ${amount === a ? "border-2" : ""}`}
+                style={{ borderColor: amount === a ? "var(--accent)" : "var(--border)", color: amount === a ? "var(--accent)" : "var(--text)" }}
+                data-testid={`amount-preset-${a}`}
+              >
+                ${a}
+              </button>
+            ))}
+          </div>
+          <input
+            type="number"
+            min="10"
+            max="1000"
+            step="5"
+            value={amount}
+            onChange={(e) => setAmount(parseFloat(e.target.value) || 0)}
+            placeholder="Custom amount"
+            data-testid="amount-input"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-5">
+          <div>
+            <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>Recipient name</label>
+            <input
+              value={recipientName}
+              onChange={(e) => setRecipientName(e.target.value)}
+              placeholder="Optional"
+              data-testid="recipient-name-input"
+            />
+          </div>
+          <div>
+            <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>Recipient email</label>
+            <input
+              type="email"
+              value={recipientEmail}
+              onChange={(e) => setRecipientEmail(e.target.value)}
+              placeholder="them@email.com"
+              data-testid="recipient-email-input"
+            />
+          </div>
+        </div>
+
+        <div className="mb-5">
+          <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>Personal note (optional)</label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Happy birthday! Pick any show you like."
+            rows={3}
+            maxLength={400}
+            data-testid="personal-note-input"
+            className="w-full px-3 py-2 rounded-lg border bg-transparent text-sm"
+            style={{ borderColor: "var(--border)" }}
+          />
+        </div>
+
+        <button
+          onClick={onPurchase}
+          disabled={submitting || !recipientEmail.trim() || amount < 10}
+          className="btn-primary w-full justify-center"
+          data-testid="purchase-gift-card-btn"
+        >
+          <Gift size={16} />
+          {submitting ? "Redirecting to payment..." : `Buy NZD $${amount} gift card`}
+          <ArrowRight size={16} />
+        </button>
+      </div>
+
+      {user && myCards.length > 0 && (
+        <div data-testid="my-gift-cards">
+          <h2 className="serif text-2xl mb-4">Your gift cards</h2>
+          <div className="space-y-3">
+            {myCards.map((c) => (
+              <div
+                key={c.card_id}
+                className="rounded-xl border p-4 flex items-center justify-between gap-3"
+                style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+                data-testid={`gc-row-${c.card_id}`}
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-mono text-sm">{c.code}</span>
+                    <button onClick={() => copyCode(c.code)} className="opacity-60 hover:opacity-100" data-testid={`copy-${c.card_id}`} aria-label="Copy code">
+                      {copied === c.code ? <Check size={12} /> : <Copy size={12} />}
+                    </button>
+                  </div>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    {c.purchased_by === user.user_id ? `Sent to ${c.recipient_email}` : `From ${c.purchaser_name || "a friend"}`}
+                    {c.personal_note ? ` • "${c.personal_note.slice(0, 60)}"` : ""}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="serif text-2xl" style={{ color: c.status === "depleted" ? "var(--text-muted)" : "var(--accent)" }}>
+                    ${c.balance?.toFixed(2)}
+                  </div>
+                  <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+                    {c.status === "depleted" ? "Used up" : c.status === "pending" ? "Pending" : `of $${c.amount?.toFixed(2)}`}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-12 text-center text-xs" style={{ color: "var(--text-muted)" }}>
+        <Mail size={14} className="inline mr-1" />
+        Gift cards arrive by email seconds after payment. No expiry. Apply at checkout on any event.
+      </div>
+    </div>
+  );
+}

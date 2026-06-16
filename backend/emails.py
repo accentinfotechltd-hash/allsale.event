@@ -282,7 +282,44 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "organizer_welcome_2_publish": lambda ctx: _t_organizer_welcome_2_publish(ctx),
     "organizer_welcome_3_first_sale": lambda ctx: _t_organizer_welcome_3_first_sale(ctx),
     "organizer_welcome_4_reactivate": lambda ctx: _t_organizer_welcome_4_reactivate(ctx),
+    "gift_card_delivered": lambda ctx: _t_gift_card_delivered(ctx),
 }
+
+
+def _t_gift_card_delivered(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Recipient gets the gift card code + a personal note from the purchaser."""
+    import html as _html
+    recipient = (ctx.get("recipient_name") or "there")[:80]
+    purchaser = (ctx.get("purchaser_name") or "Someone")[:80]
+    amount = ctx.get("amount", "0.00")
+    currency = ctx.get("currency", "NZD")
+    code = (ctx.get("code") or "").strip()
+    note = (ctx.get("personal_note") or "").strip()
+    redeem_url = ctx.get("redeem_url") or f"{APP_PUBLIC_URL}/events"
+    note_block = (
+        f'<p style="margin-top:14px;padding:14px;border-radius:10px;background:#1c1c20;color:{TEXT};font-style:italic;">"{_html.escape(note)}"<br/><span style="color:{TEXT_MUTED};font-style:normal;">— {_html.escape(purchaser)}</span></p>'
+        if note else ""
+    )
+    body = f"""
+    <p style="color:{TEXT};">Kia ora {_html.escape(recipient)} — <strong>{_html.escape(purchaser)}</strong> just sent you an Allsale Events gift card 🎁</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;text-align:center;">
+      <tr><td style="font-size:12px;letter-spacing:2px;color:{TEXT_MUTED};">GIFT CARD VALUE</td></tr>
+      <tr><td style="font-size:28px;font-weight:700;color:{BRAND_COLOR};padding-top:6px;">{currency} {amount}</td></tr>
+      <tr><td style="font-size:12px;color:{TEXT_MUTED};padding-top:14px;">CODE</td></tr>
+      <tr><td style="font-family:Menlo,Monaco,monospace;font-size:18px;color:{TEXT};letter-spacing:2px;padding-top:4px;">{_html.escape(code)}</td></tr>
+    </table>
+    {note_block}
+    <p style="margin-top:18px;color:{TEXT_MUTED};">Apply it at checkout on any event — partial use is fine, the remaining balance stays on your card.</p>
+    """
+    subject = f"You've got a {currency} {amount} Allsale gift card 🎁"
+    html = _layout(subject, f"From {purchaser}", body, "Browse events", redeem_url)
+    text = _text_fallback([
+        f"You've got a {currency} {amount} Allsale gift card from {purchaser}",
+        f"Code: {code}",
+        f"Use it: {redeem_url}",
+        f"Note: {note}" if note else "",
+    ])
+    return subject, html, text
 
 
 def _t_organizer_welcome_1_signup(ctx: Dict[str, Any]) -> tuple[str, str, str]:

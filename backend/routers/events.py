@@ -240,6 +240,7 @@ async def create_event(payload: EventIn, user: dict = Depends(get_current_user))
         "auto_promo_disabled": bool(payload.auto_promo_disabled),
         "affiliate_program_open": bool(payload.affiliate_program_open),
         "affiliate_default_commission_pct": float(payload.affiliate_default_commission_pct),
+        "group_discount": payload.group_discount or None,
         "status": "approved" if user.get("role") == "admin" else "pending",
         "featured": False,
         "created_at": utc_now().isoformat(),
@@ -299,6 +300,7 @@ async def update_event(event_id: str, payload: dict, user: dict = Depends(get_cu
         "seatmap_backdrop_offset_x", "seatmap_backdrop_scale",
         "currency", "refund_policy", "auto_promo_disabled",
         "affiliate_program_open", "affiliate_default_commission_pct",
+        "group_discount",
     }
     update = {k: v for k, v in (payload or {}).items() if k in EDITABLE}
     if not update:

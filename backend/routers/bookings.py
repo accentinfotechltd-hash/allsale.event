@@ -114,6 +114,23 @@ async def create_hold(payload: HoldIn, request: Request, user: dict = Depends(ge
     if not event.get("has_seatmap"):
         await db.seat_holds.insert_one(hold_doc)
 
+    # Auto group-discount — applies when buyer purchases >= min_qty in one go.
+    # Stacks BEFORE any promo code so the promo % is applied to the already
+    # group-discounted subtotal (a common e-commerce convention).
+    group_discount_amount = 0.0
+    group_discount_pct = 0.0
+    gd = event.get("group_discount") or {}
+    try:
+        min_qty = int(gd.get("min_qty") or 0)
+        pct_off = float(gd.get("pct_off") or 0)
+    except (TypeError, ValueError):
+        min_qty, pct_off = 0, 0.0
+    qty_for_gd = len(seats) if seats else quantity
+    if min_qty > 0 and pct_off > 0 and qty_for_gd >= min_qty:
+        group_discount_amount = round(amount * (pct_off / 100.0), 2)
+        amount = round(max(0, amount - group_discount_amount), 2)
+        group_discount_pct = pct_off
+
     # Apply optional discount code
     subtotal = amount
     discount_code = None
@@ -159,17 +176,39 @@ async def create_hold(payload: HoldIn, request: Request, user: dict = Depends(ge
         # Discounts apply to `face_value`; if it goes to $0 the booking is a
         # comp and we skip Stripe entirely.
         "subtotal": subtotal,
+        "group_discount_amount": group_discount_amount,
+        "group_discount_pct": group_discount_pct,
         "discount_code": discount_code, "discount_amount": discount_amount,
         "currency": (event.get("currency") or "NZD").upper(), "status": "pending",
         "hold_expires_at": expires.isoformat(), "created_at": utc_now().isoformat(),
     }
     fee_breakdown = compute_fees(amount, booking_doc["currency"])
+    buyer_total = round(fee_breakdown.buyer_total, 2)
+    # Apply optional gift card AFTER fees so the buyer sees the dollar
+    # off their card-charged total. Stored as `gift_card_amount` for
+    # auditing; we DO NOT reduce face_value (organizer still gets paid).
+    gift_card_amount = 0.0
+    gift_card_code = None
+    if payload.gift_card_code:
+        from routers.gift_cards import redeem_gift_card_for_booking
+        res = await redeem_gift_card_for_booking(
+            payload.gift_card_code,
+            buyer_total,
+            booking_id,
+            booking_doc["currency"],
+        )
+        gift_card_amount = res["applied"]
+        gift_card_code = payload.gift_card_code.strip().upper().replace(" ", "")
+        buyer_total = round(max(0.0, buyer_total - gift_card_amount), 2)
+
     booking_doc.update({
         "face_value": round(fee_breakdown.face_value, 2),
         "platform_fee": round(fee_breakdown.platform_fee, 2),
         "stripe_fee_estimated": round(fee_breakdown.stripe_fee, 2),
         "service_fee": round(fee_breakdown.service_fee, 2),
-        "amount": round(fee_breakdown.buyer_total, 2),
+        "amount": buyer_total,
+        "gift_card_code": gift_card_code,
+        "gift_card_amount": gift_card_amount,
     })
     await db.bookings.insert_one(booking_doc)
 

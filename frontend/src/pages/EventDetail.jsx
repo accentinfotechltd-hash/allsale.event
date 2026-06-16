@@ -10,7 +10,7 @@ import FollowOrganizerButton from "@/components/FollowOrganizerButton";
 import AffiliateBanner from "@/components/AffiliateBanner";
 import SocialShareButtons from "@/components/SocialShareButtons";
 import SeoHead from "@/components/SeoHead";
-import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi } from "lucide-react";
+import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi, Gift } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/currencies";
 
@@ -26,6 +26,9 @@ export default function EventDetail() {
   const [codeInput, setCodeInput] = useState("");
   const [appliedCode, setAppliedCode] = useState(null); // {code, discount_amount, final_amount, kind, value}
   const [validatingCode, setValidatingCode] = useState(false);
+  const [giftCardInput, setGiftCardInput] = useState("");
+  const [giftCardInfo, setGiftCardInfo] = useState(null); // {code, balance, currency} after check
+  const [giftCardChecking, setGiftCardChecking] = useState(false);
   const [myWaitlist, setMyWaitlist] = useState(null); // null=unknown, []=not on, [{...}]=on
   const [joiningWl, setJoiningWl] = useState(false);
   const [demand, setDemand] = useState([]);
@@ -188,7 +191,17 @@ export default function EventDetail() {
   const subtotal = event.has_seatmap
     ? selectedSeats.reduce((sum, s) => sum + (seatPriceFor(s) || 0), 0)
     : tierEffectivePrice * qty;
-  const total = appliedCode ? Math.max(0, subtotal - appliedCode.discount_amount) : subtotal;
+  // Auto group-discount preview (mirrors backend bookings.py logic)
+  const gdQty = event.has_seatmap ? selectedSeats.length : qty;
+  const gdMin = Number(event?.group_discount?.min_qty || 0);
+  const gdPct = Number(event?.group_discount?.pct_off || 0);
+  const groupDiscountAmount = (gdMin > 0 && gdPct > 0 && gdQty >= gdMin)
+    ? Math.round(subtotal * (gdPct / 100) * 100) / 100
+    : 0;
+  const afterGroupDiscount = Math.max(0, subtotal - groupDiscountAmount);
+  const afterPromo = appliedCode ? Math.max(0, afterGroupDiscount - appliedCode.discount_amount) : afterGroupDiscount;
+  const giftCardApplied = giftCardInfo ? Math.min(giftCardInfo.balance, afterPromo) : 0;
+  const total = Math.max(0, afterPromo - giftCardApplied);
 
   const applyCode = async () => {
     if (!codeInput.trim()) return;
@@ -201,7 +214,7 @@ export default function EventDetail() {
         tier_name: event.has_seatmap ? null : tier,
         quantity: qty,
         seat_count: selectedSeats.length,
-        subtotal,
+        subtotal: afterGroupDiscount,
       });
       setAppliedCode(data);
       toast.success(`Code applied: -$${data.discount_amount}`);
@@ -230,11 +243,35 @@ export default function EventDetail() {
         ? { event_id: event.event_id, seats: selectedSeats }
         : { event_id: event.event_id, tier_name: tier, quantity: qty };
       if (appliedCode) payload.code = appliedCode.code;
+      if (giftCardInfo) payload.gift_card_code = giftCardInfo.code;
       const { data } = await api.post("/bookings/hold", payload);
       nav(`/checkout/${data.booking_id}`);
     } catch (e) {
       toast.error(formatApiErrorDetail(e?.response?.data?.detail) || "Could not hold seats");
     } finally { setSubmitting(false); }
+  };
+
+  const checkGiftCard = async () => {
+    const code = giftCardInput.trim().toUpperCase();
+    if (!code) return;
+    setGiftCardChecking(true);
+    try {
+      const { data } = await api.get(`/gift-cards/${encodeURIComponent(code)}/balance`);
+      if (data.status !== "active" || data.balance <= 0) {
+        toast.error("That gift card has no balance left");
+        return;
+      }
+      if ((data.currency || "").toUpperCase() !== (event.currency || "NZD").toUpperCase()) {
+        toast.error(`Gift card is ${data.currency} but this event is ${event.currency}`);
+        return;
+      }
+      setGiftCardInfo({ code, balance: data.balance, currency: data.currency });
+      toast.success(`Gift card found — $${data.balance.toFixed(2)} available`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Gift card not found");
+    } finally {
+      setGiftCardChecking(false);
+    }
   };
 
   return (
@@ -468,6 +505,67 @@ export default function EventDetail() {
                 <div className="flex justify-between text-sm pt-2" style={{ color: "var(--text-dim)" }}>
                   <span>Subtotal</span>
                   <span className="line-through">{formatMoney(subtotal, event.currency)}</span>
+                </div>
+              )}
+
+              {/* Gift card field */}
+              {giftCardInfo ? (
+                <div className="flex items-center justify-between p-2.5 rounded-lg mt-2" style={{ background: "var(--accent-soft)", border: "1px solid var(--accent)" }} data-testid="applied-gift-card">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Gift className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} />
+                    <span className="font-mono text-xs truncate" style={{ color: "var(--accent)" }}>{giftCardInfo.code}</span>
+                    <span className="text-xs whitespace-nowrap" style={{ color: "var(--text-muted)" }}>−{formatMoney(giftCardApplied, event.currency)}</span>
+                  </div>
+                  <button onClick={() => { setGiftCardInfo(null); setGiftCardInput(""); }} className="text-xs flex items-center gap-1" style={{ color: "var(--text-muted)" }} data-testid="remove-gift-card-btn">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex gap-2 mt-2">
+                  <div className="relative flex-1">
+                    <Gift className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--text-dim)" }} />
+                    <input
+                      value={giftCardInput}
+                      onChange={(e) => setGiftCardInput(e.target.value.toUpperCase())}
+                      placeholder="Gift card code"
+                      className="!pl-9 !py-2 text-sm"
+                      data-testid="gift-card-input"
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); checkGiftCard(); } }}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={checkGiftCard}
+                    disabled={!giftCardInput.trim() || giftCardChecking || subtotal <= 0}
+                    className="btn-ghost !py-2 !px-4 text-sm"
+                    data-testid="apply-gift-card-btn"
+                  >{giftCardChecking ? "..." : "Apply"}</button>
+                </div>
+              )}
+
+              {groupDiscountAmount > 0 && (
+                <div
+                  className="flex justify-between text-sm pt-1"
+                  style={{ color: "var(--accent)" }}
+                  data-testid="group-discount-row"
+                >
+                  <span>Group discount ({gdPct}% off, {gdMin}+ tickets)</span>
+                  <span>−{formatMoney(groupDiscountAmount, event.currency)}</span>
+                </div>
+              )}
+              {giftCardApplied > 0 && (
+                <div className="flex justify-between text-sm pt-1" style={{ color: "var(--accent)" }} data-testid="gift-card-applied-row">
+                  <span>Gift card applied</span>
+                  <span>−{formatMoney(giftCardApplied, event.currency)}</span>
+                </div>
+              )}
+              {gdMin > 0 && gdPct > 0 && gdQty > 0 && gdQty < gdMin && (
+                <div
+                  className="text-xs pt-1"
+                  style={{ color: "var(--text-dim)" }}
+                  data-testid="group-discount-hint"
+                >
+                  Add {gdMin - gdQty} more to unlock {gdPct}% group discount
                 </div>
               )}
               <div className="flex items-baseline justify-between pt-1">

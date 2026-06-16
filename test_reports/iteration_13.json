@@ -1,0 +1,50 @@
+{
+  "summary": "Iteration 13 — backend HTTP API-level testing of the 5 new features (c3 group-discount, b3 FAQ chatbot, c1 gift cards, c2 bundles, d2 organizer referrals) against the live preview backend at https://seathold.preview.emergentagent.com. Added /app/backend/tests/test_iteration13_api.py with 22 new pytest tests that exercise the endpoints over real HTTP (auth, payload validation, role gating, full bundle create→GET→PATCH lifecycle, referral signup+idempotency, gift-card balance + Stripe precondition). Full suite is 40/40 green: 18 existing function-level tests + 22 new HTTP tests, 0 failures, 0 errors, 0 skipped. Bundle public GET correctly returns events + total_separate ($200) + savings ($50) for 2× $100-GA events bundled at $150. Referral stats shape verified (code/share_url/signups/qualified/available_credit_nzd/credit_per_referral_nzd). stamp-referral is idempotent (second call returns ok:false, reason:already_stamped) and rejects self-referral with 400. FAQ /support/faq/ask returns 200 with a real LLM answer when EMERGENT_LLM_KEY is set; /support/faq/escalate correctly 404s on unknown session. Stripe-gated gift-card purchase reaches Stripe (200 with session url) or surfaces 502/503 cleanly — never 500.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "post-test teardown across multiple test files",
+        "issue": "Fire-and-forget Resend email sends (referral notify, admin_new_event_submitted) keep running after pytest's event loop closes, producing noisy 'RuntimeError: cannot schedule new futures after shutdown' tracebacks plus 'Too many requests (2/s rate limit)' from Resend. Does NOT affect test outcomes (xml reports 0 failures/0 errors) but pollutes stderr. Pre-existing — predates iter13."
+      },
+      {
+        "endpoint": "POST /api/auth/register",
+        "issue": "email-validator (pydantic EmailStr) rejects RFC-special-use TLDs (.local, .test, .invalid) with 422. Tests must use a real-looking TLD like example.com. Worth documenting because it can trip up unit tests / seed data scripts."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration13_api.py",
+    "/app/test_reports/pytest/iter13_api.xml",
+    "/app/test_reports/pytest/iter13_full.xml"
+  ],
+  "action_items": [
+    "(OPTIONAL) Suppress the post-test 'cannot schedule new futures after shutdown' noise by either (a) wrapping send_template_fireforget DB writes in a try/except that swallows RuntimeError when the loop is closed, or (b) tracking the background tasks and awaiting their cancellation in a teardown hook. Cosmetic only — tests are green either way."
+  ],
+  "critical_code_review_comments": [
+    "All 5 features have clean, well-scoped routers. c3 group discount: payload is persisted on POST /events AND patchable via PATCH /events/:id (group_discount in the EDITABLE allowlist), and the booking pipeline correctly computes group_discount_amount/group_discount_pct + stacks with promo codes (group first, promo on remainder).",
+    "c1 gift cards: GET /gift-cards/{code}/balance is correctly public (no auth) but only exposes active/depleted cards (pending cards return 404, preventing pre-payment code enumeration). redeem_gift_card_for_booking is atomic (single update_one with balance guard) and rejects currency mismatches with 400.",
+    "c2 bundles: ownership check is strict — non-admin organizer cannot bundle other organizers' events (403). Currency-mix prevented with 400. finalize_bundle_purchase is idempotent and bumps sold_count exactly once. Public GET /bundles/{id} hides inactive bundles with 404.",
+    "d2 referrals: _ref_code_for is deterministic and salts on user_id; share_url uses APP_PUBLIC_URL with a sensible fallback. stamp-referral has 3 guards: invalid format → 400, self-referral → 400, already-stamped → ok:false (no overwrite). maybe_grant_referral_on_first_approval is idempotent via a 'reason: referral_signup_bonus' unique-per-user check.",
+    "b3 FAQ chatbot: persistence-first design (visitor question saved BEFORE LLM call), so a Resend/LLM failure still keeps the chat history intact. <ESCALATE> token correctly stripped from the bot bubble before persisting + sent through as can_help:false flag. faq_escalate flips status:bot→open and inserts a bot_handoff system marker for the admin queue.",
+    "MINOR: post-test fire-and-forget email coroutines crash with 'RuntimeError: cannot schedule new futures after shutdown' when motor's executor is torn down — see action_items. Pre-existing across the repo, not introduced by iter13."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration13_api.py (NEW — 22 HTTP-level pytest cases across the 5 features)"
+  ],
+  "success_rate": {
+    "backend": "100% (40/40 — 18 function-level + 22 HTTP-level; 0 failures, 0 errors, 0 skipped)",
+    "frontend": "N/A — review_request was backend-only"
+  },
+  "test_credentials": "admin@allsale.events / admin123 used for admin token; fresh organizer + attendee accounts created in-test via /api/auth/register on @iter13.example.com domain.",
+  "seed_data_creation": "Created ~10 throwaway organizer + attendee users (emails like test-org-*@iter13.example.com / test-att-*@iter13.example.com) plus ~4 events titled 'TEST_evt_*' and one 'TEST_Twin Pass' bundle. All are auto-cleaned up by the test FK relationships but no explicit teardown was added — the events were created with status='pending' (org user) so they won't appear on the public /events listing. Recommend a periodic cleanup of users whose email matches @iter13.example.com.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 5 new features are backend-green at both the function-helper level (existing tests) AND the public HTTP endpoint level (new test_iteration13_api.py). When testing the frontend in a future iteration, focus on: (1) EventDetail.jsx group-discount row + gift-card input — does the UI compute and display the discount immediately on quantity change? (2) SupportChat widget bot-mode → human-mode transition when the bot returns <ESCALATE>. (3) /gift-cards purchase flow — buyer fills amount+recipient → redirects to Stripe Checkout (will 502 on bad keys, surface a friendly error). (4) /organizer/bundles creation form — requires picking ≥2 events of same organizer + same currency. (5) /organizer/referral copy + share buttons + the /signup?ref=<code> banner.",
+  "rca of the issue": "No new bugs found in iter13 — all 5 features are correctly implemented at the API layer. The only observable issue is post-test stderr noise from fire-and-forget Resend email sends running after pytest's event loop is closed (pre-existing across the whole codebase, not iter13-specific). Pytest XML reports 0 failures / 0 errors. Reproduction: any test that triggers an organizer-onboarding email or a referral grant email + then the event loop shuts down. Mitigation: wrap the db.email_logs.insert_one error path in a 'try: ... except RuntimeError: pass' or use asyncio.gather with return_exceptions=True on shutdown."
+}
