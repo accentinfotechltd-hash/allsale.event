@@ -67,7 +67,7 @@ for _name in [
     "auth", "events", "bookings", "payments", "uploads", "admin",
     "organizer", "discount_codes", "payouts", "waitlist",
     "recommendations", "ws_seats", "analytics", "downloads", "team", "seatmap_ai", "contact", "site_settings",
-    "contact_organizer", "stripe_connect", "embed", "revenue_splits", "refunds", "follows", "transfers", "affiliates", "stripe_tax", "marketing", "influencers", "support_chat",
+    "contact_organizer", "stripe_connect", "embed", "revenue_splits", "refunds", "follows", "transfers", "affiliates", "stripe_tax", "marketing", "influencers", "support_chat", "feedback",
 ]:
     r, err = _safe_import_router(f"routers.{_name}")
     if r is not None:

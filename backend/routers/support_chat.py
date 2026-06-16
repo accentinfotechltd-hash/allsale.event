@@ -552,3 +552,37 @@ async def visitor_rate(payload: RatingIn):
         "created_at": utc_now().isoformat(),
     })
     return {"ok": True, "rating": rating_doc}
+
+
+@router.get("/admin/support/sessions/{session_id}/export.csv")
+async def export_chat_csv(session_id: str, user: dict = Depends(get_current_user)):
+    """Download a chat transcript as CSV. Useful for compliance, training,
+    or pasting into a ticket system."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admins only")
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    sess = await db.support_chats.find_one({"session_id": session_id}, {"_id": 0}) or {}
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["timestamp", "sender", "sender_name", "text", "attachment_filename", "original_lang", "translated_text"])
+    async for m in db.support_messages.find({"session_id": session_id}, {"_id": 0}).sort("created_at", 1):
+        att = (m.get("attachment") or {}).get("filename") if m.get("attachment") else ""
+        writer.writerow([
+            m.get("created_at", ""),
+            m.get("sender", ""),
+            m.get("sender_name") or sess.get("visitor_name") or "",
+            (m.get("text") or "").replace("\n", " "),
+            att,
+            m.get("original_lang") or "",
+            (m.get("translated_text") or "").replace("\n", " "),
+        ])
+    buf.seek(0)
+    fname = f"chat_{session_id}_{utc_now().strftime('%Y%m%d')}.csv"
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )

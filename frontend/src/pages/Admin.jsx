@@ -1811,6 +1811,16 @@ function SupportChatTab() {
               <button onClick={close} className="text-xs px-3 py-1.5 rounded border hover:opacity-80" style={{ borderColor: "var(--border)" }} data-testid="support-close-chat">
                 Close chat
               </button>
+              <a
+                href={`${process.env.REACT_APP_BACKEND_URL}/api/admin/support/sessions/${activeId}/export.csv`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs px-3 py-1.5 rounded border hover:opacity-80 ml-2"
+                style={{ borderColor: "var(--border)" }}
+                data-testid="support-export-csv"
+              >
+                ⇣ CSV
+              </a>
             </div>
             <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-2" style={{ background: "var(--bg-elev)" }}>
               {msgs.map((m) => {

@@ -39,6 +39,7 @@ import InfluencerPayouts from "@/pages/InfluencerPayouts";
 import InfluencerMarketplace from "@/pages/InfluencerMarketplace";
 import InfluencerProfile from "@/pages/InfluencerProfile";
 import Flyer from "@/pages/Flyer";
+import Feedback from "@/pages/Feedback";
 import RequireOrganizer from "@/components/RequireOrganizer";
 
 function AppRouter() {
@@ -97,6 +98,7 @@ function AppRouter() {
         <Route path="/influencer/campaigns" element={<InfluencerCampaigns />} />
         <Route path="/influencer/payouts" element={<InfluencerPayouts />} />
         <Route path="/flyer" element={<Flyer />} />
+        <Route path="/feedback/:id" element={<Feedback />} />
         <Route path="/organizer" element={<RequireOrganizer><Organizer /></RequireOrganizer>} />
         <Route path="/organizer/new" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId/edit" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />

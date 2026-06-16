@@ -41,6 +41,77 @@ def _format_when(iso_str: str) -> str:
         return iso_str
 
 
+async def _send_post_event_nps(db) -> int:
+    """Email each paid attendee an NPS prompt 24 hours after their event ends.
+
+    The email includes a tracked link to `/feedback/:booking_id` where the
+    visitor leaves a 1-5 rating + optional comment. Stored on `event_feedback`
+    so organizers can display ratings as social proof on their event pages.
+    """
+    now = datetime.now(timezone.utc)
+    window_end = now - timedelta(hours=24)
+    window_start = now - timedelta(hours=72)  # 1-3 days after event end
+
+    candidate_event_ids: list[str] = []
+    async for e in db.events.find(
+        {"date": {"$gte": window_start.isoformat(), "$lte": window_end.isoformat()}},
+        {"_id": 0, "event_id": 1, "title": 1, "image_url": 1},
+    ):
+        candidate_event_ids.append(e["event_id"])
+    if not candidate_event_ids:
+        return 0
+
+    sent = 0
+    async for b in db.bookings.find(
+        {
+            "event_id": {"$in": candidate_event_ids},
+            "status": "paid",
+            "nps_email_sent_at": {"$exists": False},
+        },
+        {"_id": 0},
+    ):
+        user = await db.users.find_one({"user_id": b["user_id"]}, {"_id": 0, "password_hash": 0}) or {}
+        target_email = user.get("email") or b.get("user_email")
+        if not target_email:
+            continue
+        if not _pref_on(user, "email_reminders", default=True):
+            await db.bookings.update_one(
+                {"booking_id": b["booking_id"]},
+                {"$set": {"nps_email_sent_at": now.isoformat(), "nps_skipped": "user_pref_off"}},
+            )
+            continue
+        # Hydrate event details for the email body
+        ev = next((e for e in []), None)
+        ev = await db.events.find_one({"event_id": b["event_id"]}, {"_id": 0, "title": 1, "image_url": 1})
+        cms = await db.platform_settings.find_one({"key": "cms"}, {"_id": 0}) or {}
+        origin = (cms.get("public_origin") or "https://www.allsale.events").rstrip("/")
+        feedback_url = f"{origin}/feedback/{b['booking_id']}"
+        try:
+            send_template_fireforget(
+                to=target_email,
+                subject=f"How was {ev.get('title', 'your event')}? 🎤",
+                template="generic",
+                params={
+                    "title": "How was your night?",
+                    "preheader": "Quick 30-second feedback — it makes a real difference for the organizer.",
+                    "body_html": (
+                        f"<p>Hi! Thanks for coming to <strong>{ev.get('title', 'the event')}</strong>.</p>"
+                        f"<p>If you have 30 seconds, the organizer would love to hear how it went:</p>"
+                        f"<p><a href=\"{feedback_url}\" style=\"display:inline-block;padding:12px 24px;background:#F08A2A;color:#0F2A3A;text-decoration:none;border-radius:8px;font-weight:600;\">Leave a quick rating ⭐</a></p>"
+                        f"<p style=\"color:#888;font-size:12px;\">Your feedback is shown anonymously on the event page to help future fans decide.</p>"
+                    ),
+                },
+            )
+            await db.bookings.update_one(
+                {"booking_id": b["booking_id"]},
+                {"$set": {"nps_email_sent_at": now.isoformat()}},
+            )
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[scheduler] NPS email failed for %s: %s", target_email, exc)
+    return sent
+
+
 async def _send_24h_reminders(db) -> int:
     now = datetime.now(timezone.utc)
     window_end = now + timedelta(hours=24)
@@ -479,16 +550,17 @@ async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
     while True:
         try:
             n_reminders = await _send_24h_reminders(db)
+            n_nps = await _send_post_event_nps(db)
             n_digest = await _send_weekly_digest(db)
             n_nudge = await _send_stripe_setup_nudges(db)
             n_fdigest = await _send_follower_weekly_digest(db)
             n_welcome = await _send_organizer_welcome_followups(db)
             webhook_alert = await _check_webhook_silent_failure(db)
             payout_summary = await run_due_event_payouts(db)
-            if n_reminders or n_digest or n_nudge or n_fdigest or n_welcome or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
+            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
                 logger.info(
-                    "[scheduler] reminders=%s digest=%s nudges=%s fdigest=%s welcome=%s webhook_alert=%s payouts=%s",
-                    n_reminders, n_digest, n_nudge, n_fdigest, n_welcome, webhook_alert, payout_summary,
+                    "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s webhook_alert=%s payouts=%s",
+                    n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, webhook_alert, payout_summary,
                 )
         except Exception as exc:  # pragma: no cover
             logger.exception("[scheduler] tick failed: %s", exc)
