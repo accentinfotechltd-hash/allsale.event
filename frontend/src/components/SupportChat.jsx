@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { MessageCircle, X, Send } from "lucide-react";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import MessageReactions from "@/components/MessageReactions";
 
 /**
  * SupportChat — floating "💬" widget that opens a chat panel.
@@ -186,19 +187,34 @@ export default function SupportChat() {
             {messages.map((m) => (
               <div
                 key={m.message_id}
-                className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm leading-snug ${m.sender === "admin" ? "" : "ml-auto"}`}
-                style={{
-                  background: m.sender === "admin" ? "var(--bg-card)" : "var(--accent)",
-                  color: m.sender === "admin" ? "var(--text)" : "#0F2A3A",
-                  border: m.sender === "admin" ? "1px solid var(--border)" : "none",
-                  borderRadius: m.sender === "admin" ? "14px 14px 14px 4px" : "14px 14px 4px 14px",
-                }}
-                data-testid={`msg-${m.sender}`}
+                className={`group flex ${m.sender === "admin" ? "" : "justify-end"}`}
               >
-                {m.text}
-                {m.sender === "admin" && m.sender_name && (
-                  <div className="text-[10px] mt-1 opacity-60">{m.sender_name}</div>
-                )}
+                <div className="flex flex-col" style={{ maxWidth: "80%" }}>
+                  <div
+                    className="px-3 py-2 rounded-2xl text-sm leading-snug"
+                    style={{
+                      background: m.sender === "admin" ? "var(--bg-card)" : "var(--accent)",
+                      color: m.sender === "admin" ? "var(--text)" : "#0F2A3A",
+                      border: m.sender === "admin" ? "1px solid var(--border)" : "none",
+                      borderRadius: m.sender === "admin" ? "14px 14px 14px 4px" : "14px 14px 4px 14px",
+                    }}
+                    data-testid={`msg-${m.sender}`}
+                  >
+                    {m.text}
+                    {m.sender === "admin" && m.sender_name && (
+                      <div className="text-[10px] mt-1 opacity-60">{m.sender_name}</div>
+                    )}
+                  </div>
+                  <div className={`mt-1 ${m.sender === "admin" ? "self-start" : "self-end"}`}>
+                    <MessageReactions
+                      message={{ ...m, session_id: m.session_id || sessionRef.current }}
+                      onReact={(reactions) => {
+                        setMessages((prev) => prev.map((p) => p.message_id === m.message_id ? { ...p, reactions } : p));
+                      }}
+                      align={m.sender === "admin" ? "left" : "right"}
+                    />
+                  </div>
+                </div>
               </div>
             ))}
             {adminTyping && (

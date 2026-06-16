@@ -115,3 +115,70 @@ async def test_typing_indicators():
         # Non-admin can't POST admin typing
         r = await client.post(f"{API}/admin/support/typing", json={"session_id": sid})
         assert r.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_emoji_reactions_toggle():
+    async with httpx.AsyncClient(timeout=15) as client:
+        sid = "sup_" + uuid.uuid4().hex[:12]
+        # Visitor posts a message
+        m = await client.post(f"{API}/support/chat/messages", json={
+            "session_id": sid, "text": "Help please",
+        })
+        msg = m.json()
+        mid = msg["message_id"]
+
+        # Add a 👍 reaction as the anon visitor
+        r = await client.post(f"{API}/support/chat/reactions", json={
+            "session_id": sid, "message_id": mid, "emoji": "👍",
+        })
+        assert r.status_code == 200, r.text
+        assert "👍" in r.json()["reactions"]
+        assert len(r.json()["reactions"]["👍"]) == 1
+
+        # Toggling the same emoji removes it
+        r = await client.post(f"{API}/support/chat/reactions", json={
+            "session_id": sid, "message_id": mid, "emoji": "👍",
+        })
+        assert "👍" not in r.json()["reactions"]
+
+        # Unknown emoji is rejected
+        r = await client.post(f"{API}/support/chat/reactions", json={
+            "session_id": sid, "message_id": mid, "emoji": "🤖",
+        })
+        assert r.status_code == 400
+
+        # Wrong session_id is rejected (security)
+        r = await client.post(f"{API}/support/chat/reactions", json={
+            "session_id": "sup_otherrandom123", "message_id": mid, "emoji": "🎉",
+        })
+        assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_canned_replies_settings():
+    async with httpx.AsyncClient(timeout=15) as client:
+        admin = await client.post(f"{API}/auth/login", json={
+            "email": "admin@allsale.events", "password": "admin123",
+        })
+        if admin.status_code != 200:
+            pytest.skip("No admin seeded")
+        auth = {"Authorization": f"Bearer {admin.json()['token']}"}
+
+        # PATCH canned replies + slack URL
+        r = await client.patch(f"{API}/admin/site-settings", json={
+            "support_chat": {
+                "canned_replies": ["Hello!", "  ", "How can I help?", ""],
+                "slack_webhook_url": "https://hooks.slack.com/services/T123/B456/abc",
+            },
+        }, headers=auth)
+        assert r.status_code == 200, r.text
+        sc = r.json()["support_chat"]
+        # Whitespace-only entries are dropped
+        assert sc["canned_replies"] == ["Hello!", "How can I help?"]
+        assert sc["slack_webhook_url"] == "https://hooks.slack.com/services/T123/B456/abc"
+
+        # Public GET surfaces them (the support chat tab loads from here)
+        r = await client.get(f"{API}/site-settings")
+        sc = r.json()["support_chat"]
+        assert "Hello!" in sc["canned_replies"]

@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import api from "@/lib/api";
+import MessageReactions from "@/components/MessageReactions";
 import { useAuth } from "@/lib/auth";
 import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send } from "lucide-react";
 import { toast } from "sonner";
@@ -813,6 +814,8 @@ function SettingsTab() {
       <SiteContentPanel />
 
       <EditorPickPanel />
+
+      <SupportChatSettingsPanel />
 
       <StripeReconcilePanel />
 
@@ -1647,20 +1650,21 @@ function SupportChatTab() {
   const [visitorTyping, setVisitorTyping] = useState(false);
   const [reply, setReply] = useState("");
   const [busy, setBusy] = useState(false);
+  const [canned, setCanned] = useState([]);
   const listRef = useRef(null);
   const typingPingRef = useRef(0);
 
-  // Canned replies — hardcoded for MVP, easy to swap for a CMS list later.
-  // Keep them under ~80 chars so they read well as chips.
-  const CANNED = [
-    "Hi! What's your booking ID?",
-    "Could you send a screenshot of the issue?",
-    "I'm looking into this now — one moment please.",
-    "Your refund has been processed. It'll appear in 3-5 business days.",
-    "We've resent your e-ticket — please check your inbox & spam.",
-    "Is there anything else I can help with?",
-    "Thanks for reaching out! Have a great day. 🎉",
-  ];
+  // Fetch admin-configurable canned replies from site_settings. Defaults
+  // baked into the backend if the admin hasn't customised them yet.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/site-settings");
+        const list = data?.support_chat?.canned_replies;
+        if (Array.isArray(list) && list.length > 0) setCanned(list);
+      } catch { /* ignore */ }
+    })();
+  }, []);
 
   const reloadSessions = async () => {
     try {
@@ -1801,18 +1805,28 @@ function SupportChatTab() {
             </div>
             <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-2" style={{ background: "var(--bg-elev)" }}>
               {msgs.map((m) => (
-                <div
-                  key={m.message_id}
-                  className={`max-w-[70%] px-3 py-2 text-sm leading-snug ${m.sender === "admin" ? "ml-auto" : ""}`}
-                  style={{
-                    background: m.sender === "admin" ? "var(--accent)" : "var(--bg-card)",
-                    color: m.sender === "admin" ? "#0F2A3A" : "var(--text)",
-                    border: m.sender === "visitor" ? "1px solid var(--border)" : "none",
-                    borderRadius: m.sender === "admin" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
-                  }}
-                >
-                  {m.text}
-                  <div className="text-[10px] mt-1 opacity-60">{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+                <div key={m.message_id} className={`group flex ${m.sender === "admin" ? "justify-end" : ""}`}>
+                  <div className="flex flex-col" style={{ maxWidth: "70%" }}>
+                    <div
+                      className="px-3 py-2 text-sm leading-snug"
+                      style={{
+                        background: m.sender === "admin" ? "var(--accent)" : "var(--bg-card)",
+                        color: m.sender === "admin" ? "#0F2A3A" : "var(--text)",
+                        border: m.sender === "visitor" ? "1px solid var(--border)" : "none",
+                        borderRadius: m.sender === "admin" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                      }}
+                    >
+                      {m.text}
+                      <div className="text-[10px] mt-1 opacity-60">{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+                    </div>
+                    <div className={`mt-1 ${m.sender === "admin" ? "self-end" : "self-start"}`}>
+                      <MessageReactions
+                        message={m}
+                        align={m.sender === "admin" ? "right" : "left"}
+                        onReact={(reactions) => setMsgs(prev => prev.map(p => p.message_id === m.message_id ? { ...p, reactions } : p))}
+                      />
+                    </div>
+                  </div>
                 </div>
               ))}
               {visitorTyping && (
@@ -1833,7 +1847,7 @@ function SupportChatTab() {
 
             {/* Canned-replies strip */}
             <div className="px-3 py-2 border-t flex gap-1.5 overflow-x-auto" style={{ borderColor: "var(--border)" }} data-testid="canned-replies">
-              {CANNED.map((c, i) => (
+              {canned.map((c, i) => (
                 <button
                   key={i}
                   type="button"
@@ -1846,6 +1860,11 @@ function SupportChatTab() {
                   {c.length > 32 ? c.slice(0, 30) + "…" : c}
                 </button>
               ))}
+              {canned.length === 0 && (
+                <span className="text-xs italic flex-shrink-0" style={{ color: "var(--text-dim)" }}>
+                  No canned replies set — add some in Settings tab.
+                </span>
+              )}
             </div>
 
             <form onSubmit={send} className="flex items-center gap-2 p-3 border-t" style={{ borderColor: "var(--border)" }}>
@@ -1876,3 +1895,134 @@ function SupportChatTab() {
   );
 }
 
+
+
+
+// ============================================================================
+// SUPPORT-CHAT SETTINGS PANEL — admin manages canned replies + Slack webhook.
+// Each canned reply gets a remove button; new ones add at the bottom.
+// ============================================================================
+function SupportChatSettingsPanel() {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [canned, setCanned] = useState([]);
+  const [slackUrl, setSlackUrl] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/site-settings");
+        const sc = data?.support_chat || {};
+        setCanned(Array.isArray(sc.canned_replies) ? sc.canned_replies : []);
+        setSlackUrl(sc.slack_webhook_url || "");
+      } catch { /* ignore */ } finally { setLoading(false); }
+    })();
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const clean = canned.map(s => (s || "").trim()).filter(Boolean);
+      await api.patch("/admin/site-settings", {
+        support_chat: {
+          canned_replies: clean,
+          slack_webhook_url: slackUrl.trim(),
+        },
+      });
+      setCanned(clean);
+      toast.success("Support-chat settings saved");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Couldn't save");
+    } finally { setSaving(false); }
+  };
+
+  const addRow = () => setCanned(prev => [...prev, ""]);
+  const removeRow = (i) => setCanned(prev => prev.filter((_, idx) => idx !== i));
+  const update = (i, v) => setCanned(prev => prev.map((s, idx) => idx === i ? v : s));
+
+  if (loading) return null;
+
+  return (
+    <div
+      className="border rounded-2xl p-8"
+      style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+      data-testid="support-chat-settings-panel"
+    >
+      <h2 className="serif text-2xl mb-1 flex items-center gap-2">
+        <MessageCircle className="w-5 h-5" style={{ color: "var(--accent)" }} /> Live chat settings
+      </h2>
+      <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
+        Edit the canned-reply templates that appear above the reply box, and (optionally) wire up a Slack channel for instant notifications.
+      </p>
+
+      {/* Canned replies */}
+      <div className="mb-6">
+        <div className="text-xs uppercase tracking-widest mb-3" style={{ color: "var(--text-dim)" }}>
+          Canned replies ({canned.length}/30)
+        </div>
+        <div className="space-y-2">
+          {canned.map((reply, i) => (
+            <div key={i} className="flex gap-2 items-center" data-testid={`canned-row-${i}`}>
+              <input
+                value={reply}
+                onChange={(e) => update(i, e.target.value)}
+                maxLength={220}
+                className="flex-1"
+                placeholder="e.g. Hi! What's your booking ID?"
+                data-testid={`canned-input-${i}`}
+              />
+              <button
+                type="button"
+                onClick={() => removeRow(i)}
+                className="btn-ghost !p-2 text-xs"
+                data-testid={`canned-remove-${i}`}
+                aria-label="Remove reply"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+          {canned.length === 0 && (
+            <div className="text-sm py-3 px-3 rounded-lg" style={{ background: "var(--bg-elev)", color: "var(--text-muted)" }}>
+              No canned replies yet. Add a few to speed up your responses.
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={addRow}
+            disabled={canned.length >= 30}
+            className="btn-ghost text-sm w-full justify-center disabled:opacity-50"
+            data-testid="canned-add"
+          >
+            + Add reply template
+          </button>
+        </div>
+      </div>
+
+      {/* Slack webhook */}
+      <div className="mb-6">
+        <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--text-dim)" }}>
+          Slack webhook URL <span className="opacity-60">(optional)</span>
+        </div>
+        <input
+          value={slackUrl}
+          onChange={(e) => setSlackUrl(e.target.value)}
+          placeholder="https://hooks.slack.com/services/T.../B.../..."
+          className="w-full font-mono text-xs"
+          data-testid="slack-webhook-input"
+        />
+        <div className="text-xs mt-2 leading-relaxed" style={{ color: "var(--text-dim)" }}>
+          When set, new visitor messages also post to this Slack channel (in addition to admin email).
+          <br />
+          Create one at <a href="https://api.slack.com/messaging/webhooks" target="_blank" rel="noreferrer" style={{ color: "var(--accent)" }}>Slack → Incoming Webhooks</a> → choose your channel → copy the URL.
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={save} disabled={saving} className="btn-primary" data-testid="support-chat-settings-save">
+          {saving ? "Saving…" : "Save settings"}
+        </button>
+      </div>
+    </div>
+  );
+}

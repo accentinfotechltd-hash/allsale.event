@@ -44,6 +44,23 @@ DEFAULTS = {
         "blurb": "",        # legacy singular
         "badge_text": "Editor's Pick",
     },
+    "support_chat": {
+        # Editable from the admin Settings tab so support staff can iterate
+        # on the canned templates without a code deploy.
+        "canned_replies": [
+            "Hi! What's your booking ID?",
+            "Could you send a screenshot of the issue?",
+            "I'm looking into this now — one moment please.",
+            "Your refund has been processed. It'll appear in 3-5 business days.",
+            "We've resent your e-ticket — please check your inbox & spam.",
+            "Is there anything else I can help with?",
+            "Thanks for reaching out! Have a great day. 🎉",
+        ],
+        # Slack incoming webhook (e.g. https://hooks.slack.com/services/T…/B…/…)
+        # When set, new visitor messages are posted here in addition to the
+        # admin email alert. Leave empty to disable Slack notifications.
+        "slack_webhook_url": "",
+    },
 }
 
 
@@ -72,6 +89,7 @@ async def _load() -> dict:
         "about": {**DEFAULTS["about"], **(doc.get("about") or {})},
         "contact": {**DEFAULTS["contact"], **(doc.get("contact") or {})},
         "editor_pick": {**DEFAULTS["editor_pick"], **(doc.get("editor_pick") or {})},
+        "support_chat": {**DEFAULTS["support_chat"], **(doc.get("support_chat") or {})},
         "updated_at": doc.get("updated_at"),
     }
 
@@ -146,10 +164,16 @@ class EditorPickIn(BaseModel):
     picks: list[EditorPickItemIn] | None = None
 
 
+class SupportChatSettingsIn(BaseModel):
+    canned_replies: list[str] | None = None
+    slack_webhook_url: str | None = None
+
+
 class SettingsPatchIn(BaseModel):
     about: AboutIn | None = None
     contact: ContactIn | None = None
     editor_pick: EditorPickIn | None = None
+    support_chat: SupportChatSettingsIn | None = None
 
 
 @router.patch("/admin/site-settings")
@@ -177,6 +201,18 @@ async def update_site_settings(payload: SettingsPatchIn, user: dict = Depends(ge
     else:
         new_editor_pick = existing.get("editor_pick") or {}
 
+    # Support chat: canned templates + Slack webhook URL.
+    if payload.support_chat is not None:
+        sc_in = payload.support_chat.model_dump(exclude_unset=True)
+        if "canned_replies" in sc_in and sc_in["canned_replies"] is not None:
+            # Trim, drop empties, cap to 30 templates to keep the UI fast.
+            sc_in["canned_replies"] = [s.strip() for s in sc_in["canned_replies"] if s and s.strip()][:30]
+        if "slack_webhook_url" in sc_in:
+            sc_in["slack_webhook_url"] = (sc_in["slack_webhook_url"] or "").strip()
+        new_support_chat = {**(existing.get("support_chat") or {}), **sc_in}
+    else:
+        new_support_chat = existing.get("support_chat") or {}
+
     await db.site_settings.update_one(
         {"_kind": "site"},
         {"$set": {
@@ -184,6 +220,7 @@ async def update_site_settings(payload: SettingsPatchIn, user: dict = Depends(ge
             "about": new_about,
             "contact": new_contact,
             "editor_pick": new_editor_pick,
+            "support_chat": new_support_chat,
             "updated_at": utc_now().isoformat(),
             "updated_by": user["user_id"],
         }},

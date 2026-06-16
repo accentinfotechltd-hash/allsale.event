@@ -61,7 +61,8 @@ def _try_get_user(request: Request) -> Optional[dict]:
 
 
 async def _maybe_notify_admins(session_id: str, visitor_name: str, preview: str) -> None:
-    """Fire-and-forget admin alert email when a new visitor message lands.
+    """Fire-and-forget admin alert email + optional Slack post when a new
+    visitor message lands.
 
     Throttled per session so a chatty visitor doesn't blast the inbox.
     Stores the last-notified timestamp on the session doc.
@@ -81,33 +82,60 @@ async def _maybe_notify_admins(session_id: str, visitor_name: str, preview: str)
         except Exception:  # noqa: BLE001
             pass  # malformed timestamp — proceed and overwrite below
 
+    # Site-level support_chat settings (Slack webhook etc.)
+    settings_doc = await db.site_settings.find_one({"_kind": "site"}, {"_id": 0}) or {}
+    sc_settings = (settings_doc.get("support_chat") or {})
+    slack_url = (sc_settings.get("slack_webhook_url") or "").strip()
+
     try:
         from emails import send_template_fireforget
     except Exception:  # noqa: BLE001
-        return  # emails module not configured — silently skip
+        send_template_fireforget = None
 
     cms = await db.platform_settings.find_one({"key": "cms"}, {"_id": 0}) or {}
     origin = (cms.get("public_origin") or "https://www.allsale.events").rstrip("/")
     admin_url = f"{origin}/admin"
 
-    async for admin in db.users.find({"role": "admin"}, {"_id": 0, "email": 1, "name": 1}):
+    # Email blast to every admin
+    if send_template_fireforget:
+        async for admin in db.users.find({"role": "admin"}, {"_id": 0, "email": 1, "name": 1}):
+            try:
+                send_template_fireforget(
+                    to=admin["email"],
+                    subject=f"New support chat from {visitor_name}",
+                    template="generic",
+                    params={
+                        "title": "New support chat 💬",
+                        "preheader": f"{visitor_name}: {preview[:80]}",
+                        "body_html": (
+                            f"<p><strong>{visitor_name}</strong> just started (or continued) a live chat:</p>"
+                            f"<blockquote style=\"border-left:3px solid #F08A2A;padding-left:12px;color:#555;\">{preview}</blockquote>"
+                            f"<p><a href=\"{admin_url}\" style=\"display:inline-block;padding:10px 20px;background:#F08A2A;color:#0F2A3A;text-decoration:none;border-radius:8px;\">Open admin → Live chat</a></p>"
+                        ),
+                    },
+                )
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to email admin %s about new chat", admin.get("email"))
+
+    # Slack post (if configured)
+    if slack_url:
         try:
-            send_template_fireforget(
-                to=admin["email"],
-                subject=f"New support chat from {visitor_name}",
-                template="generic",
-                params={
-                    "title": "New support chat 💬",
-                    "preheader": f"{visitor_name}: {preview[:80]}",
-                    "body_html": (
-                        f"<p><strong>{visitor_name}</strong> just started (or continued) a live chat:</p>"
-                        f"<blockquote style=\"border-left:3px solid #F08A2A;padding-left:12px;color:#555;\">{preview}</blockquote>"
-                        f"<p><a href=\"{admin_url}\" style=\"display:inline-block;padding:10px 20px;background:#F08A2A;color:#0F2A3A;text-decoration:none;border-radius:8px;\">Open admin → Live chat</a></p>"
-                    ),
-                },
-            )
+            import httpx
+            payload = {
+                "text": f"💬 *New support chat from {visitor_name}*",
+                "blocks": [
+                    {"type": "section", "text": {"type": "mrkdwn",
+                        "text": f"💬 *New support chat from {visitor_name}*\n>{preview[:280]}"}},
+                    {"type": "actions", "elements": [
+                        {"type": "button", "text": {"type": "plain_text", "text": "Open admin"},
+                         "url": admin_url, "style": "primary"},
+                    ]},
+                ],
+            }
+            async with httpx.AsyncClient(timeout=8) as client:
+                await client.post(slack_url, json=payload)
         except Exception:  # noqa: BLE001
-            logger.exception("Failed to email admin %s about new chat", admin.get("email"))
+            logger.exception("Slack webhook post failed for session %s", session_id)
 
     # Mark notified
     await db.support_chats.update_one(
@@ -196,6 +224,63 @@ async def admin_typing(payload: TypingIn, user: dict = Depends(get_current_user)
         {"$set": {"admin_typing_at": utc_now().isoformat()}},
     )
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Emoji reactions — tiny "👍 ❤️ 😂 🎉" toolbar on each message.
+# ---------------------------------------------------------------------------
+
+# Reactions are stored on the message doc as { "👍": ["sid1", "sid2"], "❤️": [...] }
+# Identity is either user_id (auth'd) or session_id (anon).
+ALLOWED_EMOJI = {"👍", "❤️", "😂", "🎉", "😮", "😢", "🔥"}
+
+
+class ReactionIn(BaseModel):
+    session_id: str = Field(min_length=8, max_length=64)
+    message_id: str
+    emoji: str
+    actor_id: Optional[str] = None  # falls back to session_id when anon
+
+
+@router.post("/support/chat/reactions")
+async def toggle_reaction(payload: ReactionIn, request: Request):
+    """Toggle an emoji reaction on a message — same actor twice removes it.
+
+    Works for both anon visitors (keyed by session_id) and authenticated
+    admins (keyed by user_id). The frontend doesn't care which identifier
+    it uses — both end up as strings in the message's reactions map.
+    """
+    if payload.emoji not in ALLOWED_EMOJI:
+        raise HTTPException(status_code=400, detail="Unsupported emoji")
+
+    msg = await db.support_messages.find_one({"message_id": payload.message_id}, {"_id": 0})
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg.get("session_id") != payload.session_id:
+        raise HTTPException(status_code=403, detail="Message belongs to another session")
+
+    actor = payload.actor_id or payload.session_id
+
+    user = _try_get_user(request)
+    if user:
+        actor = user["user_id"]
+
+    reactions = msg.get("reactions") or {}
+    bucket = list(reactions.get(payload.emoji) or [])
+    if actor in bucket:
+        bucket = [a for a in bucket if a != actor]
+    else:
+        bucket.append(actor)
+    if bucket:
+        reactions[payload.emoji] = bucket
+    else:
+        reactions.pop(payload.emoji, None)
+
+    await db.support_messages.update_one(
+        {"message_id": payload.message_id},
+        {"$set": {"reactions": reactions}},
+    )
+    return {"message_id": payload.message_id, "reactions": reactions}
 
 
 @router.get("/support/chat/{session_id}")
