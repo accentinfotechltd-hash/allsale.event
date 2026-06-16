@@ -182,3 +182,102 @@ async def test_admin_canned_replies_settings():
         r = await client.get(f"{API}/site-settings")
         sc = r.json()["support_chat"]
         assert "Hello!" in sc["canned_replies"]
+
+
+@pytest.mark.asyncio
+async def test_attachment_validation():
+    async with httpx.AsyncClient(timeout=15) as client:
+        sid = "sup_" + uuid.uuid4().hex[:12]
+        # 1x1 transparent PNG, base64-encoded
+        png_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+        ok = await client.post(f"{API}/support/chat/messages", json={
+            "session_id": sid,
+            "text": "Here's the screenshot",
+            "attachment": {
+                "filename": "screenshot.png",
+                "mime": "image/png",
+                "data_url": f"data:image/png;base64,{png_b64}",
+            },
+        })
+        assert ok.status_code == 200, ok.text
+        msg = ok.json()
+        assert msg["attachment"]["filename"] == "screenshot.png"
+        assert msg["attachment"]["mime"] == "image/png"
+
+        # Bad MIME type → 400
+        bad = await client.post(f"{API}/support/chat/messages", json={
+            "session_id": sid,
+            "attachment": {
+                "filename": "evil.exe",
+                "mime": "application/x-msdownload",
+                "data_url": f"data:application/x-msdownload;base64,{png_b64}",
+            },
+        })
+        assert bad.status_code == 400
+
+        # Oversized attachment (fake big base64 string ~1.2 MB) → 413
+        huge = "A" * (1_200_000 // 3 * 4)  # ~1.2 MB worth of base64 chars
+        too_big = await client.post(f"{API}/support/chat/messages", json={
+            "session_id": sid,
+            "attachment": {
+                "filename": "huge.png",
+                "mime": "image/png",
+                "data_url": f"data:image/png;base64,{huge}",
+            },
+        })
+        assert too_big.status_code in (413, 422)
+
+
+@pytest.mark.asyncio
+async def test_close_triggers_rating_prompt_and_visitor_rates():
+    async with httpx.AsyncClient(timeout=15) as client:
+        sid = "sup_" + uuid.uuid4().hex[:12]
+        await client.post(f"{API}/support/chat/messages", json={
+            "session_id": sid, "text": "I need help",
+        })
+
+        admin = await client.post(f"{API}/auth/login", json={
+            "email": "admin@allsale.events", "password": "admin123",
+        })
+        if admin.status_code != 200:
+            pytest.skip("No admin seeded")
+        auth = {"Authorization": f"Bearer {admin.json()['token']}"}
+
+        # Admin closes — should inject a `rating_prompt` system message
+        r = await client.post(f"{API}/admin/support/{sid}/close", headers=auth)
+        assert r.status_code == 200
+
+        # Visitor sees the system rating prompt in their thread
+        r = await client.get(f"{API}/support/chat/{sid}")
+        msgs = r.json()["messages"]
+        kinds = [m.get("kind") for m in msgs if m.get("sender") == "system"]
+        assert "rating_prompt" in kinds
+
+        # Visitor submits 4 stars
+        r = await client.post(f"{API}/support/chat/rate", json={
+            "session_id": sid, "stars": 4, "comment": "Quick and helpful!",
+        })
+        assert r.status_code == 200
+        rating = r.json()["rating"]
+        assert rating["stars"] == 4
+        assert rating["comment"] == "Quick and helpful!"
+
+        # Session document now carries the rating, and a confirmation system
+        # message appears in the thread.
+        r = await client.get(f"{API}/support/chat/{sid}")
+        body = r.json()
+        assert body["session"]["rating"]["stars"] == 4
+        confirmation = [m for m in body["messages"] if m.get("kind") == "rating_received"]
+        assert len(confirmation) == 1
+
+        # Out-of-range stars → 422
+        r = await client.post(f"{API}/support/chat/rate", json={
+            "session_id": sid, "stars": 6,
+        })
+        assert r.status_code == 422
+
+        # Unknown session → 404
+        r = await client.post(f"{API}/support/chat/rate", json={
+            "session_id": "sup_doesnotexistaaaa", "stars": 3,
+        })
+        assert r.status_code == 404

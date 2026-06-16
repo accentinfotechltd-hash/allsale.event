@@ -1792,8 +1792,17 @@ function SupportChatTab() {
           <>
             <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
               <div>
-                <div className="font-medium text-sm">
+                <div className="font-medium text-sm flex items-center gap-2">
                   {sessions.find(s => s.session_id === activeId)?.visitor_name || "Anonymous"}
+                  {(() => {
+                    const rating = sessions.find(s => s.session_id === activeId)?.rating;
+                    if (!rating?.stars) return null;
+                    return (
+                      <span className="inline-flex items-center gap-0.5 text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(240,138,42,0.15)", color: "var(--accent)" }} data-testid="session-rating">
+                        ⭐ {rating.stars}/5
+                      </span>
+                    );
+                  })()}
                 </div>
                 <div className="text-xs" style={{ color: "var(--text-dim)" }}>
                   {sessions.find(s => s.session_id === activeId)?.visitor_email || "no email"}
@@ -1804,31 +1813,45 @@ function SupportChatTab() {
               </button>
             </div>
             <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-2" style={{ background: "var(--bg-elev)" }}>
-              {msgs.map((m) => (
-                <div key={m.message_id} className={`group flex ${m.sender === "admin" ? "justify-end" : ""}`}>
-                  <div className="flex flex-col" style={{ maxWidth: "70%" }}>
-                    <div
-                      className="px-3 py-2 text-sm leading-snug"
-                      style={{
-                        background: m.sender === "admin" ? "var(--accent)" : "var(--bg-card)",
-                        color: m.sender === "admin" ? "#0F2A3A" : "var(--text)",
-                        border: m.sender === "visitor" ? "1px solid var(--border)" : "none",
-                        borderRadius: m.sender === "admin" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
-                      }}
-                    >
+              {msgs.map((m) => {
+                if (m.sender === "system") {
+                  return (
+                    <div key={m.message_id} className="text-center text-xs italic py-1" style={{ color: "var(--text-muted)" }}>
                       {m.text}
-                      <div className="text-[10px] mt-1 opacity-60">{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
                     </div>
-                    <div className={`mt-1 ${m.sender === "admin" ? "self-end" : "self-start"}`}>
-                      <MessageReactions
-                        message={m}
-                        align={m.sender === "admin" ? "right" : "left"}
-                        onReact={(reactions) => setMsgs(prev => prev.map(p => p.message_id === m.message_id ? { ...p, reactions } : p))}
-                      />
+                  );
+                }
+                return (
+                  <div key={m.message_id} className={`group flex ${m.sender === "admin" ? "justify-end" : ""}`}>
+                    <div className="flex flex-col" style={{ maxWidth: "70%" }}>
+                      <div
+                        className="px-3 py-2 text-sm leading-snug"
+                        style={{
+                          background: m.sender === "admin" ? "var(--accent)" : "var(--bg-card)",
+                          color: m.sender === "admin" ? "#0F2A3A" : "var(--text)",
+                          border: m.sender === "visitor" ? "1px solid var(--border)" : "none",
+                          borderRadius: m.sender === "admin" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                        }}
+                      >
+                        {m.attachment && <AdminAttachment att={m.attachment} />}
+                        <AdminMessageText
+                          text={m.text}
+                          translatedText={m.translated_text}
+                          originalLang={m.original_lang}
+                        />
+                        <div className="text-[10px] mt-1 opacity-60">{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+                      </div>
+                      <div className={`mt-1 ${m.sender === "admin" ? "self-end" : "self-start"}`}>
+                        <MessageReactions
+                          message={m}
+                          align={m.sender === "admin" ? "right" : "left"}
+                          onReact={(reactions) => setMsgs(prev => prev.map(p => p.message_id === m.message_id ? { ...p, reactions } : p))}
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {visitorTyping && (
                 <div
                   className="max-w-[70%] px-3 py-2 text-sm italic"
@@ -2026,3 +2049,64 @@ function SupportChatSettingsPanel() {
     </div>
   );
 }
+
+
+/**
+ * AdminMessageText — renders the message text with a "Show original" toggle
+ * when auto-translate detected a non-English source. Default view shows the
+ * English translation so the admin can respond fast.
+ */
+function AdminMessageText({ text, translatedText, originalLang }) {
+  const [showOriginal, setShowOriginal] = useState(false);
+  if (!translatedText) {
+    // No translation available — render the original as-is.
+    return <span>{text}</span>;
+  }
+  return (
+    <span data-testid="admin-msg-with-translation">
+      {showOriginal ? text : translatedText}
+      <button
+        type="button"
+        onClick={() => setShowOriginal((v) => !v)}
+        className="block text-[10px] mt-1 italic underline opacity-70 hover:opacity-100"
+        data-testid="translation-toggle"
+      >
+        {showOriginal ? `Show translation` : `Show original${originalLang ? ` (${originalLang.toUpperCase()})` : ""}`}
+      </button>
+    </span>
+  );
+}
+
+
+/**
+ * AdminAttachment — admin-side renderer (same shape as the visitor one but
+ * lives here so Admin.jsx stays self-contained and we don't have to weave
+ * a shared import through the chunk-splitter).
+ */
+function AdminAttachment({ att }) {
+  if (!att) return null;
+  if (att.mime?.startsWith("image/")) {
+    return (
+      <a href={att.data_url} target="_blank" rel="noopener noreferrer" className="block mb-1.5">
+        <img
+          src={att.data_url}
+          alt={att.filename || "attachment"}
+          className="rounded-lg max-w-[280px] max-h-[280px] object-contain"
+        />
+      </a>
+    );
+  }
+  return (
+    <a
+      href={att.data_url}
+      download={att.filename || "file.pdf"}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-2 px-2 py-1.5 rounded-lg border text-xs mb-1.5 hover:opacity-80"
+      style={{ borderColor: "var(--border)" }}
+    >
+      📎 {att.filename || "attachment"}
+    </a>
+  );
+}
+

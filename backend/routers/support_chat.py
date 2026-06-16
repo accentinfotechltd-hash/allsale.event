@@ -18,6 +18,7 @@ responsive and gracefully degrades on flaky mobile networks.
 from __future__ import annotations
 
 import os
+import json
 import asyncio
 import uuid
 import logging
@@ -29,6 +30,14 @@ from pydantic import BaseModel, Field
 
 from core import db, get_current_user, utc_now
 
+try:
+    # LLM client — re-used for the auto-translate flow. Optional import so the
+    # router still loads if emergentintegrations isn't on the box.
+    from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+except Exception:  # noqa: BLE001
+    LlmChat = None  # type: ignore
+    UserMessage = None  # type: ignore
+
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["support_chat"])
 
@@ -38,18 +47,109 @@ NEW_MSG_EMAIL_THROTTLE_MIN = int(os.environ.get("SUPPORT_EMAIL_THROTTLE_MIN", "5
 
 MAX_MSG_LEN = 2000
 MAX_NAME_LEN = 80
+# Inline base64 attachments only — keeps the DB self-contained, no need to
+# wire S3/Cloudflare R2 for screenshots. 800 KB is enough for a 1080p
+# screenshot at decent JPEG quality.
+MAX_ATTACHMENT_BYTES = 800 * 1024
+ALLOWED_MIME = {
+    "image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif",
+    "application/pdf",
+}
+
+
+class AttachmentIn(BaseModel):
+    filename: str = Field(min_length=1, max_length=200)
+    mime: str = Field(min_length=3, max_length=80)
+    data_url: str = Field(min_length=12, max_length=int(MAX_ATTACHMENT_BYTES * 1.4))  # base64 overhead
 
 
 class SupportMessageIn(BaseModel):
     session_id: str = Field(min_length=8, max_length=64)
-    text: str = Field(min_length=1, max_length=MAX_MSG_LEN)
+    text: Optional[str] = Field(default=None, max_length=MAX_MSG_LEN)
     name: Optional[str] = Field(default=None, max_length=MAX_NAME_LEN)
     email: Optional[str] = Field(default=None, max_length=120)
+    attachment: Optional[AttachmentIn] = None
 
 
 class AdminReplyIn(BaseModel):
     session_id: str = Field(min_length=8, max_length=64)
     text: str = Field(min_length=1, max_length=MAX_MSG_LEN)
+
+
+def _validate_attachment(att: Optional[AttachmentIn]) -> None:
+    """Sanity-check an incoming attachment so the DB doesn't blow up."""
+    if not att:
+        return
+    if att.mime.lower() not in ALLOWED_MIME:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {att.mime}")
+    # data_url looks like "data:image/png;base64,iVBORw…"; the base64 portion
+    # should round-trip to no more than MAX_ATTACHMENT_BYTES bytes.
+    head, _, body = att.data_url.partition(",")
+    if "base64" not in head:
+        raise HTTPException(status_code=400, detail="Attachment must be base64 data URL")
+    # 4 base64 chars = 3 bytes, so estimate without decoding (cheap path)
+    approx_bytes = (len(body) * 3) // 4
+    if approx_bytes > MAX_ATTACHMENT_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Attachment too large ({approx_bytes // 1024} KB). Max is {MAX_ATTACHMENT_BYTES // 1024} KB.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Auto-translate
+# ---------------------------------------------------------------------------
+
+async def _maybe_translate(text: str) -> tuple[Optional[str], Optional[str]]:
+    """Detect language + return English translation if needed.
+
+    Returns `(detected_lang, translated_text)`. Both can be None:
+      • `None, None`  →  translation not available or English already.
+      • `"hi", "..."`  →  detected Hindi, here's the English version.
+
+    Fails silently — translation is a nicety, not a hard requirement. If the
+    LLM is unreachable we just store the original text and admin sees it raw.
+    """
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key or not LlmChat or not text or not text.strip():
+        return None, None
+    body = text.strip()
+    if len(body) > 600:
+        # Skip very long messages to keep latency + cost down. Admin can ask
+        # the visitor to send shorter messages or use Google translate.
+        return None, None
+    # Fast-path: text that is *all* ASCII letters/punct is overwhelmingly
+    # English; no need to spend an LLM call on "hi" or "Here's a screenshot".
+    if all(ord(ch) < 128 for ch in body):
+        return "en", None
+    try:
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"chat-translate-{uuid.uuid4().hex[:8]}",
+            system_message=(
+                "You detect language and translate. Return STRICT JSON: "
+                '{"lang":"<ISO-639-1>","translated":"<english text or original if already english>"}. '
+                "If the input is already English (or > 80% English) return lang=en and translated=<original>. "
+                "Never include any commentary outside the JSON."
+            ),
+        ).with_model("openai", "gpt-5.1")
+        resp = await chat.send_message(UserMessage(text=body))
+        raw = resp.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```", 2)[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip().rstrip("`").strip()
+        parsed = json.loads(raw)
+        lang = (parsed.get("lang") or "").lower()[:5] or None
+        translated = (parsed.get("translated") or "").strip() or None
+        # If already English (or detector said so), don't bother saving translation
+        if lang and lang.startswith("en"):
+            return lang, None
+        return lang, translated
+    except Exception:  # noqa: BLE001
+        logger.warning("Auto-translate failed; storing original", exc_info=True)
+        return None, None
 
 
 def _try_get_user(request: Request) -> Optional[dict]:
@@ -146,9 +246,13 @@ async def _maybe_notify_admins(session_id: str, visitor_name: str, preview: str)
 
 @router.post("/support/chat/messages")
 async def post_visitor_message(payload: SupportMessageIn, request: Request):
-    """Visitor sends a message. Creates the session on first hit."""
-    text = payload.text.strip()
-    if not text:
+    """Visitor sends a message. Creates the session on first hit.
+
+    Can include text, an attachment (image/PDF as base64 data URL), or both.
+    """
+    text = (payload.text or "").strip()
+    _validate_attachment(payload.attachment)
+    if not text and not payload.attachment:
         raise HTTPException(status_code=400, detail="Message can't be empty")
 
     user = _try_get_user(request)
@@ -177,20 +281,37 @@ async def post_visitor_message(payload: SupportMessageIn, request: Request):
         upsert=True,
     )
 
+    # Run translation in the background — don't block the send latency.
+    # We'll patch the message doc once it returns.
     msg = {
         "message_id": f"msg_{uuid.uuid4().hex[:12]}",
         "session_id": payload.session_id,
         "sender": "visitor",
         "user_id": user_id,
         "text": text,
+        "attachment": payload.attachment.model_dump() if payload.attachment else None,
         "created_at": now_iso,
     }
     await db.support_messages.insert_one(msg)
 
-    # Background email to admins (throttled). asyncio.create_task keeps the
-    # response snappy — the user shouldn't wait for SMTP.
+    async def _translate_and_patch():
+        try:
+            lang, translated = await _maybe_translate(text)
+            if lang or translated:
+                await db.support_messages.update_one(
+                    {"message_id": msg["message_id"]},
+                    {"$set": {"original_lang": lang, "translated_text": translated}},
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("translate-and-patch failed")
+
+    if text:
+        asyncio.create_task(_translate_and_patch())
+
+    # Background email + Slack to admins (throttled).
     visitor_name = (payload.name or (user.get("name") if user else None) or "Anonymous").strip() or "Anonymous"
-    asyncio.create_task(_maybe_notify_admins(payload.session_id, visitor_name, text))
+    preview = text or "[attachment]"
+    asyncio.create_task(_maybe_notify_admins(payload.session_id, visitor_name, preview))
 
     msg.pop("_id", None)
     return msg
@@ -377,8 +498,57 @@ async def admin_reply(payload: AdminReplyIn, user: dict = Depends(get_current_us
 async def admin_close(session_id: str, user: dict = Depends(get_current_user)):
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admins only")
+    # Inject a "system" message that prompts the visitor to rate the chat.
+    # Polling will pick it up; the frontend renders a 5-star widget for any
+    # message with sender="system" and kind="rating_prompt".
+    now_iso = utc_now().isoformat()
+    await db.support_messages.insert_one({
+        "message_id": f"msg_{uuid.uuid4().hex[:12]}",
+        "session_id": session_id,
+        "sender": "system",
+        "kind": "rating_prompt",
+        "text": "How was your support experience today?",
+        "created_at": now_iso,
+    })
     await db.support_chats.update_one(
         {"session_id": session_id},
-        {"$set": {"status": "closed", "closed_at": utc_now().isoformat()}},
+        {"$set": {
+            "status": "closed",
+            "closed_at": now_iso,
+            "last_msg_at": now_iso,
+        }},
     )
     return {"ok": True}
+
+
+class RatingIn(BaseModel):
+    session_id: str = Field(min_length=8, max_length=64)
+    stars: int = Field(ge=1, le=5)
+    comment: Optional[str] = Field(default=None, max_length=600)
+
+
+@router.post("/support/chat/rate")
+async def visitor_rate(payload: RatingIn):
+    """Visitor submits CSAT rating. One per session — re-submitting overwrites
+    so the visitor can change their mind without complicating the schema."""
+    rating_doc = {
+        "stars": payload.stars,
+        "comment": (payload.comment or "").strip() or None,
+        "rated_at": utc_now().isoformat(),
+    }
+    r = await db.support_chats.update_one(
+        {"session_id": payload.session_id},
+        {"$set": {"rating": rating_doc}},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Session not found")
+    # Insert a confirmation system message so the visitor sees their rating reflected.
+    await db.support_messages.insert_one({
+        "message_id": f"msg_{uuid.uuid4().hex[:12]}",
+        "session_id": payload.session_id,
+        "sender": "system",
+        "kind": "rating_received",
+        "text": f"You rated this chat {payload.stars}/5 — thanks!",
+        "created_at": utc_now().isoformat(),
+    })
+    return {"ok": True, "rating": rating_doc}
