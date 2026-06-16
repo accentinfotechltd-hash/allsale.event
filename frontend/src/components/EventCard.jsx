@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { MapPin } from "lucide-react";
+import { MapPin, Star } from "lucide-react";
 import { formatMoney } from "@/lib/currencies";
 import { flagForCountry } from "@/lib/countries";
 
@@ -44,6 +44,18 @@ export default function EventCard({ event, index = 0 }) {
               style={{ background: "rgba(240, 138, 42, 0.95)", color: "#FFFFFF" }}
             >
               {event.waitlist_count} waiting
+            </span>
+          )}
+          {event.avg_stars && event.reviews_count > 0 && (
+            <span
+              data-testid={`rating-badge-${event.event_id}`}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium backdrop-blur-md"
+              style={{ background: "rgba(0,0,0,0.6)", color: "#FFD66E" }}
+              title={`Average rating ${event.avg_stars} from ${event.reviews_count} reviews`}
+            >
+              <Star className="w-2.5 h-2.5 fill-current" />
+              <span className="text-white">{event.avg_stars}</span>
+              <span className="text-white/70">({event.reviews_count})</span>
             </span>
           )}
         </div>

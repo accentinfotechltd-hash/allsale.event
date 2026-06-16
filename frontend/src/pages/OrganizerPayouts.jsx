@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ArrowLeft, Wallet, TrendingUp, Clock, CheckCircle2, XCircle, BanknoteIcon, FileText } from "lucide-react";
+import { ArrowLeft, Wallet, TrendingUp, Clock, CheckCircle2, XCircle, BanknoteIcon, FileText, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/currencies";
 
@@ -25,17 +25,20 @@ export default function OrganizerPayouts() {
   const { user } = useAuth();
   const [balance, setBalance] = useState(null);
   const [payouts, setPayouts] = useState([]);
+  const [credits, setCredits] = useState([]);
   const [requesting, setRequesting] = useState(false);
   const [notes, setNotes] = useState("");
 
   const load = async () => {
     try {
-      const [b, p] = await Promise.all([
+      const [b, p, c] = await Promise.all([
         api.get("/organizer/payouts/balance"),
         api.get("/organizer/payouts"),
+        api.get("/organizer/credits").catch(() => ({ data: [] })),
       ]);
       setBalance(b.data);
       setPayouts(p.data);
+      setCredits(c.data || []);
     } catch (e) {
       toast.error(formatApiErrorDetail(e?.response?.data?.detail) || "Failed to load payouts");
     }
@@ -80,6 +83,35 @@ export default function OrganizerPayouts() {
           Net = gross − platform commission ({settings?.commission_percent ?? 8}%) − ${settings?.commission_flat_fee_per_ticket ?? 0.5}/ticket processing fee.
         </p>
       </div>
+
+      {(() => {
+        const availableCredits = credits.filter((c) => c.status === "available");
+        const total = availableCredits.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+        if (total <= 0) return null;
+        return (
+          <div
+            className="mb-8 p-4 rounded-2xl border flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between"
+            style={{ borderColor: "var(--accent)", background: "var(--accent-soft)" }}
+            data-testid="referral-credits-banner"
+          >
+            <div className="flex items-start gap-3">
+              <Sparkles className="w-5 h-5 mt-0.5" style={{ color: "var(--accent)" }} />
+              <div>
+                <div className="font-medium" style={{ color: "var(--accent)" }} data-testid="credit-total">
+                  ${total.toFixed(2)} NZD in referral credit available
+                </div>
+                <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                  Earned from {availableCredits.length} referral{availableCredits.length === 1 ? "" : "s"}.
+                  Auto-deducts from your next payout admin review.
+                </div>
+              </div>
+            </div>
+            <Link to="/organizer/referral" className="btn-ghost !py-2 !px-4 text-sm whitespace-nowrap" data-testid="view-referral-program-btn">
+              Refer more →
+            </Link>
+          </div>
+        );
+      })()}
 
       {/* Balance + Request card */}
       <div className="grid lg:grid-cols-[1.4fr_1fr] gap-5 mb-12">

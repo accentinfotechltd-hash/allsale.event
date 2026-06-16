@@ -218,7 +218,46 @@ async def my_gift_cards(user: dict = Depends(get_current_user)):
     return out
 
 
-# -------- internal helper used by bookings/hold to redeem against a card --------
+@router.get("/organizer/gift-card-redemptions")
+async def organizer_gift_card_redemptions(user: dict = Depends(get_current_user)):
+    """Recent gift card redemptions on this organizer's events. Surfaces
+    incremental discovery — gift cards are platform-wide, so the organizer
+    can see when one was used to pay for a ticket they're owed."""
+    from core import require_role
+    await require_role(user, "organizer", "admin")
+    # Pull this organizer's events first, then match bookings
+    event_ids = []
+    async for e in db.events.find({"organizer_id": user["user_id"]}, {"_id": 0, "event_id": 1}):
+        event_ids.append(e["event_id"])
+    if not event_ids:
+        return {"recent": [], "totals": {"count": 0, "amount": 0.0}}
+
+    recent = []
+    count = 0
+    amount = 0.0
+    async for b in db.bookings.find(
+        {
+            "event_id": {"$in": event_ids},
+            "gift_card_code": {"$ne": None},
+            "gift_card_amount": {"$gt": 0},
+            "status": {"$in": ["paid", "confirmed"]},
+        },
+        {
+            "_id": 0, "booking_id": 1, "event_id": 1, "event_title": 1,
+            "user_name": 1, "user_email": 1, "gift_card_code": 1,
+            "gift_card_amount": 1, "currency": 1, "created_at": 1,
+        },
+    ).sort("created_at", -1).limit(50):
+        recent.append(b)
+        count += 1
+        amount += float(b.get("gift_card_amount") or 0)
+    return {
+        "recent": recent[:10],  # only return latest 10 to the UI
+        "totals": {"count": count, "amount": round(amount, 2)},
+    }
+
+
+# ----- internal helper used by bookings/hold to redeem against a card -----
 
 async def redeem_gift_card_for_booking(code: str, requested_amount: float, booking_id: str, currency: str) -> dict:
     """Atomically deduct `requested_amount` (or remaining balance, whichever

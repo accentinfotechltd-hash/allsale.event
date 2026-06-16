@@ -681,3 +681,13 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 
 ### New env vars
 - `REFERRAL_CREDIT_NZD=100` (optional override, defaults to 100)
+
+## Iteration 16 (2026-02-16) — P2 polish (review badges, credits, gift card panel, cleanup)
+
+- ✅ **Review badges on event cards**: events listing + detail endpoints now annotate `avg_stars` + `reviews_count` (only when count ≥ 3 to avoid single-review skew). EventCard renders ⭐ {avg} ({count}) chip. EventDetail shows badge under the title.
+- ✅ **Auto-applied referral credits**: `POST /api/organizer/payouts/request` now greedy-applies available `organizer_credits` to the net amount (FIFO by created_at), stamps `credit_ids_applied` + `credit_applied` on the payout. `admin_reject_payout` releases them back to `status: available`. OrganizerPayouts page surfaces a sticky banner with total available credit.
+- ✅ **Gift card redemptions widget**: new `GET /api/organizer/gift-card-redemptions` returns last 10 redemptions on this organizer's events + lifetime totals. Hidden on dashboard until at least one redemption exists.
+- ✅ **Cleanup**: `send_template_fireforget` now swallows `RuntimeError` when the asyncio loop is closed (silences pytest teardown noise).
+
+### Tests
+- `tests/test_iteration14_p2_polish.py` — 4 new tests (review badges, gift card panel scoping, payout credit auto-apply + reject release).

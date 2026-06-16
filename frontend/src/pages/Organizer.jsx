@@ -11,6 +11,7 @@ import StripeConnectPanel from "@/components/StripeConnectPanel";
 import OrganizerPayoutsPanel from "@/components/OrganizerPayoutsPanel";
 import OrganizerEmbedPanel from "@/components/OrganizerEmbedPanel";
 import ScannerInstallCard from "@/components/ScannerInstallCard";
+import GiftCardRedemptionsPanel from "@/components/GiftCardRedemptionsPanel";
 import { toast } from "sonner";
 
 export default function Organizer() {
@@ -78,6 +79,8 @@ export default function Organizer() {
       <ScannerInstallCard />
 
       <OrganizerInboxPanel />
+
+      <GiftCardRedemptionsPanel />
 
       {analytics && (
         <>

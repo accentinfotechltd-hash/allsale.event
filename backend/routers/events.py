@@ -77,6 +77,24 @@ async def list_events(
     else:
         for e in items:
             e["is_past"] = True
+    # Annotate ratings (avg_stars + reviews count) in a single batched
+    # aggregate. Past listings benefit most (most ratings live there), but
+    # upcoming events that already ran a previous occurrence may also have
+    # ratings — so we always run it.
+    event_ids = [e["event_id"] for e in items]
+    if event_ids:
+        async for row in db.event_feedback.aggregate([
+            {"$match": {"event_id": {"$in": event_ids}}},
+            {"$group": {"_id": "$event_id", "avg": {"$avg": "$stars"}, "count": {"$sum": 1}}},
+        ]):
+            for e in items:
+                if e["event_id"] == row["_id"] and row["count"] >= 3:
+                    # Need at least 3 ratings before showing a badge — fewer
+                    # than that and a single 1★ skews the average so much
+                    # it's misleading to surface.
+                    e["avg_stars"] = round(row["avg"], 1)
+                    e["reviews_count"] = row["count"]
+                    break
     return items
 
 
@@ -200,6 +218,14 @@ async def get_event(event_id: str):
         e["sold_out"] = (not any_remaining) and bool(e.get("tiers"))
         e["surging"] = any_surging
     e["is_past"] = _is_event_past(e.get("date"))
+    # Annotate avg rating + review count for the badge on Event Detail
+    agg = await db.event_feedback.aggregate([
+        {"$match": {"event_id": event_id}},
+        {"$group": {"_id": None, "avg": {"$avg": "$stars"}, "count": {"$sum": 1}}},
+    ]).to_list(1)
+    if agg and agg[0]["count"] >= 3:
+        e["avg_stars"] = round(agg[0]["avg"], 1)
+        e["reviews_count"] = agg[0]["count"]
     return event_to_public(e)
 
 

@@ -10,7 +10,7 @@ import FollowOrganizerButton from "@/components/FollowOrganizerButton";
 import AffiliateBanner from "@/components/AffiliateBanner";
 import SocialShareButtons from "@/components/SocialShareButtons";
 import SeoHead from "@/components/SeoHead";
-import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi, Gift } from "lucide-react";
+import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi, Gift, Star } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/currencies";
 
@@ -301,6 +301,19 @@ export default function EventDetail() {
             )}
           </div>
           <h1 className="serif text-4xl sm:text-5xl lg:text-7xl leading-[0.95] max-w-3xl" data-testid="event-title">{event.title}</h1>
+          {event.avg_stars && event.reviews_count > 0 && (
+            <div
+              className="inline-flex items-center gap-1.5 mt-3 px-3 py-1 rounded-full text-xs font-medium backdrop-blur-md"
+              style={{ background: "rgba(0,0,0,0.6)" }}
+              data-testid="event-rating-badge"
+              title={`Average rating ${event.avg_stars} from ${event.reviews_count} reviews`}
+            >
+              <Gift className="w-3 h-3" style={{ color: "#FFD66E", display: "none" }} />
+              <Star className="w-3 h-3 fill-current" style={{ color: "#FFD66E" }} />
+              <span className="text-white">{event.avg_stars}</span>
+              <span className="text-white/70">({event.reviews_count} reviews)</span>
+            </div>
+          )}
         </div>
       </div>
 

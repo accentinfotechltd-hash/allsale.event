@@ -843,9 +843,19 @@ async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None) ->
         return {"status": "failed", "log_id": log_id, "reason": str(e)}
 
 
-def send_template_fireforget(template: str, to: str, ctx: Dict[str, Any], db=None) -> asyncio.Task:
-    """Schedule send without awaiting. Use when caller shouldn't block on email I/O."""
-    return asyncio.create_task(send_template(template, to, ctx, db))
+def send_template_fireforget(template: str, to: str, ctx: Dict[str, Any], db=None):
+    """Schedule send without awaiting. Use when caller shouldn't block on email I/O.
+
+    Returns the asyncio.Task on success or None if the event loop is closed
+    (e.g. during pytest teardown). The None branch silences the noisy
+    `RuntimeError: cannot schedule new futures after shutdown` traceback that
+    used to surface when background-task email sends ran after the loop closed.
+    """
+    try:
+        return asyncio.create_task(send_template(template, to, ctx, db))
+    except RuntimeError:
+        # Loop already closed — happens in test teardown. Drop the send silently.
+        return None
 
 
 def _safe_summary(ctx: Dict[str, Any]) -> Dict[str, Any]:

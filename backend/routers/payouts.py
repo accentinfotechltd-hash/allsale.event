@@ -190,6 +190,32 @@ async def organizer_request_payout(payload: PayoutRequestIn, user: dict = Depend
     payout_id = "pyt_" + uuid4().hex[:12]
     booking_ids = [b["booking_id"] for b in bookings]
     paid_ats = [b.get("paid_at") for b in bookings if b.get("paid_at")]
+
+    # Auto-apply available referral / organizer credits — capped at the
+    # current net payout so we don't go negative. Each applied credit gets
+    # flipped to status=applied and stamped with this payout_id; if admin
+    # later rejects the payout, the credits are released back automatically
+    # in admin_reject_payout.
+    credit_total = 0.0
+    applied_credit_ids = []
+    async for c in db.organizer_credits.find(
+        {"user_id": user["user_id"], "status": "available"},
+        {"_id": 0, "credit_id": 1, "amount": 1},
+    ).sort("created_at", 1):
+        if credit_total >= net:
+            break
+        remaining = net - credit_total
+        take = min(float(c.get("amount") or 0), remaining)
+        if take <= 0:
+            continue
+        credit_total = round(credit_total + take, 2)
+        applied_credit_ids.append({"credit_id": c["credit_id"], "amount": take})
+    if applied_credit_ids:
+        await db.organizer_credits.update_many(
+            {"credit_id": {"$in": [a["credit_id"] for a in applied_credit_ids]}},
+            {"$set": {"status": "applied", "applied_to_payout_id": payout_id, "applied_at": utc_now().isoformat()}},
+        )
+
     payout_doc = {
         "payout_id": payout_id,
         "organizer_id": user["user_id"],
@@ -199,6 +225,8 @@ async def organizer_request_payout(payload: PayoutRequestIn, user: dict = Depend
         "commission": commission,
         "flat_fees": flat_fees,
         "net_amount": net,
+        "credit_applied": round(credit_total, 2),
+        "credit_ids_applied": [a["credit_id"] for a in applied_credit_ids],
         "bookings_count": len(bookings),
         "tickets_count": tickets,
         "booking_ids": booking_ids,
@@ -329,6 +357,14 @@ async def admin_reject_payout(payout_id: str, payload: RejectIn, user: dict = De
         {"booking_id": {"$in": payout.get("booking_ids", [])}, "payout_id": payout_id},
         {"$unset": {"payout_id": ""}},
     )
+    # Release any credits that were auto-applied to this payout — they go
+    # back to `available` so the organizer can use them on the next request.
+    credit_ids = payout.get("credit_ids_applied") or []
+    if credit_ids:
+        await db.organizer_credits.update_many(
+            {"credit_id": {"$in": credit_ids}, "status": "applied", "applied_to_payout_id": payout_id},
+            {"$set": {"status": "available"}, "$unset": {"applied_to_payout_id": "", "applied_at": ""}},
+        )
     await db.payouts.update_one(
         {"payout_id": payout_id},
         {"$set": {
