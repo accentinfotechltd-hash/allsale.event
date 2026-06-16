@@ -108,6 +108,31 @@ async def list_events(
     return items
 
 
+@router.get("/events/trending")
+async def trending_events(limit: int = 12):
+    """Currently-boosted events — powers the homepage 'Trending This Week'
+    carousel. Server-side filter on `boosted_until > now` so we don't ship
+    expired badges to the client; sort by `boosted_at` desc (newest boosts
+    first) so the rail keeps rotating as organizers boost throughout the day.
+    """
+    cutoff_iso = _event_finished_cutoff_iso()
+    now_iso = utc_now().isoformat()
+    cursor = db.events.find(
+        {
+            "status": {"$in": ["approved", "published"]},
+            "date": {"$gte": cutoff_iso},
+            "boosted_until": {"$gt": now_iso},
+        },
+        {"_id": 0},
+    ).sort("boosted_at", -1).limit(max(1, min(limit, 24)))
+    items = []
+    async for e in cursor:
+        public = event_to_public(e)
+        public["is_boosted"] = True
+        items.append(public)
+    return items
+
+
 @router.get("/events/featured")
 async def featured_events():
     cutoff_iso = _event_finished_cutoff_iso()

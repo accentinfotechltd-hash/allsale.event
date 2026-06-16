@@ -17,6 +17,7 @@ export default function Events() {
   const city = params.get("city") || "";
   const country = params.get("country") || "";
   const past = params.get("past") === "1";
+  const trending = params.get("trending") === "1";
 
   useEffect(() => {
     (async () => {
@@ -35,11 +36,18 @@ export default function Events() {
     setLoading(true);
     (async () => {
       try {
-        const { data } = await api.get("/events", { params: { q, category, city, country, past: past ? "true" : "false" } });
-        setEvents(Array.isArray(data) ? data : []);
+        // Trending mode hits the dedicated endpoint so we don't filter
+        // client-side and risk shipping non-boosted events into the rail.
+        if (trending) {
+          const { data } = await api.get("/events/trending", { params: { limit: 24 } });
+          setEvents(Array.isArray(data) ? data : []);
+        } else {
+          const { data } = await api.get("/events", { params: { q, category, city, country, past: past ? "true" : "false" } });
+          setEvents(Array.isArray(data) ? data : []);
+        }
       } finally { setLoading(false); }
     })();
-  }, [q, category, city, country, past]);
+  }, [q, category, city, country, past, trending]);
 
   const updateParam = (k, v) => {
     const next = new URLSearchParams(params);
@@ -58,7 +66,7 @@ export default function Events() {
       <div className="mb-8 flex items-end justify-between flex-wrap gap-4">
         <div>
           <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>Discover</div>
-          <h1 className="serif text-5xl">{past ? "Past events" : "All events"}</h1>
+          <h1 className="serif text-5xl">{trending ? "🔥 Trending right now" : past ? "Past events" : "All events"}</h1>
         </div>
         <div className="flex items-center gap-2 text-sm" style={{ color: "var(--text-muted)" }}>
           <SlidersHorizontal className="w-4 h-4" /> {events.length} results

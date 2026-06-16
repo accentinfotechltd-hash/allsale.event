@@ -723,3 +723,12 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 
 ### New deps
 - `html-to-image@1.11.13` (frontend) for canvas-free PNG export of the flyer DOM.
+
+## Iteration 18 (2026-02-16) — Trending This Week carousel
+
+- ✅ New `GET /api/events/trending?limit=12` — returns approved + upcoming events with `boosted_until > now`, sorted by `boosted_at` desc. Each item flagged `is_boosted: true`.
+- ✅ `TrendingCarousel` component mounted on Landing right under FeatureShowcase. Auto-hides when zero boosts exist (no empty-state noise).
+- ✅ Premium tiles: 330px wide, 🔥 Trending gradient pill, optional ★ rating chip, lowest-price badge, scroll-snap horizontal rail with chevron buttons and "See all" link.
+- ✅ Events page accepts `?trending=1` filter (hits the dedicated endpoint) — drives the "See all" link cleanly without client-side filtering.
+- ✅ `tests/test_trending.py` — 2 tests (filters expired/draft/past, sorts newest boost first).
+

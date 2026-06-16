@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import EventCard from "@/components/EventCard";
 import FeatureShowcase from "@/components/FeatureShowcase";
+import TrendingCarousel from "@/components/TrendingCarousel";
 import { useAuth } from "@/lib/auth";
 import { ArrowRight, Search, Calendar, Zap, Award, Sparkles } from "lucide-react";
 
@@ -202,6 +203,9 @@ export default function Landing() {
 
       {/* PREMIUM FEATURE SHOWCASE — moved to top so visitors see Allsale's full power immediately */}
       <FeatureShowcase />
+
+      {/* TRENDING THIS WEEK — only renders when there's at least one boosted event */}
+      <TrendingCarousel />
 
       {/* CATEGORIES */}
       <section className="max-w-7xl mx-auto px-6 py-16">
