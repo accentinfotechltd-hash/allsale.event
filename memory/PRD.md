@@ -691,3 +691,35 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 
 ### Tests
 - `tests/test_iteration14_p2_polish.py` — 4 new tests (review badges, gift card panel scoping, payout credit auto-apply + reject release).
+
+## Iteration 17 (2026-02-16) — Per-event social flyer + self-serve Boost
+
+### Per-event social media flyer (`/events/:id/share`)
+- ✅ New `EventShare` page renders the event in 3 aspect ratios:
+  - Square 1:1 (1080×1080) — Instagram feed, Facebook
+  - Story 9:16 (1080×1920) — IG/TikTok Story, WhatsApp status
+  - Wide 16:9 (1200×675) — Twitter, LinkedIn
+- ✅ Uses `html-to-image` to export PNGs at 2× pixel ratio for crisp downloads.
+- ✅ "Download all 3" button exports every format sequentially.
+- ✅ Share rail with 6 networks: X/Twitter, Facebook, WhatsApp, LinkedIn, Telegram, Copy-link.
+- ✅ QR code per-flyer pointing to the public event page.
+- ✅ Linked from EventDetail "Get social flyer" button + each row in Organizer dashboard.
+
+### Self-serve Boost → 🔥 Trending badge
+- ✅ `POST /api/organizer/events/{id}/boost` — sets `boosted_at` + `boosted_until` for 72h (configurable via `BOOST_DURATION_HOURS`).
+- ✅ Cooldown: one boost per event every 7 days (`BOOST_COOLDOWN_HOURS`); returns 429 with friendly message when violated.
+- ✅ Ownership enforced (organizer of event OR admin); 403 on cross-org.
+- ✅ Events listing + detail now annotate `is_boosted` (bool, computed server-side from `boosted_until`).
+- ✅ Boosted events sort to top of upcoming feed.
+- ✅ EventCard renders 🔥 Trending pill (gradient orange) when boosted.
+- ✅ Organizer dashboard event row shows Boost button (or "Boosted" chip if active).
+
+### Tests
+- `tests/test_boost.py` — 4 tests (happy path, ownership 403, cooldown 429, admin override).
+
+### New env vars
+- `BOOST_DURATION_HOURS=72`
+- `BOOST_COOLDOWN_HOURS=168`
+
+### New deps
+- `html-to-image@1.11.13` (frontend) for canvas-free PNG export of the flyer DOM.

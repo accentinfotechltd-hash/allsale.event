@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet, ScanLine, Pencil, Trash2, Package, Sparkles } from "lucide-react";
+import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet, ScanLine, Pencil, Trash2, Package, Sparkles, Flame } from "lucide-react";
+import { toast } from "sonner";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { formatMoney } from "@/lib/currencies";
 import DoorCheckinPanel from "@/components/DoorCheckinPanel";
@@ -12,7 +13,6 @@ import OrganizerPayoutsPanel from "@/components/OrganizerPayoutsPanel";
 import OrganizerEmbedPanel from "@/components/OrganizerEmbedPanel";
 import ScannerInstallCard from "@/components/ScannerInstallCard";
 import GiftCardRedemptionsPanel from "@/components/GiftCardRedemptionsPanel";
-import { toast } from "sonner";
 
 export default function Organizer() {
   const { user } = useAuth();
@@ -41,6 +41,17 @@ export default function Organizer() {
     } catch (err) {
       const d = err?.response?.data?.detail;
       toast.error(typeof d === "string" ? d : "Could not delete");
+    }
+  };
+
+  const boostEvent = async (e) => {
+    try {
+      const { data } = await api.post(`/organizer/events/${e.event_id}/boost`);
+      const until = new Date(data.boosted_until).toLocaleDateString();
+      toast.success(`🔥 Boosted! "${e.title}" gets a Trending badge until ${until}.`);
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Couldn't boost event");
     }
   };
 
@@ -157,6 +168,37 @@ export default function Organizer() {
                         title="Edit event details"
                       >
                         <Pencil className="w-3 h-3" /> Edit
+                      </Link>
+                      {e.status === "approved" && (
+                        e.boosted_until && e.boosted_until > new Date().toISOString() ? (
+                          <span
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs"
+                            style={{ background: "linear-gradient(90deg, #FF6B35, #F08A2A)", color: "#FFFFFF" }}
+                            data-testid={`boosted-chip-${e.event_id}`}
+                            title={`Trending until ${new Date(e.boosted_until).toLocaleDateString()}`}
+                          >
+                            <Flame className="w-3 h-3 fill-current" /> Boosted
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => boostEvent(e)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs border"
+                            style={{ borderColor: "var(--accent)", color: "var(--accent)" }}
+                            data-testid={`boost-event-${e.event_id}`}
+                            title="Mark this event as Trending (free, 72 hours)"
+                          >
+                            <Flame className="w-3 h-3" /> Boost
+                          </button>
+                        )
+                      )}
+                      <Link
+                        to={`/events/${e.event_id}/share`}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs border"
+                        style={{ borderColor: "var(--border)", color: "var(--text)" }}
+                        data-testid={`share-event-${e.event_id}`}
+                        title="Download social media flyer"
+                      >
+                        <Sparkles className="w-3 h-3" /> Flyer
                       </Link>
                       <button
                         onClick={() => deleteEvent(e)}

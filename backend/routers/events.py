@@ -95,6 +95,16 @@ async def list_events(
                     e["avg_stars"] = round(row["avg"], 1)
                     e["reviews_count"] = row["count"]
                     break
+    # Annotate `is_boosted` based on `boosted_until` field. We compute this
+    # server-side so the frontend doesn't have to know about clock skew.
+    now_iso = utc_now().isoformat()
+    for e in items:
+        bu = e.get("boosted_until")
+        e["is_boosted"] = bool(bu and bu > now_iso)
+    # Sort upcoming list to put currently-boosted events first (preserves the
+    # ascending-date secondary sort the cursor already applied).
+    if not past:
+        items.sort(key=lambda x: (not x.get("is_boosted", False), x.get("date") or ""))
     return items
 
 
@@ -226,6 +236,9 @@ async def get_event(event_id: str):
     if agg and agg[0]["count"] >= 3:
         e["avg_stars"] = round(agg[0]["avg"], 1)
         e["reviews_count"] = agg[0]["count"]
+    # Boost flag
+    bu = e.get("boosted_until")
+    e["is_boosted"] = bool(bu and bu > utc_now().isoformat())
     return event_to_public(e)
 
 
@@ -406,6 +419,57 @@ async def set_dynamic_pricing(event_id: str, payload: DynamicPricingIn, user: di
         }}},
     )
     return {"ok": True, "dynamic_pricing": payload.model_dump()}
+
+
+# Boost duration (hours) and minimum interval between boosts for the same
+# event. Free MVP: organizer self-boosts; we throttle so they don't spam
+# the "🔥 Trending" badge into uselessness.
+BOOST_DURATION_HOURS = int(os.environ.get("BOOST_DURATION_HOURS", "72"))
+BOOST_COOLDOWN_HOURS = int(os.environ.get("BOOST_COOLDOWN_HOURS", "168"))  # 7 days
+
+
+@router.post("/organizer/events/{event_id}/boost")
+async def boost_event(event_id: str, user: dict = Depends(get_current_user)):
+    """Self-serve boost — flips the 'is_boosted' flag on this event for
+    BOOST_DURATION_HOURS so it shows a 🔥 Trending badge on cards.
+
+    Cooldown: BOOST_COOLDOWN_HOURS between boosts per event, to avoid badge
+    spam. Free for organizers; paid tiers can be layered on later by reading
+    a `paid` flag off the event."""
+    await require_role(user, "organizer", "admin")
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not your event")
+
+    now = utc_now()
+    last_started = event.get("boosted_at")
+    if last_started:
+        from datetime import datetime
+        try:
+            prev = datetime.fromisoformat(last_started.replace("Z", "+00:00"))
+            elapsed = (now - prev).total_seconds() / 3600
+            if elapsed < BOOST_COOLDOWN_HOURS:
+                remaining = int(BOOST_COOLDOWN_HOURS - elapsed)
+                raise HTTPException(
+                    status_code=429,
+                    detail=f"Boost on cooldown — try again in {remaining} hour(s)",
+                )
+        except ValueError:
+            pass  # malformed ISO, treat as no prior boost
+
+    until = (now + timedelta(hours=BOOST_DURATION_HOURS)).isoformat()
+    await db.events.update_one(
+        {"event_id": event_id},
+        {"$set": {"boosted_at": now.isoformat(), "boosted_until": until}},
+    )
+    return {
+        "ok": True,
+        "boosted_until": until,
+        "duration_hours": BOOST_DURATION_HOURS,
+        "next_boost_available_in_hours": BOOST_COOLDOWN_HOURS,
+    }
 
 
 @router.get("/sitemap.xml")

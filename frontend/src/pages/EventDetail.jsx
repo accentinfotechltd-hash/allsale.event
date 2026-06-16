@@ -10,7 +10,7 @@ import FollowOrganizerButton from "@/components/FollowOrganizerButton";
 import AffiliateBanner from "@/components/AffiliateBanner";
 import SocialShareButtons from "@/components/SocialShareButtons";
 import SeoHead from "@/components/SeoHead";
-import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi, Gift, Star } from "lucide-react";
+import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi, Gift, Star, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/currencies";
 
@@ -365,8 +365,15 @@ export default function EventDetail() {
 
           <p className="text-base sm:text-lg leading-relaxed max-w-3xl mb-6 sm:mb-8" style={{ color: "var(--text-muted)" }}>{event.description}</p>
 
-          <div className="max-w-3xl mb-10 sm:mb-12">
+          <div className="max-w-3xl mb-10 sm:mb-12 flex flex-wrap items-center gap-3">
             <SocialShareButtons event={event} />
+            <Link
+              to={`/events/${event.event_id}/share`}
+              className="btn-ghost text-xs"
+              data-testid="open-share-flyer-btn"
+            >
+              <Sparkles className="w-3 h-3" /> Get social flyer
+            </Link>
           </div>
 
           {event.has_seatmap && (

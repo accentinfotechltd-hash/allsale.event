@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { MapPin, Star } from "lucide-react";
+import { MapPin, Star, Flame } from "lucide-react";
 import { formatMoney } from "@/lib/currencies";
 import { flagForCountry } from "@/lib/countries";
 
@@ -35,6 +35,17 @@ export default function EventCard({ event, index = 0 }) {
               style={{ background: "rgba(255,255,255,0.85)", color: "#222" }}
             >
               Past event
+            </span>
+          )}
+          {event.is_boosted && (
+            <span
+              data-testid={`trending-badge-${event.event_id}`}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-medium backdrop-blur-md"
+              style={{ background: "linear-gradient(90deg, #FF6B35, #F08A2A)", color: "#FFFFFF" }}
+              title="Trending — boosted by the organizer"
+            >
+              <Flame className="w-2.5 h-2.5 fill-current" />
+              Trending
             </span>
           )}
           {!event.is_past && event.waitlist_count > 0 && (
