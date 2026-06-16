@@ -629,3 +629,55 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 - `REACT_APP_GA_MEASUREMENT_ID=G-DN280V8T5N` (frontend)
 - `SUPPORT_EMAIL_THROTTLE_MIN=5` (backend, optional, default 5)
 - `EMERGENT_LLM_KEY` (already configured) — used for auto-translate
+
+## Iteration 15 (2026-02-16) — Group discount, FAQ bot, Gift cards, Bundles, Referrals
+
+### c3 Group bookings auto-discount (2026-02-16)
+- ✅ Event has `group_discount: {min_qty, pct_off}` (event-level, not tier-level).
+- ✅ `/bookings/hold` applies the % before promo code; tracks `group_discount_amount` + `group_discount_pct` on booking.
+- ✅ CreateEvent.jsx exposes two inputs; EventDetail.jsx shows discount row + "add N more to unlock" hint.
+- ✅ `tests/test_group_discount.py` — 3 tests.
+
+### b3 FAQ chatbot (2026-02-16)
+- ✅ POST `/api/support/faq/ask` — visitor question → grounded LLM answer using `FAQ_KNOWLEDGE_BASE`. Persists Q + A as `support_messages` (sender=`bot`).
+- ✅ Detects `<ESCALATE>` token and returns `can_help: false` for out-of-scope questions.
+- ✅ POST `/api/support/faq/escalate` — flips session `status: bot → open`, fires admin notification.
+- ✅ SupportChat widget shows 4 quick-help chips on empty state; bot bubbles with AI tag + "Talk to a human" button on escalate.
+- ✅ `tests/test_faq_chatbot.py` — 3 tests (mocked LLM).
+
+### c1 Gift cards (2026-02-16)
+- ✅ Schema `gift_cards`: code (`GIFT-XXXX-XXXX-XXXX`), amount, balance, status (pending/active/depleted), redemptions[].
+- ✅ POST `/api/gift-cards/purchase` → Stripe Checkout with `kind:gift_card`. Webhook → `finalize_gift_card_purchase` activates + emails recipient (`gift_card_delivered` template).
+- ✅ GET `/api/gift-cards/{code}/balance` — public balance check.
+- ✅ GET `/api/me/gift-cards` — list bought + received.
+- ✅ `/bookings/hold` accepts `gift_card_code` → `redeem_gift_card_for_booking` atomically decrements balance (currency match enforced).
+- ✅ `/checkout/session` short-circuits direct-paid if buyer-total = 0 (gift card covered entire amount).
+- ✅ Frontend: `/gift-cards` purchase page, `/gift-cards/success` confirmation, gift-card field on EventDetail checkout, footer link.
+- ✅ `tests/test_gift_cards.py` — 6 tests.
+
+### c2 Season passes / bundles (2026-02-16)
+- ✅ Schema `bundles`: title, event_ids[], price, currency, capacity, sold_count, status, tier_name.
+- ✅ Organizer CRUD: POST/GET/PATCH `/api/organizer/bundles`.
+- ✅ Public GET `/api/bundles/{id}` includes events + `total_separate` + `savings`.
+- ✅ POST `/api/bundles/{id}/purchase` → Stripe session; webhook `finalize_bundle_purchase` mints one paid booking per event with QR code; idempotent.
+- ✅ Frontend: `/bundles/:id` public detail, `/bundles/:id/success`, `/organizer/bundles` creation form.
+- ✅ `tests/test_bundles.py` — 3 tests.
+
+### d2 Organizer referral program (2026-02-16)
+- ✅ Deterministic per-user referral code `ref_<last8>`.
+- ✅ POST `/api/auth/register/stamp-referral` — stamps `referred_by_code` on caller (rejects self-referral, idempotent).
+- ✅ Admin approval hook → `maybe_grant_referral_on_first_approval` grants $100 NZD credit to BOTH parties (ledger `organizer_credits`); idempotent.
+- ✅ GET `/api/organizer/referral` — code, share_url, signups, qualified, available_credit_nzd.
+- ✅ GET `/api/organizer/credits` — ledger view.
+- ✅ Frontend: `/organizer/referral` dashboard, Signup banner + auto-stamp from `?ref=` URL.
+- ✅ `tests/test_organizer_referrals.py` — 3 tests.
+
+### Testing
+- ✅ 18 new function-level pytest tests + 22 new HTTP-level pytest tests (`/app/backend/tests/test_iteration13_api.py`).
+- ✅ Iteration 13 testing report: 40/40 green, 0 failures, 0 critical issues.
+
+### New collections
+- `gift_cards`, `bundles`, `bundle_purchases`, `organizer_credits` (referral ledger).
+
+### New env vars
+- `REFERRAL_CREDIT_NZD=100` (optional override, defaults to 100)
