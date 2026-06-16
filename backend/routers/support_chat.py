@@ -521,6 +521,53 @@ async def admin_close(session_id: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
+class SuggestIn(BaseModel):
+    session_id: str = Field(min_length=8, max_length=64)
+
+
+@router.post("/admin/support/suggest")
+async def ai_suggest_reply(payload: SuggestIn, user: dict = Depends(get_current_user)):
+    """Use the Emergent LLM Key to suggest a one-paragraph admin reply
+    based on the entire visible thread. Returns `{suggestion: "..."}`.
+    Admin can edit before sending — this is a draft, not auto-send."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admins only")
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key or not LlmChat:
+        raise HTTPException(status_code=503, detail="AI not configured")
+
+    # Pull the last 20 messages — enough context, keeps the prompt cheap.
+    msgs = []
+    async for m in db.support_messages.find({"session_id": payload.session_id}, {"_id": 0}).sort("created_at", -1).limit(20):
+        msgs.append(m)
+    msgs.reverse()
+    if not msgs:
+        raise HTTPException(status_code=404, detail="No messages to summarise")
+
+    transcript = "\n".join(
+        f"{m.get('sender','?').upper()}: {m.get('text') or '[attachment]'}"
+        for m in msgs if m.get("sender") in ("visitor", "admin")
+    )
+    try:
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"suggest-{uuid.uuid4().hex[:8]}",
+            system_message=(
+                "You are a helpful support agent at Allsale Events (NZ ticketing platform). "
+                "Given the thread below, write the next ADMIN reply. "
+                "Be empathetic, concise (2-3 sentences max), and end with a clear next step "
+                "(e.g. 'send me your booking ID', 'I'll resend your e-ticket', etc.). "
+                "Return ONLY the reply text — no preamble, no quotes, no JSON."
+            ),
+        ).with_model("openai", "gpt-5.1")
+        resp = await chat.send_message(UserMessage(text=transcript))
+        suggestion = resp.strip().strip('"').strip("'")
+        return {"suggestion": suggestion}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("AI suggest failed")
+        raise HTTPException(status_code=502, detail=f"AI unavailable: {exc}") from exc
+
+
 class RatingIn(BaseModel):
     session_id: str = Field(min_length=8, max_length=64)
     stars: int = Field(ge=1, le=5)

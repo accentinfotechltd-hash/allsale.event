@@ -1901,6 +1901,25 @@ function SupportChatTab() {
             </div>
 
             <form onSubmit={send} className="flex items-center gap-2 p-3 border-t" style={{ borderColor: "var(--border)" }}>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    setBusy(true);
+                    const { data } = await api.post("/admin/support/suggest", { session_id: activeId });
+                    setReply(data.suggestion || "");
+                  } catch (err) {
+                    toast.error(err?.response?.data?.detail || "AI suggest failed");
+                  } finally { setBusy(false); }
+                }}
+                disabled={busy}
+                className="text-xs px-2 py-1.5 rounded-full border whitespace-nowrap"
+                style={{ borderColor: "var(--accent)", color: "var(--accent)" }}
+                data-testid="ai-suggest-btn"
+                title="Generate a reply with AI"
+              >
+                ✨ AI
+              </button>
               <input
                 value={reply}
                 onChange={(e) => { setReply(e.target.value); pingTyping(); }}

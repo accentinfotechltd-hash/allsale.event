@@ -9,6 +9,7 @@ import { ContactOrganizerButton } from "@/components/ContactOrganizerDialog";
 import FollowOrganizerButton from "@/components/FollowOrganizerButton";
 import AffiliateBanner from "@/components/AffiliateBanner";
 import SocialShareButtons from "@/components/SocialShareButtons";
+import SeoHead from "@/components/SeoHead";
 import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/currencies";
@@ -238,6 +239,13 @@ export default function EventDetail() {
 
   return (
     <div>
+      <SeoHead
+        title={`${event.title} — ${event.venue}, ${event.city} | Allsale Events`}
+        description={(event.description || "").slice(0, 160)}
+        image={event.banner_url || event.image_url}
+        url={typeof window !== "undefined" ? window.location.href : ""}
+        event={event}
+      />
       {/* Banner */}
       <div className="relative h-[260px] sm:h-[360px] lg:h-[420px] overflow-hidden">
         <img src={event.banner_url || event.image_url} alt={event.title} className="w-full h-full object-cover" />
