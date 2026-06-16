@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send } from "lucide-react";
+import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send } from "lucide-react";
 import { toast } from "sonner";
 import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
 import StripeAdminDiagnostics from "@/components/StripeAdminDiagnostics";
@@ -28,11 +28,12 @@ export default function Admin() {
           <TabBtn id="payouts" current={tab} onClick={setTab} icon={<Wallet className="w-4 h-4" />} label="Payouts" />
           <TabBtn id="stripe" current={tab} onClick={setTab} icon={<ShieldCheck className="w-4 h-4" />} label="Stripe" />
           <TabBtn id="emails" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Emails" />
+          <TabBtn id="chats" current={tab} onClick={setTab} icon={<MessageCircle className="w-4 h-4" />} label="Live chat" />
           <TabBtn id="settings" current={tab} onClick={setTab} icon={<SettingsIcon className="w-4 h-4" />} label="Settings" />
         </div>
       </div>
 
-      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : <SettingsTab />}
+      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : <SettingsTab />}
     </div>
   );
 }
@@ -1633,3 +1634,188 @@ function DemoDataPanel() {
     </div>
   );
 }
+
+
+// ============================================================================
+// SUPPORT CHAT TAB — admin sees every live-chat thread + can reply inline.
+// Polls every 8s while open so it feels real-time without a websocket.
+// ============================================================================
+function SupportChatTab() {
+  const [sessions, setSessions] = useState([]);
+  const [activeId, setActiveId] = useState(null);
+  const [msgs, setMsgs] = useState([]);
+  const [reply, setReply] = useState("");
+  const [busy, setBusy] = useState(false);
+  const listRef = useRef(null);
+
+  const reloadSessions = async () => {
+    try {
+      const { data } = await api.get("/admin/support/sessions");
+      setSessions(Array.isArray(data) ? data : []);
+    } catch { /* ignore */ }
+  };
+
+  const reloadThread = async (sid) => {
+    if (!sid) return;
+    try {
+      const { data } = await api.get(`/admin/support/sessions/${sid}`);
+      setMsgs(data.messages || []);
+    } catch { /* ignore */ }
+  };
+
+  useEffect(() => {
+    reloadSessions();
+    const id = setInterval(reloadSessions, 8000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!activeId) return undefined;
+    reloadThread(activeId);
+    const id = setInterval(() => reloadThread(activeId), 8000);
+    return () => clearInterval(id);
+  }, [activeId]);
+
+  useEffect(() => {
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [msgs]);
+
+  const send = async (e) => {
+    e?.preventDefault();
+    const body = reply.trim();
+    if (!body || !activeId) return;
+    setBusy(true);
+    setReply("");
+    try {
+      await api.post("/admin/support/reply", { session_id: activeId, text: body });
+      reloadThread(activeId);
+      reloadSessions();
+    } catch { toast.error("Couldn't send"); }
+    finally { setBusy(false); }
+  };
+
+  const close = async () => {
+    if (!activeId) return;
+    if (!window.confirm("Close this conversation? The visitor can still reply to reopen it.")) return;
+    await api.post(`/admin/support/${activeId}/close`);
+    toast.success("Chat closed");
+    setActiveId(null);
+    reloadSessions();
+  };
+
+  return (
+    <div className="grid lg:grid-cols-[320px_1fr] gap-4 min-h-[600px]" data-testid="support-chat-tab">
+      {/* Sessions list */}
+      <aside
+        className="rounded-2xl border overflow-y-auto"
+        style={{ borderColor: "var(--border)", background: "var(--bg-card)", maxHeight: 700 }}
+        data-testid="support-sessions-list"
+      >
+        <div className="p-3 border-b font-medium text-sm" style={{ borderColor: "var(--border)" }}>
+          Conversations ({sessions.length})
+        </div>
+        {sessions.length === 0 ? (
+          <div className="p-4 text-sm" style={{ color: "var(--text-muted)" }}>
+            No chats yet. When visitors open the chat widget on the website, they appear here.
+          </div>
+        ) : sessions.map((s) => (
+          <button
+            key={s.session_id}
+            onClick={() => setActiveId(s.session_id)}
+            className="block w-full text-left px-3 py-3 border-b hover:bg-[color:var(--bg-elev)]"
+            style={{
+              borderColor: "var(--border)",
+              background: activeId === s.session_id ? "var(--bg-elev)" : "transparent",
+            }}
+            data-testid={`support-session-${s.session_id}`}
+          >
+            <div className="flex items-center justify-between gap-2 mb-0.5">
+              <div className="font-medium text-sm truncate">{s.visitor_name || "Anonymous"}</div>
+              {s.unread_admin_count > 0 && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--accent)", color: "#0F2A3A" }}>
+                  {s.unread_admin_count}
+                </span>
+              )}
+            </div>
+            <div className="text-xs truncate mb-0.5" style={{ color: "var(--text-muted)" }}>
+              {s.last_message_sender === "admin" ? "You: " : ""}{s.last_message_preview || "(empty)"}
+            </div>
+            <div className="text-[10px]" style={{ color: "var(--text-dim)" }}>
+              {s.visitor_email || "no email"} · {s.last_msg_at ? new Date(s.last_msg_at).toLocaleString() : ""}
+            </div>
+          </button>
+        ))}
+      </aside>
+
+      {/* Thread */}
+      <div
+        className="rounded-2xl border flex flex-col"
+        style={{ borderColor: "var(--border)", background: "var(--bg-card)", minHeight: 600 }}
+      >
+        {!activeId ? (
+          <div className="flex-1 grid place-items-center text-center p-8" style={{ color: "var(--text-muted)" }}>
+            <div>
+              <MessageCircle size={32} className="mx-auto mb-3 opacity-50" />
+              Select a conversation to reply.
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
+              <div>
+                <div className="font-medium text-sm">
+                  {sessions.find(s => s.session_id === activeId)?.visitor_name || "Anonymous"}
+                </div>
+                <div className="text-xs" style={{ color: "var(--text-dim)" }}>
+                  {sessions.find(s => s.session_id === activeId)?.visitor_email || "no email"}
+                </div>
+              </div>
+              <button onClick={close} className="text-xs px-3 py-1.5 rounded border hover:opacity-80" style={{ borderColor: "var(--border)" }} data-testid="support-close-chat">
+                Close chat
+              </button>
+            </div>
+            <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-2" style={{ background: "var(--bg-elev)" }}>
+              {msgs.map((m) => (
+                <div
+                  key={m.message_id}
+                  className={`max-w-[70%] px-3 py-2 text-sm leading-snug ${m.sender === "admin" ? "ml-auto" : ""}`}
+                  style={{
+                    background: m.sender === "admin" ? "var(--accent)" : "var(--bg-card)",
+                    color: m.sender === "admin" ? "#0F2A3A" : "var(--text)",
+                    border: m.sender === "visitor" ? "1px solid var(--border)" : "none",
+                    borderRadius: m.sender === "admin" ? "14px 14px 4px 14px" : "14px 14px 14px 4px",
+                  }}
+                >
+                  {m.text}
+                  <div className="text-[10px] mt-1 opacity-60">{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+                </div>
+              ))}
+            </div>
+            <form onSubmit={send} className="flex items-center gap-2 p-3 border-t" style={{ borderColor: "var(--border)" }}>
+              <input
+                value={reply}
+                onChange={(e) => setReply(e.target.value)}
+                placeholder="Type your reply…"
+                className="flex-1 px-3 py-2 rounded-full border bg-transparent text-sm"
+                style={{ borderColor: "var(--border)" }}
+                data-testid="support-reply-input"
+                autoFocus
+              />
+              <button
+                type="submit"
+                disabled={!reply.trim() || busy}
+                data-testid="support-reply-send"
+                className="rounded-full p-2 disabled:opacity-40"
+                style={{ background: "var(--accent)", color: "#0F2A3A" }}
+                aria-label="Send"
+              >
+                <Send size={16} />
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+

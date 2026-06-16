@@ -264,8 +264,11 @@ export default function EventDetail() {
         <div>
           <AffiliateBanner />
           <div className="flex flex-wrap gap-3 sm:gap-5 mb-6 sm:mb-8 text-sm" style={{ color: "var(--text-muted)" }}>
-            <div className="flex items-center gap-2"><Calendar className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> {date.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}, {date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
-            <div className="flex items-center gap-2"><MapPin className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> {event.venue}, {event.city}</div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Calendar className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} />
+              <EventTime date={event.date} timezone={event.timezone} country={event.country} />
+            </div>
+            <div className="flex items-center gap-2"><MapPin className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> {event.venue}, {event.city}{event.country ? ` · ${event.country}` : ""}</div>
             <div className="flex items-center gap-2">
               <User className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} />
               {event.organizer_id ? (
@@ -540,5 +543,37 @@ export default function EventDetail() {
         </aside>
       </div>
     </div>
+  );
+}
+
+
+/**
+ * EventTime — renders an event's start time formatted in the event's own
+ * timezone, and (if the visitor is in a different timezone) appends a
+ * "your time" conversion. Powers the international-events UX so a Mumbai
+ * event reads "Thu 1 Jun, 8:00 PM IST · 2:30 AM Fri NZ time".
+ */
+function EventTime({ date, timezone, country }) {
+  if (!date) return null;
+  const d = new Date(date);
+  let visitorTz = "UTC";
+  try { visitorTz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch { /* ignore */ }
+  const eventTz = timezone || visitorTz;
+  const fmtDate = { weekday: "long", month: "long", day: "numeric", year: "numeric" };
+  const fmtTime = { hour: "2-digit", minute: "2-digit", timeZoneName: "short" };
+
+  const eventStr = `${d.toLocaleDateString("en-US", { ...fmtDate, timeZone: eventTz })}, ${d.toLocaleTimeString([], { ...fmtTime, timeZone: eventTz })}`;
+  const sameTz = visitorTz === eventTz;
+  const visitorStr = sameTz ? null : `${d.toLocaleDateString("en-US", { ...fmtDate, timeZone: visitorTz })}, ${d.toLocaleTimeString([], { ...fmtTime, timeZone: visitorTz })}`;
+
+  return (
+    <span data-testid="event-time-block">
+      <span>{eventStr}{country ? ` · ${country}` : ""}</span>
+      {visitorStr && (
+        <span className="block mt-1 text-xs italic opacity-70" data-testid="event-time-local">
+          Your local time: {visitorStr}
+        </span>
+      )}
+    </span>
   );
 }

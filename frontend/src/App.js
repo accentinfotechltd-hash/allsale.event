@@ -8,6 +8,7 @@ import { initAnalytics, trackPageView } from "@/lib/analytics";
 import Layout from "@/components/Layout";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import InstallPrompt from "@/components/InstallPrompt";
+import SupportChat from "@/components/SupportChat";
 import Landing from "@/pages/Landing";
 import Events from "@/pages/Events";
 import EventDetail from "@/pages/EventDetail";
@@ -122,6 +123,7 @@ function App() {
             <AppRouter />
           </ErrorBoundary>
           <InstallPrompt />
+          <SupportChat />
           <Toaster theme="dark" position="bottom-right" toastOptions={{ style: { background: "#17171b", border: "1px solid #26262c", color: "#f5f5f4" } }} />
         </AuthProvider>
       </BrowserRouter>
