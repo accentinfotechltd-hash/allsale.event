@@ -29,11 +29,13 @@ export default function SupportChat() {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [messages, setMessages] = useState([]);
+  const [adminTyping, setAdminTyping] = useState(false);
   const [sending, setSending] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const sessionRef = useRef(null);
   const listRef = useRef(null);
+  const lastTypingPing = useRef(0);
 
   // Lazy-create / fetch the session ID
   const getSessionId = () => {
@@ -56,11 +58,15 @@ export default function SupportChat() {
     const fetchOnce = async () => {
       try {
         const { data } = await api.get(`/support/chat/${sid}`);
-        if (!cancelled) setMessages(data.messages || []);
+        if (!cancelled) {
+          setMessages(data.messages || []);
+          setAdminTyping(!!data.session?.admin_is_typing);
+        }
       } catch { /* network blip — silent */ }
     };
     fetchOnce();
-    const id = setInterval(fetchOnce, POLL_MS);
+    // Poll every 4s (down from 6s) so the typing indicator feels responsive.
+    const id = setInterval(fetchOnce, 4000);
     return () => { cancelled = true; clearInterval(id); };
   }, [open]);
 
@@ -76,6 +82,14 @@ export default function SupportChat() {
       if (user.email && !email) setEmail(user.email);
     }
   }, [user]); // eslint-disable-line
+
+  // Notify the server that the visitor is typing — throttled to once per 2s.
+  const pingTyping = () => {
+    const now = Date.now();
+    if (now - lastTypingPing.current < 2000) return;
+    lastTypingPing.current = now;
+    api.post("/support/chat/typing", { session_id: getSessionId() }).catch(() => { /* silent */ });
+  };
 
   const send = async (e) => {
     e?.preventDefault();
@@ -187,6 +201,20 @@ export default function SupportChat() {
                 )}
               </div>
             ))}
+            {adminTyping && (
+              <div
+                className="max-w-[80%] px-3 py-2 text-sm italic"
+                style={{
+                  background: "var(--bg-card)",
+                  color: "var(--text-muted)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "14px 14px 14px 4px",
+                }}
+                data-testid="admin-typing-indicator"
+              >
+                Allsale is typing<span className="dots-pulse">…</span>
+              </div>
+            )}
           </div>
 
           {/* Anon contact fields — shown only before the first message */}
@@ -221,7 +249,7 @@ export default function SupportChat() {
           >
             <input
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => { setText(e.target.value); pingTyping(); }}
               placeholder="Type a message…"
               className="flex-1 px-3 py-2 rounded-full border bg-transparent text-sm"
               style={{ borderColor: "var(--border)" }}

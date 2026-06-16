@@ -79,3 +79,39 @@ async def test_anon_chat_to_admin_reply():
         # 9. Non-admin can't list sessions
         r = await client.get(f"{API}/admin/support/sessions")
         assert r.status_code in (401, 403)
+
+
+@pytest.mark.asyncio
+async def test_typing_indicators():
+    async with httpx.AsyncClient(timeout=15) as client:
+        sid = "sup_" + uuid.uuid4().hex[:12]
+        # Visitor sends an opening message (so the session row exists)
+        await client.post(f"{API}/support/chat/messages", json={
+            "session_id": sid, "text": "hi",
+        })
+
+        # Visitor "is typing"
+        r = await client.post(f"{API}/support/chat/typing", json={"session_id": sid})
+        assert r.status_code == 200
+
+        # Admin polls and sees visitor_is_typing=true
+        admin = await client.post(f"{API}/auth/login", json={
+            "email": "admin@allsale.events", "password": "admin123",
+        })
+        if admin.status_code != 200:
+            pytest.skip("No admin seeded")
+        a_auth = {"Authorization": f"Bearer {admin.json()['token']}"}
+        r = await client.get(f"{API}/admin/support/sessions/{sid}", headers=a_auth)
+        assert r.json()["session"]["visitor_is_typing"] is True
+
+        # Admin "is typing"
+        r = await client.post(f"{API}/admin/support/typing", json={"session_id": sid}, headers=a_auth)
+        assert r.status_code == 200
+
+        # Visitor polls and sees admin_is_typing=true
+        r = await client.get(f"{API}/support/chat/{sid}")
+        assert r.json()["session"]["admin_is_typing"] is True
+
+        # Non-admin can't POST admin typing
+        r = await client.post(f"{API}/admin/support/typing", json={"session_id": sid})
+        assert r.status_code in (401, 403)

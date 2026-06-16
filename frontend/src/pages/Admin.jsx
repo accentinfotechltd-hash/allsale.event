@@ -1644,9 +1644,23 @@ function SupportChatTab() {
   const [sessions, setSessions] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [msgs, setMsgs] = useState([]);
+  const [visitorTyping, setVisitorTyping] = useState(false);
   const [reply, setReply] = useState("");
   const [busy, setBusy] = useState(false);
   const listRef = useRef(null);
+  const typingPingRef = useRef(0);
+
+  // Canned replies — hardcoded for MVP, easy to swap for a CMS list later.
+  // Keep them under ~80 chars so they read well as chips.
+  const CANNED = [
+    "Hi! What's your booking ID?",
+    "Could you send a screenshot of the issue?",
+    "I'm looking into this now — one moment please.",
+    "Your refund has been processed. It'll appear in 3-5 business days.",
+    "We've resent your e-ticket — please check your inbox & spam.",
+    "Is there anything else I can help with?",
+    "Thanks for reaching out! Have a great day. 🎉",
+  ];
 
   const reloadSessions = async () => {
     try {
@@ -1660,6 +1674,7 @@ function SupportChatTab() {
     try {
       const { data } = await api.get(`/admin/support/sessions/${sid}`);
       setMsgs(data.messages || []);
+      setVisitorTyping(!!data.session?.visitor_is_typing);
     } catch { /* ignore */ }
   };
 
@@ -1672,9 +1687,19 @@ function SupportChatTab() {
   useEffect(() => {
     if (!activeId) return undefined;
     reloadThread(activeId);
-    const id = setInterval(() => reloadThread(activeId), 8000);
+    // Poll every 4s instead of 8s for snappier typing-indicator response.
+    const id = setInterval(() => reloadThread(activeId), 4000);
     return () => clearInterval(id);
   }, [activeId]);
+
+  // Throttled "admin is typing" ping — fires at most every 2s while typing.
+  const pingTyping = () => {
+    if (!activeId) return;
+    const now = Date.now();
+    if (now - typingPingRef.current < 2000) return;
+    typingPingRef.current = now;
+    api.post("/admin/support/typing", { session_id: activeId }).catch(() => { /* silent */ });
+  };
 
   useEffect(() => {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
@@ -1790,11 +1815,43 @@ function SupportChatTab() {
                   <div className="text-[10px] mt-1 opacity-60">{new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
                 </div>
               ))}
+              {visitorTyping && (
+                <div
+                  className="max-w-[70%] px-3 py-2 text-sm italic"
+                  style={{
+                    background: "var(--bg-card)",
+                    color: "var(--text-muted)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "14px 14px 14px 4px",
+                  }}
+                  data-testid="visitor-typing-indicator"
+                >
+                  Visitor is typing<span className="dots-pulse">…</span>
+                </div>
+              )}
             </div>
+
+            {/* Canned-replies strip */}
+            <div className="px-3 py-2 border-t flex gap-1.5 overflow-x-auto" style={{ borderColor: "var(--border)" }} data-testid="canned-replies">
+              {CANNED.map((c, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setReply(c)}
+                  className="text-xs px-2.5 py-1 rounded-full border whitespace-nowrap hover:opacity-80 flex-shrink-0"
+                  style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+                  data-testid={`canned-${i}`}
+                  title="Click to insert into the reply box"
+                >
+                  {c.length > 32 ? c.slice(0, 30) + "…" : c}
+                </button>
+              ))}
+            </div>
+
             <form onSubmit={send} className="flex items-center gap-2 p-3 border-t" style={{ borderColor: "var(--border)" }}>
               <input
                 value={reply}
-                onChange={(e) => setReply(e.target.value)}
+                onChange={(e) => { setReply(e.target.value); pingTyping(); }}
                 placeholder="Type your reply…"
                 className="flex-1 px-3 py-2 rounded-full border bg-transparent text-sm"
                 style={{ borderColor: "var(--border)" }}

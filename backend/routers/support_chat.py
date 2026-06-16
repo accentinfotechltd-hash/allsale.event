@@ -17,8 +17,11 @@ responsive and gracefully degrades on flaky mobile networks.
 """
 from __future__ import annotations
 
+import os
+import asyncio
 import uuid
 import logging
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -28,6 +31,10 @@ from core import db, get_current_user, utc_now
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["support_chat"])
+
+# Throttle the "new visitor message" admin email so a rapid-fire visitor
+# (sending 6 quick lines) only produces ONE email per 5-minute window.
+NEW_MSG_EMAIL_THROTTLE_MIN = int(os.environ.get("SUPPORT_EMAIL_THROTTLE_MIN", "5"))
 
 MAX_MSG_LEN = 2000
 MAX_NAME_LEN = 80
@@ -51,6 +58,62 @@ def _try_get_user(request: Request) -> Optional[dict]:
     # so we just check the header presence and let the upstream code grab
     # user info from the bearer-token cache if it's there.
     return getattr(request.state, "_cached_user", None)
+
+
+async def _maybe_notify_admins(session_id: str, visitor_name: str, preview: str) -> None:
+    """Fire-and-forget admin alert email when a new visitor message lands.
+
+    Throttled per session so a chatty visitor doesn't blast the inbox.
+    Stores the last-notified timestamp on the session doc.
+    """
+    # Throttle check — bail if we emailed about this session recently.
+    session_doc = await db.support_chats.find_one(
+        {"session_id": session_id},
+        {"_id": 0, "last_admin_notified_at": 1},
+    ) or {}
+    last_iso = session_doc.get("last_admin_notified_at")
+    if last_iso:
+        try:
+            last_dt = datetime.fromisoformat(last_iso.replace("Z", "+00:00"))
+            now = utc_now()
+            if (now - last_dt).total_seconds() < NEW_MSG_EMAIL_THROTTLE_MIN * 60:
+                return
+        except Exception:  # noqa: BLE001
+            pass  # malformed timestamp — proceed and overwrite below
+
+    try:
+        from emails import send_template_fireforget
+    except Exception:  # noqa: BLE001
+        return  # emails module not configured — silently skip
+
+    cms = await db.platform_settings.find_one({"key": "cms"}, {"_id": 0}) or {}
+    origin = (cms.get("public_origin") or "https://www.allsale.events").rstrip("/")
+    admin_url = f"{origin}/admin"
+
+    async for admin in db.users.find({"role": "admin"}, {"_id": 0, "email": 1, "name": 1}):
+        try:
+            send_template_fireforget(
+                to=admin["email"],
+                subject=f"New support chat from {visitor_name}",
+                template="generic",
+                params={
+                    "title": "New support chat 💬",
+                    "preheader": f"{visitor_name}: {preview[:80]}",
+                    "body_html": (
+                        f"<p><strong>{visitor_name}</strong> just started (or continued) a live chat:</p>"
+                        f"<blockquote style=\"border-left:3px solid #F08A2A;padding-left:12px;color:#555;\">{preview}</blockquote>"
+                        f"<p><a href=\"{admin_url}\" style=\"display:inline-block;padding:10px 20px;background:#F08A2A;color:#0F2A3A;text-decoration:none;border-radius:8px;\">Open admin → Live chat</a></p>"
+                    ),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("Failed to email admin %s about new chat", admin.get("email"))
+
+    # Mark notified
+    await db.support_chats.update_one(
+        {"session_id": session_id},
+        {"$set": {"last_admin_notified_at": utc_now().isoformat()}},
+    )
 
 
 @router.post("/support/chat/messages")
@@ -95,8 +158,44 @@ async def post_visitor_message(payload: SupportMessageIn, request: Request):
         "created_at": now_iso,
     }
     await db.support_messages.insert_one(msg)
+
+    # Background email to admins (throttled). asyncio.create_task keeps the
+    # response snappy — the user shouldn't wait for SMTP.
+    visitor_name = (payload.name or (user.get("name") if user else None) or "Anonymous").strip() or "Anonymous"
+    asyncio.create_task(_maybe_notify_admins(payload.session_id, visitor_name, text))
+
     msg.pop("_id", None)
     return msg
+
+
+class TypingIn(BaseModel):
+    session_id: str = Field(min_length=8, max_length=64)
+
+
+@router.post("/support/chat/typing")
+async def visitor_typing(payload: TypingIn):
+    """Visitor signals 'I'm typing'. Admin sees the indicator within ~2s on
+    their next poll. We just write a timestamp on the session doc; the
+    admin's GET endpoint compares it to `now` to decide whether to render
+    a typing bubble."""
+    await db.support_chats.update_one(
+        {"session_id": payload.session_id},
+        {"$set": {"visitor_typing_at": utc_now().isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@router.post("/admin/support/typing")
+async def admin_typing(payload: TypingIn, user: dict = Depends(get_current_user)):
+    """Admin equivalent — the visitor sees 'Allsale is typing…' bubble."""
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admins only")
+    await db.support_chats.update_one(
+        {"session_id": payload.session_id},
+        {"$set": {"admin_typing_at": utc_now().isoformat()}},
+    )
+    return {"ok": True}
 
 
 @router.get("/support/chat/{session_id}")
@@ -107,7 +206,25 @@ async def get_my_chat(session_id: str):
     async for m in db.support_messages.find({"session_id": session_id}, {"_id": 0}).sort("created_at", 1):
         msgs.append(m)
     session = await db.support_chats.find_one({"session_id": session_id}, {"_id": 0}) or {}
+    # Compute "admin is typing" — true if admin_typing_at within last 5s.
+    session["admin_is_typing"] = _is_typing_active(session.get("admin_typing_at"))
     return {"session": session, "messages": msgs}
+
+
+def _is_typing_active(ts_iso: Optional[str]) -> bool:
+    """True if a typing-at timestamp is within the last 5 seconds.
+
+    5s is the sweet spot: long enough that polling at 4s intervals reliably
+    catches it (typing bubble feels persistent), short enough that the bubble
+    disappears within a second of the user stopping.
+    """
+    if not ts_iso:
+        return False
+    try:
+        ts = datetime.fromisoformat(ts_iso.replace("Z", "+00:00"))
+        return (utc_now() - ts) < timedelta(seconds=5)
+    except Exception:  # noqa: BLE001
+        return False
 
 
 @router.get("/admin/support/sessions")
@@ -143,6 +260,7 @@ async def get_admin_session(session_id: str, user: dict = Depends(get_current_us
     async for m in db.support_messages.find({"session_id": session_id}, {"_id": 0}).sort("created_at", 1):
         msgs.append(m)
     session = await db.support_chats.find_one({"session_id": session_id}, {"_id": 0}) or {}
+    session["visitor_is_typing"] = _is_typing_active(session.get("visitor_typing_at"))
     return {"session": session, "messages": msgs}
 
 
