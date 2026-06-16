@@ -85,7 +85,7 @@ async def get_splits(event_id: str, user: dict = Depends(get_current_user)):
 @router.put("/organizer/events/{event_id}/revenue-splits")
 async def put_splits(event_id: str, payload: SplitsIn, user: dict = Depends(get_current_user)):
     await require_role(user, "organizer", "admin")
-    event = await _assert_event_owner(event_id, user)
+    await _assert_event_owner(event_id, user)
 
     splits = payload.splits or []
     if not splits:

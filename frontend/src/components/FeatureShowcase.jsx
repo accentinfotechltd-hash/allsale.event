@@ -83,7 +83,7 @@ export default function FeatureShowcase() {
         </div>
         <h2 className="serif text-4xl sm:text-5xl mb-3">One platform. Every moving part.</h2>
         <p className="text-base max-w-2xl mx-auto" style={{ color: "var(--text-muted)" }}>
-          From the first poster to the last person through the gate — Allsale handles every step so you don't have to glue 5 tools together.
+          From the first poster to the last person through the gate — Allsale handles every step so you don&apos;t have to glue 5 tools together.
         </p>
       </div>
 

@@ -576,3 +576,56 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 ### Tests
 - `/app/backend/tests/test_influencers.py` — 2 suites covering full lifecycle (enable → marketplace → join → dashboard → payout validation → UTM → disable) and closed-program 403. ✅ PASS.
 - Iteration 12 testing-agent run: 9/9 backend assertions PASS against live preview; frontend marketplace renders + filters work + share buttons appear.
+
+
+
+## Iteration 14 (2026-02-23) — Scanner install card, Flyer, Multi-pick, GA, International, Live chat ✅
+
+### 14.1 Scanner PWA install card (Organizer dashboard)
+- ✅ `ScannerInstallCard.jsx` — QR code (via `api.qrserver.com`) + step-by-step install instructions for iOS Safari + Android Chrome on the organizer dashboard. Footer + mobile nav also gained `/scan` links.
+
+### 14.2 Marketing flyer page
+- ✅ `/flyer` route — printable A4 one-pager. Render-without-Layout so Ctrl+P produces a clean PDF. Includes hero + 3 audience cards (Organisers/Fans/Creators) + 12-pill ribbon + QR code linking to homepage.
+
+### 14.3 Multi-pick Editor's Picks
+- ✅ Backend: `site_settings.editor_pick.picks: List[{event_id, blurb}]` (backward-compat with legacy single `event_id`).
+- ✅ Admin UI: add/remove/reorder picks with per-pick blurb + preview card.
+- ✅ Landing-page hero auto-rotates every 6s with dot indicators + prev/next.
+- ✅ `tests/test_multi_editor_pick.py` — 5-phase lifecycle.
+
+### 14.4 Google Analytics 4
+- ✅ `/lib/analytics.js` — gtag.js dynamic injection, SPA page-view tracking on route change, `trackPurchase`, `trackSignup`, `trackInfluencerJoin` helpers wired into CheckoutSuccess + Signup.
+- ✅ Reads `REACT_APP_GA_MEASUREMENT_ID=G-DN280V8T5N` from env. No-ops when unset (safe for local).
+
+### 14.5 Full international support
+- ✅ `EventIn` extended with `country` (ISO alpha-2) + `timezone` (IANA). 60-country catalog in `/lib/countries.js` with flag, default tz + currency per country.
+- ✅ Create-event form has country picker that auto-updates timezone + suggested currency.
+- ✅ Browse page `/events` has country filter with live counts (only countries with events appear).
+- ✅ Event cards display the country flag emoji.
+- ✅ EventDetail shows event time in event's tz AND visitor's local tz (Intl.DateTimeFormat).
+- ✅ Backend `/events/countries` endpoint surfaces aggregated counts.
+- ✅ **Bugfix**: `currency` was never persisted on event create — now stored from payload.
+- ✅ `tests/test_international_events.py` — 6 assertions.
+
+### 14.6 Live support chat (visitor + admin)
+- ✅ Backend `routers/support_chat.py` — `post_visitor_message`, `get_my_chat`, `list_admin_sessions`, `get_admin_session`, `admin_reply`, `admin_close`.
+- ✅ Floating chat widget on every page (excluded on /scan + /flyer).
+- ✅ Admin Live-chat tab with sessions sidebar + thread view + reply.
+- ✅ **Typing indicators** (both directions) — POST /support/chat/typing + admin/support/typing; rendered as pulsing "is typing…" bubble.
+- ✅ **Email + Slack notifications** to admins on new message (throttled 5 min per session). Slack URL editable from Admin → Settings.
+- ✅ **Canned replies** — editable list in Admin → Settings (up to 30 templates), shown as chips above reply input.
+- ✅ **Emoji reactions** — hover any message → 👍 ❤️ 😂 🎉 😮 😢 🔥 picker. Toggle to add/remove. Per-message reaction pills.
+- ✅ **File attachments** — paperclip on visitor widget. Images render inline, PDFs as download cards. 800 KB limit, type-restricted to image/* + application/pdf, stored as base64 on the message doc.
+- ✅ **Satisfaction rating** — admin closes chat → backend injects `system/rating_prompt` → visitor sees 5-star widget → rating stored on session → admin sees ⭐ badge in session header.
+- ✅ **Auto-translate** — non-English visitor messages translated to English via Emergent LLM Key (gpt-5.1). ASCII-only messages fast-pathed. Admin sees translation by default with "Show original (LANG)" toggle.
+- ✅ `tests/test_support_chat.py` — 6 tests covering full lifecycle, typing, reactions, canned settings, attachments, rating.
+
+### Schema additions this iteration
+- New collections: `support_chats`, `support_messages`.
+- Extended `events`: `country`, `timezone`.
+- Extended `site_settings.editor_pick`: `picks[]`. New `site_settings.support_chat: {canned_replies[], slack_webhook_url}`.
+
+### Environment variables
+- `REACT_APP_GA_MEASUREMENT_ID=G-DN280V8T5N` (frontend)
+- `SUPPORT_EMAIL_THROTTLE_MIN=5` (backend, optional, default 5)
+- `EMERGENT_LLM_KEY` (already configured) — used for auto-translate
