@@ -7,7 +7,7 @@
  * actual seats in the photo.
  */
 import { useEffect, useState } from "react";
-import { Sparkles, ImageOff, MoveVertical, MoveHorizontal, ZoomIn, Layers, Accessibility, Eye, Crown, Home, Lock, Type } from "lucide-react";
+import { Sparkles, ImageOff, MoveVertical, MoveHorizontal, ZoomIn, Layers, Accessibility, Eye, Crown, Home, Lock, Type, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 
@@ -46,6 +46,7 @@ export default function SeatDesigner({
   const [mode, setMode] = useState("aisle");
   const [paintingDown, setPaintingDown] = useState(false);  // drag-paint state
   const [blockedSeats, setBlockedSeats] = useState(new Set());
+  const [showPreview, setShowPreview] = useState(false);
   const aisleSet = new Set(aisles);
   const sectionMap = new Map(sections.map((s) => [s.after_row, s.label]));
 
@@ -395,6 +396,90 @@ export default function SeatDesigner({
               format={(v) => `${v}px`}
               testid="designer-backdrop-offset-y"
             />
+          </div>
+        )}
+      </div>
+
+      {/* Numbering preview — quick row-by-row sanity check so organizers
+          can verify auto-numbering / aisles before customers see them. */}
+      <div className="rounded-xl overflow-hidden" style={{ background: "var(--bg-elev)", border: "1px solid var(--border)" }} data-testid="numbering-preview">
+        <button
+          type="button"
+          onClick={() => setShowPreview((s) => !s)}
+          className="w-full flex items-center justify-between px-4 py-2.5 text-xs"
+          style={{ color: "var(--text-muted)" }}
+          data-testid="numbering-preview-toggle"
+        >
+          <span className="inline-flex items-center gap-2">
+            <Eye className="w-3.5 h-3.5" />
+            <span className="uppercase tracking-widest font-medium">Numbering preview</span>
+            <span className="opacity-60">— how each row will read to the buyer</span>
+          </span>
+          {showPreview ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+        </button>
+        {showPreview && (
+          <div className="px-4 pb-3 pt-1 space-y-1.5 max-h-56 overflow-y-auto text-xs font-mono">
+            {Array.from({ length: rows }).map((_, r) => {
+              const rowLetter = LETTERS[r];
+              const rowOffset = (rowOffsets || {})[rowLetter] || 0;
+              // Walk the row in VISUAL order so the preview reads exactly like
+              // the buyer sees the strip (matters for RTL venues).
+              const tokens = Array.from({ length: cols }).map((_, c) => {
+                const seatNumber = numberingRtl ? cols - c : c + 1;
+                const id = `${rowLetter}-${seatNumber}`;
+                if (aisleSet.has(id)) return { kind: "gap" };
+                const displayLabel = seatNumber - rowOffset;
+                const autoStr = displayLabel > 0 ? `${rowLetter}${displayLabel}` : id;
+                const custom = (customLabels || {})[id];
+                return { kind: "seat", text: custom || autoStr, isCustom: !!custom };
+              });
+              const seatCount = tokens.filter((t) => t.kind === "seat").length;
+              return (
+                <div key={r} className="flex items-start gap-2" data-testid={`preview-row-${rowLetter}`}>
+                  <div className="shrink-0 w-12 pt-0.5" style={{ color: "var(--text-dim)" }}>
+                    Row {rowLetter}
+                    <span className="ml-1 opacity-50">({seatCount})</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1 flex-1">
+                    {tokens.map((t, i) =>
+                      t.kind === "gap" ? (
+                        <span
+                          key={i}
+                          className="px-1.5 rounded text-[10px] opacity-50"
+                          style={{ border: "1px dashed var(--border-strong)", color: "var(--text-dim)" }}
+                          title="aisle / gap"
+                        >
+                          ·
+                        </span>
+                      ) : (
+                        <span
+                          key={i}
+                          className="px-1.5 rounded text-[10px]"
+                          style={{
+                            background: t.isCustom ? "rgba(14,165,233,0.15)" : "var(--bg)",
+                            border: t.isCustom ? "1px solid #0EA5E9" : "1px solid var(--border)",
+                            color: t.isCustom ? "#0EA5E9" : "var(--text-muted)",
+                            fontWeight: t.isCustom ? 600 : 400,
+                          }}
+                        >
+                          {t.text}
+                        </span>
+                      )
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            <div className="pt-1 mt-1 text-[10px] flex items-center gap-3" style={{ color: "var(--text-dim)", borderTop: "1px solid var(--border)" }}>
+              <span className="inline-flex items-center gap-1">
+                <span className="px-1.5 rounded text-[10px]" style={{ background: "rgba(14,165,233,0.15)", border: "1px solid #0EA5E9", color: "#0EA5E9" }}>B12</span>
+                custom label
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="px-1.5 rounded text-[10px] opacity-60" style={{ border: "1px dashed var(--border-strong)" }}>·</span>
+                aisle / gap
+              </span>
+            </div>
           </div>
         )}
       </div>

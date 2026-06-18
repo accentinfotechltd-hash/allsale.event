@@ -865,3 +865,19 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 **Verified:** Re-ran the 4 propagation unit cases (LTR start-at-12, RTL anchor at #1, gap rows, mid-row anchor) — all green. Lint clean.
 
 
+
+## Iteration 27 (2026-02-18) — Row-by-row numbering preview strip
+
+**Why:** Catch off-by-one and aisle-placement mistakes BEFORE buyers see them. With auto-propagation + offsets + RTL + custom labels all interacting, a quick textual readout of each row is faster than scanning the grid visually.
+
+**Implementation:**
+- ✅ New collapsible "Numbering preview" panel inserted above the designer canvas (collapsed by default; click to expand).
+- ✅ For each row, renders the row letter, the live seat count, and a sequence of small chips: one chip per seat showing the effective label (custom > auto), `·` dashed chips for aisles/gaps.
+- ✅ Custom labels are highlighted in cyan (matches the Label-mode accent) so the organizer can instantly see which seats were renumbered.
+- ✅ Walks the row in VISUAL order (`numberingRtl`-aware) so the strip reads exactly how buyers see the row.
+- ✅ Inline legend at the bottom (custom-label chip + aisle dot) for first-time users.
+- ✅ Scrollable (`max-h-56`) when there are many rows.
+
+**File changed:** `/app/frontend/src/components/SeatDesigner.jsx` (single component, pure additive — no API/state changes).
+
+
