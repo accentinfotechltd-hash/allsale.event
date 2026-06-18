@@ -66,3 +66,34 @@ def test_aisle_keyword_marks_aisle_not_seat():
     # 3-5 are bookable seats (no category specified)
     assert "A-3" not in r["aisles"]
     assert r["cols"] == 5
+
+
+def test_offset_keyword_indents_row_and_records_row_offsets():
+    """`offset 2` on a row should push its labels 2 columns right without
+    affecting the row's seat LABELS (they stay 1-10). Aisles fill the gap."""
+    text = """A: 1-12
+C-E: offset 2, 1-10"""
+    r = parse_text_layout(text)
+    assert r["cols"] == 12  # row A is widest
+    assert r["row_offsets"] == {"C": 2, "D": 2, "E": 2}
+    # Row C: cols 1, 2 are pad aisles. Cols 3-12 are seats (labeled 1-10).
+    c_aisles = sorted(a for a in r["aisles"] if a.startswith("C-"))
+    assert "C-1" in c_aisles
+    assert "C-2" in c_aisles
+    # Cols 3-12 should be bookable seats, not aisles
+    for col in range(3, 13):
+        assert f"C-{col}" not in c_aisles
+
+
+def test_offset_with_categories_shifts_category_seats_too():
+    """Category seats in an offset row should also be column-shifted."""
+    text = "A: offset 3, 1-5 disabled"
+    r = parse_text_layout(text)
+    # disabled labels 1-5 → grid cols 4-8 (1+3 through 5+3)
+    assert "A-4" in r["seat_categories"]["disabled"]
+    assert "A-8" in r["seat_categories"]["disabled"]
+    assert "A-1" not in r["seat_categories"]["disabled"]
+    # Cols 1-3 are pad aisles
+    assert "A-1" in r["aisles"]
+    assert "A-2" in r["aisles"]
+    assert "A-3" in r["aisles"]

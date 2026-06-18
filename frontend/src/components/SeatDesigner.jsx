@@ -28,6 +28,7 @@ export default function SeatDesigner({
   aisles = [],
   sections = [],
   categories = {},  // {wheelchair: ["A-1"], house: [...], etc.}
+  rowOffsets = {},  // {C: 2} → row C col 3 displays as label "1"
   curved = false,
   numberingRtl = false,
   backdropUrl = null,
@@ -277,6 +278,9 @@ export default function SeatDesigner({
                 {Array.from({ length: cols }).map((_, c) => {
                   const seatNumber = numberingRtl ? cols - c : c + 1;
                   const id = `${LETTERS[r]}-${seatNumber}`;
+                  const rowOffset = (rowOffsets || {})[LETTERS[r]] || 0;
+                  const displayLabel = seatNumber - rowOffset;
+                  const idStr = displayLabel > 0 ? `${LETTERS[r]}${displayLabel}` : id;
                   const isAisle = aisleSet.has(id);
                   const seatCategory = seatCategoryMap.get(id);
                   const catDef = PAINT_CATEGORIES.find((p) => p.key === seatCategory);
@@ -309,7 +313,7 @@ export default function SeatDesigner({
                         transform: dy ? `translateY(${dy}px)` : undefined,
                         cursor: isClickable ? "pointer" : "default",
                       }}
-                      title={`${id} — ${isAisle ? "aisle" : (seatCategory || "normal seat")}`}
+                      title={`${idStr} — ${isAisle ? "aisle" : (seatCategory || "normal seat")}`}
                       data-testid={`designer-${id}`}
                     />
                   );

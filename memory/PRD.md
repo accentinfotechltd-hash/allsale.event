@@ -774,3 +774,17 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 - ✅ EventDetail cart respects category prices when computing subtotal.
 - ✅ Tests: `tests/test_category_pricing.py` — 5 cases (override, house default, fallback, invalid value).
 
+
+## Iteration 21 (2026-02-18) — Row-offset seat labels (Hoyts-style indented rows)
+
+**Problem:** When narrower rows are indented under a wider front row (common in cinemas), the auto-generated seat labels showed the column index instead of the actual venue's seat number. e.g. Hoyts row C visually starts at column 3 but the user wants those seats labeled 1-10, not 3-12.
+
+**Fix:**
+- New `offset N` (also `skip N`, `indent N`, `pad N`) keyword in the text parser. Prefixes the row line: `C-E: offset 2, 1-10`.
+- Parser stores per-row offsets in `row_offsets: {C: 2, D: 2, E: 2}` (returned by `/parse-text` and `/detect`).
+- New `events.seatmap_row_offsets: dict[str, int]` field (persisted via POST/PATCH).
+- SeatMap + SeatDesigner: `displayLabel = column - rowOffset[row]`. Seat IDs stay column-indexed for backward-compat with bookings/QR codes.
+- Tooltip + aria-label show the offset-adjusted label (e.g. "C1" instead of "C3").
+- Updated example syntax + tooltip in CreateEvent to surface the new keyword.
+- New tests: `test_offset_keyword_indents_row_and_records_row_offsets`, `test_offset_with_categories_shifts_category_seats_too` — both green.
+

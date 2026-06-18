@@ -21,6 +21,7 @@ export default function SeatMap({
   sections = [],
   categories = {},  // {wheelchair: ["A-1"], house: [...], disabled: [...], vip: [...], premium: [...]}
   categoryPrices = {},  // {vip: 80, premium: 60, ...}
+  rowOffsets = {},  // {C: 2} means row C col 3 shows label "1"
   defaultSeatPrice = 0,
   currency = "NZD",
   curved = false,
@@ -93,6 +94,14 @@ export default function SeatMap({
                 // is the rightmost seat (matches Indian/ME cinema convention).
                 const seatNumber = numberingRtl ? cols - c : c + 1;
                 const id = `${LETTERS[r]}-${seatNumber}`;
+                // Per-row offset shifts the DISPLAYED label so indented
+                // rows (e.g. row C of a cinema layout where row C sits under
+                // row A's seats 3-12) display as "1" through "10" instead
+                // of "3" through "12". Seat IDs stay column-indexed for
+                // backward compat with booking flows.
+                const rowOffset = (rowOffsets || {})[LETTERS[r]] || 0;
+                const displayLabel = seatNumber - rowOffset;
+                const idStr = displayLabel > 0 ? `${LETTERS[r]}${displayLabel}` : id;
                 if (aisleSet.has(id)) {
                   return <div key={id} className="w-7 h-7" aria-hidden="true" />;
                 }
@@ -121,8 +130,8 @@ export default function SeatMap({
                     style={{ ...(dy ? { transform: `translateY(${dy}px)` } : {}), ...styleExtra }}
                     disabled={isBooked || isHeld}
                     onClick={() => onToggle && onToggle(id)}
-                    aria-label={`Seat ${id}${cat ? ` (${cat})` : ""}`}
-                    title={cat ? `${id} — ${cat} · ${fmtPrice(priceForSeat(id))}` : `${id} · ${fmtPrice(priceForSeat(id))}`}
+                    aria-label={`Seat ${idStr}${cat ? ` (${cat})` : ""}`}
+                    title={cat ? `${idStr} — ${cat} · ${fmtPrice(priceForSeat(id))}` : `${idStr} · ${fmtPrice(priceForSeat(id))}`}
                     data-testid={`seat-${id}`}
                   />
                 );

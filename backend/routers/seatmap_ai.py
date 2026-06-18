@@ -215,7 +215,7 @@ def parse_text_layout(text: str) -> dict:
 
     Returns the same schema as /detect.
     """
-    rows_data: dict[str, dict] = {}  # row_letter -> {seats: [int], cats: {cat: set[int]}, aisles: set[int]}
+    rows_data: dict[str, dict] = {}  # row_letter -> {seats: set[int], cats: {cat: set[int]}, aisles: set[int], offset: int}
     lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
     for ln in lines:
         # Allow "Row A:" or "A:" or "A-C:" prefix
@@ -230,13 +230,23 @@ def parse_text_layout(text: str) -> dict:
             continue
         # Determine row letters in this line
         row_letters = [chr(c) for c in range(ord(r1), ord(r2) + 1)]
+        # Pull a leading "offset N" or "skip N" / "indent N" if present — it
+        # applies to ALL rows on this line and shifts the seats N columns to
+        # the right (the leading columns become aisles).
+        line_offset = 0
+        offset_m = re.search(r"\b(?:offset|skip|indent|pad)\s+(\d+)\b", rest_lower)
+        if offset_m:
+            line_offset = int(offset_m.group(1))
+            # Strip the offset clause so it doesn't get parsed as seat numbers
+            rest_lower = re.sub(r"\b(?:offset|skip|indent|pad)\s+\d+\b\s*,?", "", rest_lower).strip().strip(",;")
         # Split clauses by comma OR semicolon. Each clause assigns a category
         # to a number-range (or marks aisle).
         clauses = re.split(r"[,;]", rest_lower)
-        # Parse the FIRST clause as the default seat range if it's only digits/range.
-        # We accumulate per row in row_letters.
         for letter in row_letters:
-            rdata = rows_data.setdefault(letter, {"seats": set(), "cats": {}, "aisles": set()})
+            rdata = rows_data.setdefault(letter, {"seats": set(), "cats": {}, "aisles": set(), "offset": 0})
+            if line_offset:
+                # Last-write-wins if the same row appears on multiple lines with conflicting offsets
+                rdata["offset"] = max(rdata["offset"], line_offset)
             for clause in clauses:
                 clause = clause.strip()
                 if not clause:
@@ -275,29 +285,48 @@ def parse_text_layout(text: str) -> dict:
 
     sorted_letters = sorted(rows_data.keys())
     rows = len(sorted_letters)
-    max_col = max((max(d["seats"] | d["aisles"]) if (d["seats"] or d["aisles"]) else 0)
-                  for d in rows_data.values())
+    # Widest row's right-edge determines `cols`. row_right = offset + max_label.
+    max_col = 0
+    for d in rows_data.values():
+        offset = d.get("offset", 0)
+        seats = d.get("seats") or set()
+        aisles_in_row = d.get("aisles") or set()
+        if seats or aisles_in_row:
+            local_max = max(seats | aisles_in_row) + offset
+            if local_max > max_col:
+                max_col = local_max
     cols = max_col
     aisles: list[str] = []
     cats: dict[str, list[str]] = {k: [] for k in CATEGORY_KEYS}
+    row_offsets: dict[str, int] = {}
     for letter in sorted_letters:
         rdata = rows_data[letter]
-        all_present = rdata["seats"] | rdata["aisles"]
-        for c in range(1, cols + 1):
-            sid = f"{letter}-{c}"
-            if c in rdata["aisles"]:
-                aisles.append(sid)
-            elif c not in all_present:
-                # missing in narrower row → aisle (per schema convention)
-                aisles.append(sid)
+        offset = rdata.get("offset", 0)
+        if offset:
+            row_offsets[letter] = offset
+        explicit_aisle_labels = rdata.get("aisles") or set()
+        present_labels = rdata["seats"]
+        # Walk grid columns left→right; seat at col c maps to LABEL (c - offset).
+        # Seat IDs stay column-indexed for backward compat with booking/QR/refund flows.
+        for col in range(1, cols + 1):
+            label = col - offset
+            sid = f"{letter}-{col}"
+            if label < 1:
+                aisles.append(sid)  # left-pad aisle (offset shift)
+            elif label in explicit_aisle_labels:
+                aisles.append(sid)  # explicitly marked aisle in user text
+            elif label not in present_labels:
+                aisles.append(sid)  # missing in narrower row → aisle
+        # Translate category labels (1-indexed in user text) into column-indexed seat IDs
         for cat, nums in rdata["cats"].items():
             if cat in cats:
-                cats[cat].extend(f"{letter}-{n}" for n in sorted(nums))
+                cats[cat].extend(f"{letter}-{n + offset}" for n in sorted(nums))
     return {
         "rows": rows,
         "cols": cols,
         "aisles": sorted(set(aisles)),
         "seat_categories": cats,
+        "row_offsets": row_offsets,
         "sections": [],
         "curved": False,
         "legend_detected": False,
@@ -434,6 +463,7 @@ async def detect_seatmap(payload: DetectIn, user: dict = Depends(get_current_use
                 "seatmap_sections": result["sections"],
                 "seatmap_curved": result["curved"],
                 "seatmap_categories": result["seat_categories"],
+                "seatmap_row_offsets": result.get("row_offsets") or {},
                 "seat_map_image_url": f"/api/files/{payload.file_id}",
                 "seatmap_detected_at": payload.file_id,  # poor man's audit
             }},

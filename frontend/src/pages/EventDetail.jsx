@@ -403,6 +403,7 @@ export default function EventDetail() {
                 sections={event.seatmap_sections || []}
                 categories={event.seatmap_categories || {}}
                 categoryPrices={event.seatmap_category_prices || {}}
+                rowOffsets={event.seatmap_row_offsets || {}}
                 defaultSeatPrice={event.seat_price || 0}
                 currency={event.currency || "NZD"}
                 curved={!!event.seatmap_curved}

@@ -54,6 +54,7 @@ export default function CreateEvent() {
     group_discount_pct_off: 0,
     seatmap_categories: {},
     seatmap_category_prices: {},
+    seatmap_row_offsets: {},
   });
   const [tiers, setTiers] = useState([{ name: "General", price: 50.0, capacity: 200 }]);
   const [submitting, setSubmitting] = useState(false);
@@ -89,6 +90,7 @@ export default function CreateEvent() {
           seatmap_sections: data.seatmap_sections || [],
           seatmap_categories: data.seatmap_categories || {},
           seatmap_category_prices: data.seatmap_category_prices || {},
+          seatmap_row_offsets: data.seatmap_row_offsets || {},
           group_discount_min_qty: data?.group_discount?.min_qty || 0,
           group_discount_pct_off: data?.group_discount?.pct_off || 0,
         });
@@ -116,6 +118,7 @@ export default function CreateEvent() {
         aisles: data.aisles || [],
         seatmap_sections: data.sections || [],
         seatmap_categories: data.seat_categories || {},
+        seatmap_row_offsets: data.row_offsets || {},
         seatmap_curved: !!data.curved,
       }));
       const cats = data.seat_categories || {};
@@ -466,7 +469,7 @@ export default function CreateEvent() {
                               type="button"
                               onClick={() => {
                                 setDescribeText(
-                                  `A: 1-15, disabled 1-5, house 6-11, disabled 12-15\nB: 1-2 aisle, 3-12\nC-E: 1-10\nF-G: 1-10 disabled\nH: 1-4 disabled, 5 wheelchair, aisle 6-8, 9 wheelchair, 10 disabled`
+                                  `A: 1-15, disabled 1-5, house 6-11, disabled 12-15\nB: 1-2 aisle, 3-12\nC-E: offset 2, 1-10\nF-G: offset 2, 1-10 disabled\nH: offset 2, 1-4 disabled, 5 wheelchair, aisle 6-8, 9 wheelchair, 10 disabled`
                                 );
                               }}
                               className="btn-ghost !py-2 !px-3 text-xs"
@@ -498,9 +501,9 @@ export default function CreateEvent() {
                     <strong style={{ color: "var(--accent)" }}>Syntax:</strong> one row per line. Examples:<br />
                     <code>A: 1-15, disabled 1-5, house 6-11, disabled 12-15</code><br />
                     <code>B: 1-2 aisle, 3-12</code><br />
-                    <code>C-E: 1-10</code> &nbsp;<span style={{ color: "var(--text-dim)" }}>(C, D, E all same)</span><br />
-                    <code>H: 1-4 disabled, 5 wheelchair, aisle 6-8, 9 wheelchair, 10 disabled</code><br />
-                    <span style={{ color: "var(--text-dim)" }}>Keywords: <strong>aisle, wheelchair, disabled, house, vip, premium</strong></span>
+                    <code>C-E: offset 2, 1-10</code> &nbsp;<span style={{ color: "var(--text-dim)" }}>(indent 2 cols, seats labeled 1-10)</span><br />
+                    <code>H: offset 2, 1-4 disabled, 5 wheelchair, aisle 6-8, 9 wheelchair, 10 disabled</code><br />
+                    <span style={{ color: "var(--text-dim)" }}>Keywords: <strong>aisle, offset N, wheelchair, disabled, house, vip, premium</strong></span>
                   </div>
                   <textarea
                     value={describeText}
@@ -524,7 +527,7 @@ export default function CreateEvent() {
                       type="button"
                       onClick={() => {
                         setDescribeText(
-                          `A: 1-15, disabled 1-5, house 6-11, disabled 12-15\nB: 1-2 aisle, 3-12\nC-E: 1-10\nF-G: 1-10 disabled\nH: 1-4 disabled, 5 wheelchair, aisle 6-8, 9 wheelchair, 10 disabled`
+                          `A: 1-15, disabled 1-5, house 6-11, disabled 12-15\nB: 1-2 aisle, 3-12\nC-E: offset 2, 1-10\nF-G: offset 2, 1-10 disabled\nH: offset 2, 1-4 disabled, 5 wheelchair, aisle 6-8, 9 wheelchair, 10 disabled`
                         );
                       }}
                       className="btn-ghost !py-2 !px-3 text-xs"
@@ -555,6 +558,7 @@ export default function CreateEvent() {
                   aisles={form.aisles}
                   sections={form.seatmap_sections}
                   categories={form.seatmap_categories || {}}
+                  rowOffsets={form.seatmap_row_offsets || {}}
                   curved={form.seatmap_curved}
                   numberingRtl={form.seatmap_numbering_rtl}
                   backdropUrl={form.seat_map_image_url}
