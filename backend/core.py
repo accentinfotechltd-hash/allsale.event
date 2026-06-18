@@ -127,9 +127,33 @@ def seat_section_for_row(event: dict, row_idx: int) -> Optional[dict]:
 
 
 def seat_price_for(event: dict, seat_id: str) -> float:
-    """Return per-seat price. If a section has a custom `price`, use it; else
-    fall back to the event-level `seat_price`. Format: "A-5" → row letter A (0).
+    """Return per-seat price.
+
+    Resolution order (first match wins):
+      1. `seatmap_category_prices[<category>]` if the seat has a category
+         (VIP, Premium, Wheelchair, Disabled, House). House defaults to 0 if
+         present in the map but unset — they're typically comp seats.
+      2. `seat_section_for_row(...)` section price for the row.
+      3. Event-level `seat_price` fallback.
+
+    Format: "A-5" → row letter A (0).
     """
+    # 1. Per-seat category pricing
+    cat_map: dict = event.get("seatmap_categories") or {}
+    if cat_map:
+        for category, ids in cat_map.items():
+            if seat_id in (ids or []):
+                prices = event.get("seatmap_category_prices") or {}
+                if category in prices:
+                    try:
+                        return float(prices[category])
+                    except (TypeError, ValueError):
+                        break
+                # House seats default to 0 (comp) when no explicit price set
+                if category == "house":
+                    return 0.0
+                break  # category found but no price → fall through to section/default
+
     try:
         row_letter = seat_id.split("-", 1)[0]
         row_idx = ord(row_letter.upper()) - ord("A")

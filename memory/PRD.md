@@ -762,3 +762,15 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 ### Schema additions
 - `events.seatmap_categories: dict[str, list[str]]` — per-seat category map.
 
+
+## Iteration 20 (2026-02-18) — Per-category seat pricing
+
+- ✅ New event field `seatmap_category_prices: dict[str, float]` — e.g. `{"vip": 80, "premium": 60, "wheelchair": 40, "disabled": 40, "house": 0}`.
+- ✅ `seat_price_for()` resolution order: category price → section price → event default.
+- ✅ House seats default to $0 (comp) when no explicit price set; other categories fall through to default.
+- ✅ CreateEvent.jsx shows a "Per-category seat prices" grid that appears once at least one category has assigned seats; shows seat count per category for context.
+- ✅ Public SeatMap legend shows each active category with its computed price (e.g. "VIP · NZD 80.00").
+- ✅ Seat hover tooltip shows the per-seat price.
+- ✅ EventDetail cart respects category prices when computing subtotal.
+- ✅ Tests: `tests/test_category_pricing.py` — 5 cases (override, house default, fallback, invalid value).
+

@@ -172,6 +172,16 @@ export default function EventDetail() {
   const tierObj = event.tiers?.find((t) => t.name === tier);
   const tierEffectivePrice = tierObj?.effective_price ?? tierObj?.price ?? 0;
   const seatPriceFor = (seatId) => {
+    // 1. Per-seat category pricing first (matches backend core.py order)
+    const cats = event.seatmap_categories || {};
+    const prices = event.seatmap_category_prices || {};
+    for (const [cat, ids] of Object.entries(cats)) {
+      if ((ids || []).includes(seatId)) {
+        if (prices[cat] != null) return Number(prices[cat]);
+        if (cat === "house") return 0;
+        break;
+      }
+    }
     const sections = event.seatmap_sections || [];
     if (!sections.length) return event.seat_price;
     try {
@@ -392,6 +402,9 @@ export default function EventDetail() {
                 aisles={event.aisles || []}
                 sections={event.seatmap_sections || []}
                 categories={event.seatmap_categories || {}}
+                categoryPrices={event.seatmap_category_prices || {}}
+                defaultSeatPrice={event.seat_price || 0}
+                currency={event.currency || "NZD"}
                 curved={!!event.seatmap_curved}
                 numberingRtl={!!event.seatmap_numbering_rtl}
                 backdropUrl={event.seat_map_image_url}

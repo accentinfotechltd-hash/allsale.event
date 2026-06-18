@@ -55,6 +55,9 @@ class EventIn(BaseModel):
     # List of {after_row: int (0-indexed, e.g. 4 means break after row E), label: str}
     seatmap_categories: Dict[str, List[str]] = Field(default_factory=dict)
     # Per-seat category map: {"wheelchair": ["A-1","A-2"], "house":[...], "disabled":[...], "vip":[...], "premium":[...]}
+    seatmap_category_prices: Dict[str, float] = Field(default_factory=dict)
+    # Per-category seat price overrides: {"vip": 80.0, "premium": 60.0, "wheelchair": 40.0, "disabled": 40.0, "house": 0.0}
+    # Falls back to seat_price (event level) when a category isn't priced here.
     seatmap_backdrop_opacity: float = 0.4  # 0.0–1.0
     seatmap_backdrop_offset_y: int = 0
     seatmap_backdrop_offset_x: int = 0

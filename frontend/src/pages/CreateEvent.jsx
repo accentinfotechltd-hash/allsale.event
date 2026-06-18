@@ -53,6 +53,7 @@ export default function CreateEvent() {
     group_discount_min_qty: 0,
     group_discount_pct_off: 0,
     seatmap_categories: {},
+    seatmap_category_prices: {},
   });
   const [tiers, setTiers] = useState([{ name: "General", price: 50.0, capacity: 200 }]);
   const [submitting, setSubmitting] = useState(false);
@@ -87,6 +88,7 @@ export default function CreateEvent() {
           seatmap_numbering_rtl: !!data.seatmap_numbering_rtl,
           seatmap_sections: data.seatmap_sections || [],
           seatmap_categories: data.seatmap_categories || {},
+          seatmap_category_prices: data.seatmap_category_prices || {},
           group_discount_min_qty: data?.group_discount?.min_qty || 0,
           group_discount_pct_off: data?.group_discount?.pct_off || 0,
         });
@@ -208,6 +210,12 @@ export default function CreateEvent() {
       };
       delete payload.group_discount_min_qty;
       delete payload.group_discount_pct_off;
+      // Strip undefined values from category price map (cleared inputs)
+      if (payload.seatmap_category_prices) {
+        payload.seatmap_category_prices = Object.fromEntries(
+          Object.entries(payload.seatmap_category_prices).filter(([, v]) => v !== undefined && v !== null && v !== "")
+        );
+      }
       if (isEdit) {
         const { data } = await api.patch(`/events/${eventId}`, payload);
         toast.success("Event updated");
@@ -340,8 +348,53 @@ export default function CreateEvent() {
               <div className="grid grid-cols-3 gap-3">
                 <Field label="Rows"><input type="number" min={2} max={26} value={form.seat_rows} onChange={(e) => update("seat_rows", parseInt(e.target.value) || 2)} /></Field>
                 <Field label="Cols"><input type="number" min={4} max={26} value={form.seat_cols} onChange={(e) => update("seat_cols", parseInt(e.target.value) || 4)} /></Field>
-                <Field label={`Price / seat (${form.currency})`}><input type="number" step="0.01" value={form.seat_price} onChange={(e) => update("seat_price", parseFloat(e.target.value) || 0)} /></Field>
+                <Field label={`Default price / seat (${form.currency})`}><input type="number" step="0.01" value={form.seat_price} onChange={(e) => update("seat_price", parseFloat(e.target.value) || 0)} /></Field>
               </div>
+
+              {/* Per-category seat prices — only meaningful once at least one
+                  category has actual seats assigned, so we surface this once
+                  the categories map is non-empty. */}
+              {Object.values(form.seatmap_categories || {}).some((arr) => (arr || []).length > 0) && (
+                <Field label="Per-category seat prices (optional)" hint="Override the default price above for specific seat types.">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3" data-testid="category-pricing-grid">
+                    {[
+                      { key: "vip", label: "VIP", icon: "👑", placeholder: "e.g. 80" },
+                      { key: "premium", label: "Premium", icon: "✨", placeholder: "e.g. 60" },
+                      { key: "wheelchair", label: "Wheelchair", icon: "♿", placeholder: "e.g. 40" },
+                      { key: "disabled", label: "Disabled", icon: "👁", placeholder: "e.g. 40" },
+                      { key: "house", label: "House (comp)", icon: "🏠", placeholder: "0" },
+                    ].map((c) => {
+                      const seatCount = (form.seatmap_categories?.[c.key] || []).length;
+                      if (seatCount === 0) return null;
+                      return (
+                        <div key={c.key}>
+                          <label className="text-xs uppercase tracking-widest block mb-1" style={{ color: "var(--text-dim)" }}>
+                            {c.icon} {c.label} <span className="opacity-60">({seatCount})</span>
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            placeholder={c.placeholder}
+                            value={form.seatmap_category_prices?.[c.key] ?? ""}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setForm((f) => ({
+                                ...f,
+                                seatmap_category_prices: {
+                                  ...(f.seatmap_category_prices || {}),
+                                  ...(v === "" ? { [c.key]: undefined } : { [c.key]: parseFloat(v) || 0 }),
+                                },
+                              }));
+                            }}
+                            data-testid={`category-price-${c.key}`}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </Field>
+              )}
 
               <Field label="Venue floor-plan (optional)">
                 <ImageUploader

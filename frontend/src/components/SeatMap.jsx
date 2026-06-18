@@ -20,6 +20,9 @@ export default function SeatMap({
   aisles = [],
   sections = [],
   categories = {},  // {wheelchair: ["A-1"], house: [...], disabled: [...], vip: [...], premium: [...]}
+  categoryPrices = {},  // {vip: 80, premium: 60, ...}
+  defaultSeatPrice = 0,
+  currency = "NZD",
   curved = false,
   numberingRtl = false,  // cinemas in India/ME often number seats right→left
   backdropUrl = null,
@@ -43,6 +46,15 @@ export default function SeatMap({
     vip: "#9C27B0",
     premium: "#F08A2A",
   };
+  const priceForSeat = (id) => {
+    const cat = seatCategory.get(id);
+    if (cat) {
+      if (categoryPrices && categoryPrices[cat] != null) return Number(categoryPrices[cat]);
+      if (cat === "house") return 0; // comp seats by convention
+    }
+    return Number(defaultSeatPrice) || 0;
+  };
+  const fmtPrice = (n) => `${currency} ${n.toFixed(2)}`;
 
   const curveOffset = (r, c) => {
     if (!curved) return 0;
@@ -110,7 +122,7 @@ export default function SeatMap({
                     disabled={isBooked || isHeld}
                     onClick={() => onToggle && onToggle(id)}
                     aria-label={`Seat ${id}${cat ? ` (${cat})` : ""}`}
-                    title={cat ? `${id} — ${cat}` : id}
+                    title={cat ? `${id} — ${cat} · ${fmtPrice(priceForSeat(id))}` : `${id} · ${fmtPrice(priceForSeat(id))}`}
                     data-testid={`seat-${id}`}
                   />
                 );
@@ -135,11 +147,34 @@ export default function SeatMap({
       </div>
 
       <div className="relative z-10 flex items-center justify-center gap-5 text-xs flex-wrap pt-2" style={{ color: "var(--text-muted)" }}>
-        <div className="flex items-center gap-2"><div className="seat" style={{ width: 16, height: 16 }} /> Available</div>
+        <div className="flex items-center gap-2"><div className="seat" style={{ width: 16, height: 16 }} /> Available {defaultSeatPrice ? `· ${fmtPrice(Number(defaultSeatPrice))}` : ""}</div>
         <div className="flex items-center gap-2"><div className="seat seat-selected" style={{ width: 16, height: 16 }} /> Selected</div>
         <div className="flex items-center gap-2"><div className="seat seat-held" style={{ width: 16, height: 16 }} /> On hold</div>
         <div className="flex items-center gap-2"><div className="seat seat-booked" style={{ width: 16, height: 16 }} /> Booked</div>
         {aisleSet.size > 0 && <div className="flex items-center gap-2"><div className="w-4 h-4 border border-dashed" style={{ borderColor: "var(--border-strong)" }} /> Aisle</div>}
+        {/* Category legend chips with price */}
+        {[
+          { key: "vip", label: "VIP" },
+          { key: "premium", label: "Premium" },
+          { key: "wheelchair", label: "Wheelchair" },
+          { key: "disabled", label: "Disabled" },
+          { key: "house", label: "House" },
+        ].map((c) => {
+          const seatsInCat = (categories?.[c.key] || []).length;
+          if (!seatsInCat) return null;
+          const explicit = categoryPrices?.[c.key];
+          const effective = explicit != null ? Number(explicit) : (c.key === "house" ? 0 : Number(defaultSeatPrice) || 0);
+          return (
+            <div
+              key={c.key}
+              className="flex items-center gap-2"
+              data-testid={`legend-${c.key}`}
+            >
+              <div className="w-4 h-4 rounded-sm" style={{ background: CAT_COLOR[c.key] }} />
+              {c.label} · {fmtPrice(effective)}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
