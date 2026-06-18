@@ -19,6 +19,7 @@ export default function SeatMap({
   selected = [],
   aisles = [],
   sections = [],
+  categories = {},  // {wheelchair: ["A-1"], house: [...], disabled: [...], vip: [...], premium: [...]}
   curved = false,
   numberingRtl = false,  // cinemas in India/ME often number seats right→left
   backdropUrl = null,
@@ -30,6 +31,18 @@ export default function SeatMap({
 }) {
   const aisleSet = new Set(aisles || []);
   const sectionMap = new Map((sections || []).map((s) => [s.after_row, s.label]));
+  // Flatten categories into a lookup so each seat render is O(1)
+  const seatCategory = new Map();
+  Object.entries(categories || {}).forEach(([cat, ids]) => {
+    (ids || []).forEach((id) => seatCategory.set(id, cat));
+  });
+  const CAT_COLOR = {
+    wheelchair: "#1E88E5",
+    disabled: "#4CAF50",
+    house: "#FFD600",
+    vip: "#9C27B0",
+    premium: "#F08A2A",
+  };
 
   const curveOffset = (r, c) => {
     if (!curved) return 0;
@@ -74,6 +87,7 @@ export default function SeatMap({
                 const isBooked = booked.includes(id);
                 const isHeld = held.includes(id);
                 const isSelected = selected.includes(id);
+                const cat = seatCategory.get(id);
                 const cls = isSelected
                   ? "seat seat-selected"
                   : isBooked
@@ -82,15 +96,21 @@ export default function SeatMap({
                   ? "seat seat-held"
                   : "seat";
                 const dy = curveOffset(r, c);
+                // If the seat has a category and isn't already in a special
+                // state, tint it so customers know it's e.g. wheelchair / VIP.
+                const styleExtra = (cat && !isBooked && !isHeld && !isSelected)
+                  ? { background: CAT_COLOR[cat], borderColor: CAT_COLOR[cat] }
+                  : {};
                 return (
                   <button
                     key={id}
                     type="button"
                     className={cls}
-                    style={dy ? { transform: `translateY(${dy}px)` } : undefined}
+                    style={{ ...(dy ? { transform: `translateY(${dy}px)` } : {}), ...styleExtra }}
                     disabled={isBooked || isHeld}
                     onClick={() => onToggle && onToggle(id)}
-                    aria-label={`Seat ${id}`}
+                    aria-label={`Seat ${id}${cat ? ` (${cat})` : ""}`}
+                    title={cat ? `${id} — ${cat}` : id}
                     data-testid={`seat-${id}`}
                   />
                 );

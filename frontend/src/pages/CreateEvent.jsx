@@ -52,6 +52,7 @@ export default function CreateEvent() {
     seatmap_backdrop_scale: 1,
     group_discount_min_qty: 0,
     group_discount_pct_off: 0,
+    seatmap_categories: {},
   });
   const [tiers, setTiers] = useState([{ name: "General", price: 50.0, capacity: 200 }]);
   const [submitting, setSubmitting] = useState(false);
@@ -85,6 +86,7 @@ export default function CreateEvent() {
           seatmap_curved: !!data.seatmap_curved,
           seatmap_numbering_rtl: !!data.seatmap_numbering_rtl,
           seatmap_sections: data.seatmap_sections || [],
+          seatmap_categories: data.seatmap_categories || {},
           group_discount_min_qty: data?.group_discount?.min_qty || 0,
           group_discount_pct_off: data?.group_discount?.pct_off || 0,
         });
@@ -111,9 +113,19 @@ export default function CreateEvent() {
         seat_cols: data.cols,
         aisles: data.aisles || [],
         seatmap_sections: data.sections || [],
+        seatmap_categories: data.seat_categories || {},
         seatmap_curved: !!data.curved,
       }));
-      toast.success(`Layout set: ${data.rows} × ${data.cols} seats, ${(data.aisles || []).length} aisles (${Math.round((data.confidence || 0) * 100)}% confidence)`);
+      const cats = data.seat_categories || {};
+      const catCount = Object.values(cats).reduce((n, arr) => n + (arr?.length || 0), 0);
+      const conf = Math.round((data.confidence || 0) * 100);
+      toast.success(
+        `Layout set: ${data.rows} × ${data.cols} seats, ${(data.aisles || []).length} aisles, ${catCount} categorised (${conf}% confidence)`
+      );
+      if (conf < 70) {
+        // Low-confidence AI run → push the organizer to verify in the grid editor.
+        toast.warning("⚠️ AI confidence is low — please verify the layout below before saving.");
+      }
     } else {
       toast.message("Couldn't build a clear grid — please tweak the layout below");
     }
@@ -129,6 +141,30 @@ export default function CreateEvent() {
     } catch (e) {
       const d = e?.response?.data?.detail;
       toast.error(typeof d === "string" ? d : "Detection failed — try the 'Describe in words' option below");
+    } finally {
+      setDetecting(false);
+    }
+  };
+
+  // Fast offline text-parser — no LLM call. Try this BEFORE /describe so the
+  // organizer gets instant feedback for well-structured layouts (the common case).
+  const parseTextLayout = async () => {
+    if (!describeText.trim()) { toast.error("Type a description first"); return; }
+    setDetecting(true);
+    setDetectResult(null);
+    try {
+      const { data } = await api.post("/organizer/seatmap/parse-text", { text: describeText.trim() });
+      if (data.rows > 0 && data.cols > 0) {
+        applyAiResult(data);
+      } else {
+        // Could not parse deterministically — fall back to LLM
+        toast.message("Text parser couldn't figure it out — trying the AI...");
+        const { data: aiData } = await api.post("/organizer/seatmap/describe", { text: describeText.trim() });
+        applyAiResult(aiData);
+      }
+    } catch (e) {
+      const d = e?.response?.data?.detail;
+      toast.error(typeof d === "string" ? d : "Couldn't parse");
     } finally {
       setDetecting(false);
     }
@@ -343,27 +379,49 @@ export default function CreateEvent() {
                         style={{ color: "var(--accent)" }}
                         data-testid="toggle-describe-btn"
                       >
-                        {showDescribe ? "Hide" : "Option 2 — Describe your layout in words (more reliable for asymmetric venues)"}
+                        {showDescribe ? "Hide" : "✏️ Or just describe your layout in words (most reliable)"}
                       </button>
                       {showDescribe && (
                         <div className="mt-2 space-y-2">
+                          <div className="text-[11px] p-2 rounded bg-black/20 font-mono leading-relaxed" style={{ color: "var(--text-muted)" }}>
+                            <strong style={{ color: "var(--accent)" }}>Syntax:</strong> one row per line.<br />
+                            <code>A: 1-15, disabled 1-5, house 6-11, disabled 12-15</code><br />
+                            <code>B: 1-2 aisle, 3-12</code><br />
+                            <code>C-E: 1-10</code> &nbsp;<span style={{ color: "var(--text-dim)" }}>(C, D, E same)</span><br />
+                            <code>H: 1-4 disabled, 5 wheelchair, aisle 6-8, 9 wheelchair, 10 disabled</code><br />
+                            <span style={{ color: "var(--text-dim)" }}>Keywords: <strong>aisle, wheelchair, disabled, house, vip, premium</strong></span>
+                          </div>
                           <textarea
                             value={describeText}
                             onChange={(e) => setDescribeText(e.target.value)}
-                            rows={4}
-                            className="w-full"
-                            placeholder={"e.g.\n9 rows: A through I.\nRows A and B have 14 seats each.\nRow C has 13 seats; wheelchair markers at C-1, C-13, C-14 (mark as aisles).\nRows D to I have 9 seats each, centred under the front rows (so columns 1, 2, 11-14 should be aisles for those rows)."}
+                            rows={6}
+                            className="w-full font-mono text-xs"
+                            placeholder={`A: 1-15, disabled 1-5, house 6-11, disabled 12-15\nB: 1-2 aisle, 3-12\nC-E: 1-10\nF-G: 1-10 disabled\nH: 1-4 disabled, 5 wheelchair, aisle 6-8, 9 wheelchair, 10 disabled`}
                             data-testid="describe-text-input"
                           />
-                          <button
-                            type="button"
-                            onClick={describeSeatmap}
-                            disabled={detecting || describeText.trim().length < 12}
-                            className="btn-primary !py-2 !px-3 text-xs"
-                            data-testid="describe-submit-btn"
-                          >
-                            {detecting ? "Building layout…" : "Generate layout from description"}
-                          </button>
+                          <div className="flex gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={parseTextLayout}
+                              disabled={detecting || describeText.trim().length < 5}
+                              className="btn-primary !py-2 !px-3 text-xs"
+                              data-testid="describe-submit-btn"
+                            >
+                              {detecting ? "Building layout…" : "⚡ Build layout from text"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDescribeText(
+                                  `A: 1-15, disabled 1-5, house 6-11, disabled 12-15\nB: 1-2 aisle, 3-12\nC-E: 1-10\nF-G: 1-10 disabled\nH: 1-4 disabled, 5 wheelchair, aisle 6-8, 9 wheelchair, 10 disabled`
+                                );
+                              }}
+                              className="btn-ghost !py-2 !px-3 text-xs"
+                              data-testid="load-example-btn"
+                            >
+                              Load Hoyts example
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -383,23 +441,45 @@ export default function CreateEvent() {
               {/* AI describe-in-words is also available WITHOUT an image */}
               {!form.seat_map_image_url && (
                 <Field label="No floor-plan image? Describe your layout in words">
+                  <div className="text-[11px] p-2 rounded bg-black/20 font-mono leading-relaxed mb-2" style={{ color: "var(--text-muted)" }}>
+                    <strong style={{ color: "var(--accent)" }}>Syntax:</strong> one row per line. Examples:<br />
+                    <code>A: 1-15, disabled 1-5, house 6-11, disabled 12-15</code><br />
+                    <code>B: 1-2 aisle, 3-12</code><br />
+                    <code>C-E: 1-10</code> &nbsp;<span style={{ color: "var(--text-dim)" }}>(C, D, E all same)</span><br />
+                    <code>H: 1-4 disabled, 5 wheelchair, aisle 6-8, 9 wheelchair, 10 disabled</code><br />
+                    <span style={{ color: "var(--text-dim)" }}>Keywords: <strong>aisle, wheelchair, disabled, house, vip, premium</strong></span>
+                  </div>
                   <textarea
                     value={describeText}
                     onChange={(e) => setDescribeText(e.target.value)}
-                    rows={3}
-                    className="w-full"
-                    placeholder={"e.g. 6 rows × 10 cols. Centre aisle after column 5 (so column 6 is an aisle in every row)."}
+                    rows={6}
+                    className="w-full font-mono text-xs"
+                    placeholder={`A: 1-15, disabled 1-5, house 6-11, disabled 12-15\nB: 1-2 aisle, 3-12\nC-E: 1-10\nF-G: 1-10 disabled\nH: 1-4 disabled, 5 wheelchair, aisle 6-8, 9 wheelchair, 10 disabled`}
                     data-testid="describe-text-input-noimg"
                   />
-                  <button
-                    type="button"
-                    onClick={describeSeatmap}
-                    disabled={detecting || describeText.trim().length < 12}
-                    className="btn-primary !py-2 !px-3 text-xs mt-2"
-                    data-testid="describe-submit-btn-noimg"
-                  >
-                    {detecting ? "Building…" : "Generate layout"}
-                  </button>
+                  <div className="flex gap-2 flex-wrap mt-2">
+                    <button
+                      type="button"
+                      onClick={parseTextLayout}
+                      disabled={detecting || describeText.trim().length < 5}
+                      className="btn-primary !py-2 !px-3 text-xs"
+                      data-testid="describe-submit-btn-noimg"
+                    >
+                      {detecting ? "Building…" : "⚡ Build layout from text"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDescribeText(
+                          `A: 1-15, disabled 1-5, house 6-11, disabled 12-15\nB: 1-2 aisle, 3-12\nC-E: 1-10\nF-G: 1-10 disabled\nH: 1-4 disabled, 5 wheelchair, aisle 6-8, 9 wheelchair, 10 disabled`
+                        );
+                      }}
+                      className="btn-ghost !py-2 !px-3 text-xs"
+                      data-testid="load-example-btn-noimg"
+                    >
+                      Load Hoyts example
+                    </button>
+                  </div>
                 </Field>
               )}
 
@@ -421,6 +501,7 @@ export default function CreateEvent() {
                   cols={form.seat_cols}
                   aisles={form.aisles}
                   sections={form.seatmap_sections}
+                  categories={form.seatmap_categories || {}}
                   curved={form.seatmap_curved}
                   numberingRtl={form.seatmap_numbering_rtl}
                   backdropUrl={form.seat_map_image_url}
@@ -432,6 +513,7 @@ export default function CreateEvent() {
                     ...f,
                     aisles: next.aisles,
                     seatmap_sections: next.sections,
+                    seatmap_categories: next.categories ?? f.seatmap_categories,
                     seatmap_curved: next.curved,
                     seatmap_backdrop_opacity: next.backdrop_opacity,
                     seatmap_backdrop_offset_y: next.backdrop_offset_y,

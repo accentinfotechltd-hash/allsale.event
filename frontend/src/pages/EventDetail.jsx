@@ -391,6 +391,7 @@ export default function EventDetail() {
                 selected={selectedSeats}
                 aisles={event.aisles || []}
                 sections={event.seatmap_sections || []}
+                categories={event.seatmap_categories || {}}
                 curved={!!event.seatmap_curved}
                 numberingRtl={!!event.seatmap_numbering_rtl}
                 backdropUrl={event.seat_map_image_url}

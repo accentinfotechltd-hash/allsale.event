@@ -53,6 +53,8 @@ class EventIn(BaseModel):
     seatmap_numbering_rtl: bool = False  # number seats right-to-left (cinemas in India/ME)
     seatmap_sections: List[Dict[str, Any]] = Field(default_factory=list)
     # List of {after_row: int (0-indexed, e.g. 4 means break after row E), label: str}
+    seatmap_categories: Dict[str, List[str]] = Field(default_factory=dict)
+    # Per-seat category map: {"wheelchair": ["A-1","A-2"], "house":[...], "disabled":[...], "vip":[...], "premium":[...]}
     seatmap_backdrop_opacity: float = 0.4  # 0.0–1.0
     seatmap_backdrop_offset_y: int = 0
     seatmap_backdrop_offset_x: int = 0

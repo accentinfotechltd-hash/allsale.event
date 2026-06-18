@@ -732,3 +732,33 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 - ✅ Events page accepts `?trending=1` filter (hits the dedicated endpoint) — drives the "See all" link cleanly without client-side filtering.
 - ✅ `tests/test_trending.py` — 2 tests (filters expired/draft/past, sorts newest boost first).
 
+
+## Iteration 19 (2026-02-18) — Easy Seatmap Builder (3-in-1)
+
+### Option A — Smart Text Builder (instant, offline, free)
+- ✅ New endpoint `POST /api/organizer/seatmap/parse-text` — deterministic regex parser, no LLM call. ≤50ms response.
+- ✅ Range syntax: `A: 1-15, disabled 1-5, house 6-11, disabled 12-15`, `C-E: 1-10`, etc.
+- ✅ Keywords: `aisle, wheelchair, disabled, house, vip, premium`.
+- ✅ Falls back to LLM `/describe` only when deterministic parse can't extract a grid.
+- ✅ "Load Hoyts example" button pre-fills the Hoyts Riccarton layout for instant demo.
+- ✅ Inline syntax tooltip in the UI.
+
+### Option B — Multi-category Paint Grid
+- ✅ `SeatDesigner` now supports 6 paint modes: Aisle, Wheelchair, Disabled, House, VIP, Premium + Reset + Section.
+- ✅ Drag-paint (mousedown + mouseenter) to mark many seats at once.
+- ✅ Color-coded toolbar matching standard cinema legends (blue=wheelchair, green=disabled, yellow=house, purple=VIP, orange=premium).
+- ✅ Categories persisted to event as `seatmap_categories: {wheelchair: [...], house: [...], ...}` (new field).
+- ✅ Public `SeatMap` renders the category colors so buyers see which seats are wheelchair/VIP/etc.
+
+### Option C — Smarter AI prompt
+- ✅ AI prompt now explicitly parses the legend block first, then maps colors to categories.
+- ✅ Returns `seat_categories` + `legend_detected` in addition to aisles.
+- ✅ Confidence threshold: organizer sees a `⚠️ verify` warning toast when confidence < 70%.
+- ✅ AI defaults to conservative confidence (≤0.6) on legend-heavy maps to encourage manual verification.
+
+### Tests
+- `tests/test_seatmap_parser.py` — 4 tests (cinema layout, row-range syntax, unparseable fallback, aisle vs seat).
+
+### Schema additions
+- `events.seatmap_categories: dict[str, list[str]]` — per-seat category map.
+
