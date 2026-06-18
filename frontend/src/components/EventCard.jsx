@@ -75,8 +75,16 @@ export default function EventCard({ event, index = 0 }) {
             <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>{dateStr}</div>
           </div>
           <div className="text-right">
-            <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>from</div>
-            <div className="serif text-2xl leading-none" style={{ color: "var(--accent)" }}>{formatMoney(minPrice, currency, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div>
+            {minPrice > 0 && (
+              <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>from</div>
+            )}
+            <div
+              className="serif text-2xl leading-none"
+              style={{ color: "var(--accent)" }}
+              data-testid={`event-card-price-${event.event_id}`}
+            >
+              {formatMoney(minPrice, currency, { minimumFractionDigits: 0, maximumFractionDigits: 0, free: true })}
+            </div>
           </div>
         </div>
       </div>

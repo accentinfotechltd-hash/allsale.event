@@ -148,7 +148,7 @@ function TrendingTile({ event, index }) {
             className="absolute bottom-3 right-3 px-2.5 py-1 rounded-full text-xs font-medium backdrop-blur-md"
             style={{ background: "rgba(0,0,0,0.65)", color: "#FFFFFF" }}
           >
-            From {formatMoney(lowestPrice, event.currency)}
+            {lowestPrice > 0 ? `From ${formatMoney(lowestPrice, event.currency)}` : "Free"}
           </div>
         )}
       </div>

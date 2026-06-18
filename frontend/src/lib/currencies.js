@@ -48,11 +48,20 @@ export function getCurrency(code) {
 /**
  * Format a numeric amount using the currency's locale. Falls back to a manual
  * symbol + fixed-2 when Intl doesn't recognize the code.
+ *
+ * @param {object} options
+ * @param {boolean} [options.free] When true, returns the localized "Free" label
+ *   if amount evaluates to 0. Use on public-facing surfaces (event cards, tier
+ *   prices, seatmap legend). Keep OFF for accounting surfaces (refunds,
+ *   payouts, totals) where "$0.00" carries meaning.
+ * @param {string}  [options.freeLabel] Override the literal used when free=true.
  */
 export function formatMoney(amount, code, options = {}) {
   const value = Number(amount || 0);
+  const { free = false, freeLabel = "Free", ...intlOpts } = options;
+  if (free && value === 0) return freeLabel;
   const cur = (code || DEFAULT_CURRENCY).toUpperCase();
-  const opts = { style: "currency", currency: cur, minimumFractionDigits: 2, maximumFractionDigits: 2, ...options };
+  const opts = { style: "currency", currency: cur, minimumFractionDigits: 2, maximumFractionDigits: 2, ...intlOpts };
   try {
     return new Intl.NumberFormat(undefined, opts).format(value);
   } catch {

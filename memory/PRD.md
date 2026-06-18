@@ -827,3 +827,29 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 
 **Files changed:** `/app/frontend/src/components/SeatDesigner.jsx` (single component, no API/schema change — uses the existing `seatmap_custom_labels` field added in iter 23).
 
+
+## Iteration 25 (2026-02-18) — Free events shown as "Free" everywhere
+
+**User request:** "I also need to add if there is free event when put 0 value, make shows free on front."
+
+**Implementation:**
+- ✅ `formatMoney(value, currency, { free: true })` in `/app/frontend/src/lib/currencies.js` — opt-in flag returns the localized "Free" label whenever value is 0. Default behavior unchanged (refunds/payouts still show $0.00).
+- ✅ **EventCard** — prices render as "Free" (without the "from" line) when min price is 0.
+- ✅ **EventDetail** — tier prices, seat price hint ("Free admission. Updates live…"), order total, and the book-now button label ("Reserve free spot" instead of "Book now") all adapt to free events. Book button no longer disabled when total === 0 — checks selection state instead.
+- ✅ **TrendingCarousel** — "From $X" → "Free" badge.
+- ✅ **SeatMap** — legend's "Available" pill shows "· Free", category chips and tooltips replace `0.00` with `Free`.
+- ✅ **Checkout page** — large total reads "Free", subtitle becomes "No payment required", CTA changes to "Confirm free booking". Existing backend path (`payments.py:175`) already finalizes the booking without a Stripe round-trip when amount ≤ 0.
+- ✅ **CreateEvent organizer UX** — seat price input shows "🎉 Set to 0 — this event will be marketed as Free" inline hint. Tier list shows a similar hint banner when any tier price is 0. Both inputs now enforce `min="0"`.
+
+**No backend or DB changes** — the platform already supported free events end-to-end (free path in `payments.py`, no constraint in `models.py`). This iteration brings the UX in line with that capability.
+
+**Files changed:**
+- `frontend/src/lib/currencies.js`
+- `frontend/src/components/EventCard.jsx`
+- `frontend/src/components/TrendingCarousel.jsx`
+- `frontend/src/components/SeatMap.jsx`
+- `frontend/src/pages/EventDetail.jsx`
+- `frontend/src/pages/Checkout.jsx`
+- `frontend/src/pages/CreateEvent.jsx`
+
+

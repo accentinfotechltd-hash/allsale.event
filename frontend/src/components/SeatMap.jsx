@@ -56,7 +56,7 @@ export default function SeatMap({
     }
     return Number(defaultSeatPrice) || 0;
   };
-  const fmtPrice = (n) => `${currency} ${n.toFixed(2)}`;
+  const fmtPrice = (n) => (Number(n) === 0 ? "Free" : `${currency} ${Number(n).toFixed(2)}`);
 
   const curveOffset = (r, c) => {
     if (!curved) return 0;
@@ -158,7 +158,7 @@ export default function SeatMap({
       </div>
 
       <div className="relative z-10 flex items-center justify-center gap-5 text-xs flex-wrap pt-2" style={{ color: "var(--text-muted)" }}>
-        <div className="flex items-center gap-2"><div className="seat" style={{ width: 16, height: 16 }} /> Available {defaultSeatPrice ? `· ${fmtPrice(Number(defaultSeatPrice))}` : ""}</div>
+        <div className="flex items-center gap-2"><div className="seat" style={{ width: 16, height: 16 }} /> Available {Number(defaultSeatPrice) > 0 ? `· ${fmtPrice(Number(defaultSeatPrice))}` : "· Free"}</div>
         <div className="flex items-center gap-2"><div className="seat seat-selected" style={{ width: 16, height: 16 }} /> Selected</div>
         <div className="flex items-center gap-2"><div className="seat seat-held" style={{ width: 16, height: 16 }} /> On hold</div>
         <div className="flex items-center gap-2"><div className="seat seat-booked" style={{ width: 16, height: 16 }} /> Booked</div>

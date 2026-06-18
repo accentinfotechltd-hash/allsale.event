@@ -353,7 +353,7 @@ export default function CreateEvent() {
               <div className="grid grid-cols-3 gap-3">
                 <Field label="Rows"><input type="number" min={2} max={26} value={form.seat_rows} onChange={(e) => update("seat_rows", parseInt(e.target.value) || 2)} /></Field>
                 <Field label="Cols"><input type="number" min={4} max={26} value={form.seat_cols} onChange={(e) => update("seat_cols", parseInt(e.target.value) || 4)} /></Field>
-                <Field label={`Default price / seat (${form.currency})`}><input type="number" step="0.01" value={form.seat_price} onChange={(e) => update("seat_price", parseFloat(e.target.value) || 0)} /></Field>
+                <Field label={`Default price / seat (${form.currency})`} hint={Number(form.seat_price) === 0 ? "🎉 Set to 0 — this event will be marketed as Free" : null}><input type="number" step="0.01" min="0" value={form.seat_price} onChange={(e) => update("seat_price", parseFloat(e.target.value) || 0)} data-testid="seat-price-input" /></Field>
               </div>
 
               {/* Per-category seat prices — only meaningful once at least one
@@ -629,12 +629,17 @@ export default function CreateEvent() {
               {tiers.map((t, i) => (
                 <div key={i} className="grid grid-cols-[1fr_120px_120px_auto] gap-2">
                   <input placeholder="Name" value={t.name} onChange={(e) => { const n = [...tiers]; n[i].name = e.target.value; setTiers(n); }} />
-                  <input type="number" step="0.01" placeholder={`Price (${form.currency})`} value={t.price} onChange={(e) => { const n = [...tiers]; n[i].price = parseFloat(e.target.value); setTiers(n); }} />
+                  <input type="number" step="0.01" min="0" placeholder={`Price (${form.currency})`} value={t.price} onChange={(e) => { const n = [...tiers]; n[i].price = parseFloat(e.target.value); setTiers(n); }} data-testid={`tier-price-${i}`} />
                   <input type="number" placeholder="Capacity" value={t.capacity} onChange={(e) => { const n = [...tiers]; n[i].capacity = parseInt(e.target.value); setTiers(n); }} />
                   <button type="button" onClick={() => setTiers((arr) => arr.filter((_, x) => x !== i))} className="px-3 rounded-lg border" style={{ borderColor: "var(--border-strong)" }}><Trash2 className="w-4 h-4" /></button>
                 </div>
               ))}
             </div>
+            {tiers.some((t) => Number(t.price) === 0) && (
+              <div className="text-xs mt-2 flex items-center gap-1.5" style={{ color: "var(--accent)" }} data-testid="free-tier-hint">
+                <span>🎉</span> One or more tiers are priced at 0 — these will display as <strong>Free</strong> to attendees and skip Stripe checkout.
+              </div>
+            )}
           </div>
         )}
 

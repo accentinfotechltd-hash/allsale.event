@@ -391,7 +391,7 @@ export default function EventDetail() {
               <div className="mb-5 sm:mb-6">
                 <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>Pick your seats</div>
                 <h2 className="serif text-2xl sm:text-3xl">Interactive seat map</h2>
-                <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>{formatMoney(event.seat_price, event.currency)} per seat. Updates live every few seconds.</p>
+                <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>{event.seat_price > 0 ? `${formatMoney(event.seat_price, event.currency)} per seat. ` : "Free admission. "}Updates live every few seconds.</p>
               </div>
               <SeatMap
                 rows={event.seat_rows}
@@ -467,11 +467,11 @@ export default function EventDetail() {
                           {t.surging && t.effective_price > t.price ? (
                             <>
                               <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--danger)" }}>High demand</div>
-                              <div className="serif text-2xl" style={{ color: "var(--accent)" }}>{formatMoney(t.effective_price, event.currency, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>
-                              <div className="text-xs line-through" style={{ color: "var(--text-dim)" }}>{formatMoney(t.price, event.currency, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>
+                              <div className="serif text-2xl" style={{ color: "var(--accent)" }}>{formatMoney(t.effective_price, event.currency, { minimumFractionDigits: 0, maximumFractionDigits: 2, free: true })}</div>
+                              <div className="text-xs line-through" style={{ color: "var(--text-dim)" }}>{formatMoney(t.price, event.currency, { minimumFractionDigits: 0, maximumFractionDigits: 2, free: true })}</div>
                             </>
                           ) : (
-                            <div className="serif text-2xl" style={{ color: "var(--accent)" }}>{formatMoney(t.price, event.currency, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</div>
+                            <div className="serif text-2xl" style={{ color: "var(--accent)" }}>{formatMoney(t.price, event.currency, { minimumFractionDigits: 0, maximumFractionDigits: 2, free: true })}</div>
                           )}
                         </div>
                       </div>
@@ -606,12 +606,12 @@ export default function EventDetail() {
               )}
               <div className="flex items-baseline justify-between pt-1">
                 <span className="text-sm uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Total</span>
-                <span className="serif text-4xl" style={{ color: "var(--accent)" }} data-testid="total-price">{formatMoney(total, event.currency)}</span>
+                <span className="serif text-4xl" style={{ color: "var(--accent)" }} data-testid="total-price">{formatMoney(total, event.currency, { free: true })}</span>
               </div>
             </div>
 
-            <button onClick={onBook} disabled={submitting || total <= 0 || event.sold_out || event.is_past} className="btn-primary w-full justify-center mt-5" data-testid="book-now-btn">
-              {submitting ? "Holding seats..." : event.is_past ? "Event ended" : event.sold_out ? "Sold out" : "Book now"} <ArrowRight className="w-4 h-4" />
+            <button onClick={onBook} disabled={submitting || (event.has_seatmap ? selectedSeats.length === 0 : qty < 1) || event.sold_out || event.is_past} className="btn-primary w-full justify-center mt-5" data-testid="book-now-btn">
+              {submitting ? "Holding seats..." : event.is_past ? "Event ended" : event.sold_out ? "Sold out" : total === 0 ? "Reserve free spot" : "Book now"} <ArrowRight className="w-4 h-4" />
             </button>
             {event.is_past ? (
               <p className="text-xs mt-3 text-center" style={{ color: "var(--text-dim)" }} data-testid="event-ended-note">This event has finished. Browse upcoming events instead.</p>

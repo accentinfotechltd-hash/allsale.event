@@ -109,13 +109,13 @@ export default function Checkout() {
           )}
           <div>
             <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--text-dim)" }}>Payable now</div>
-            <div className="serif text-5xl" style={{ color: "var(--accent)" }} data-testid="checkout-total">{formatMoney(booking.amount, booking.currency || "NZD")}</div>
-            <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>{(booking.currency || "NZD")} · all fees included</div>
+            <div className="serif text-5xl" style={{ color: "var(--accent)" }} data-testid="checkout-total">{formatMoney(booking.amount, booking.currency || "NZD", { free: true })}</div>
+            <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>{Number(booking.amount) === 0 ? "No payment required" : `${(booking.currency || "NZD")} · all fees included`}</div>
           </div>
 
           <button onClick={onPay} disabled={paying || expired} className="btn-primary w-full justify-center" data-testid="pay-stripe-btn">
             <CreditCard className="w-4 h-4" />
-            {paying ? "Redirecting..." : expired ? "Hold expired" : "Pay with Stripe"}
+            {paying ? "Redirecting..." : expired ? "Hold expired" : Number(booking.amount) === 0 ? "Confirm free booking" : "Pay with Stripe"}
             {!paying && !expired && <ArrowRight className="w-4 h-4" />}
           </button>
 
