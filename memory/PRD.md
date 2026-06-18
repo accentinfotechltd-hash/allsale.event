@@ -807,3 +807,23 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 - ✅ Custom labels surfaced in SeatMap public view + SeatDesigner editor (tooltip, aria-label, seat title).
 - ✅ Counter on the Label button shows total renamed seats.
 
+
+
+## Iteration 24 (2026-02-18) — Auto-numbering propagation in Label mode
+
+**User request:** "when you click on the seat that time you can change the number and also once you select the first seat from the row will automatically change the seats number after that ... if row B has 10 seats starting at number 12, and there is a gap, after that seat numbers continue 13, 14..."
+
+**Implementation (frontend-only, in `/app/frontend/src/components/SeatDesigner.jsx`):**
+- ✅ Label-mode prompt now parses entries matching `^([^\d]*)(\d+)$` (e.g. `B12`, `12`, `AA5`).
+- ✅ Anchor seat: clicking ANY seat and entering a numeric label sets that label AND auto-fills every following bookable seat in the same row with the incremented number, preserving the prefix.
+- ✅ Aisles are silently skipped during propagation (numbering stays contiguous across gaps — exactly matches real cinema rows).
+- ✅ Direction respects `numberingRtl` (RTL venues propagate right→left visually).
+- ✅ Non-numeric labels (e.g. `Box-VIP`) only relabel the clicked seat — no propagation, as expected.
+- ✅ Toast on success: `"Row B: 9 seats renumbered starting at B12"`.
+- ✅ Each seat now displays its numeric suffix inside the seat tile in Label mode (white bold text when custom-labeled, dim grey for auto labels) so organizers can verify the result at a glance.
+- ✅ New `Clear labels` toolbar button (only visible when at least one custom label exists) resets all overrides with a confirm dialog.
+- ✅ Drag-to-apply disabled in Label and Hold modes (only deliberate click triggers the prompt/toggle, avoiding accidental mass-edits).
+- ✅ Unit-verified algorithm with 5 cases: starting at 12, aisle gaps, prefixed labels, RTL, non-numeric — all green.
+
+**Files changed:** `/app/frontend/src/components/SeatDesigner.jsx` (single component, no API/schema change — uses the existing `seatmap_custom_labels` field added in iter 23).
+

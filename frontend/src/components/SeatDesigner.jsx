@@ -118,13 +118,54 @@ export default function SeatDesigner({
     }
     if (mode === "label") {
       // Click-to-rename — prompt for a new label (or clear with empty input).
+      // If the new label matches `<prefix><number>` (e.g. "B12", "AA5", "7"),
+      // we auto-fill every following bookable seat in the same row with the
+      // incremented number, skipping aisles. This matches how real venues
+      // number rows: set the first seat once, the rest just follows.
       const current = customLabels?.[id] || "";
-      const next = window.prompt(`Custom label for seat ${id}\n(Leave blank to reset to the auto-computed label)`, current);
+      const next = window.prompt(
+        `Seat ${id} — enter a custom label\n` +
+        `• Numeric labels (e.g. "12" or "B12") auto-fill the rest of the row, skipping aisles.\n` +
+        `• Non-numeric labels (e.g. "Box-3") only relabel this seat.\n` +
+        `• Leave blank to reset to the auto-computed label.`,
+        current
+      );
       if (next === null) return; // user cancelled
       const trimmed = next.trim();
       const updated = { ...(customLabels || {}) };
-      if (trimmed) updated[id] = trimmed;
-      else delete updated[id];
+      if (!trimmed) {
+        delete updated[id];
+        onCustomLabelsChange?.(updated);
+        return;
+      }
+      updated[id] = trimmed;
+      // Auto-propagate forward through the row if label = prefix+digits.
+      const match = trimmed.match(/^([^\d]*)(\d+)$/);
+      const [rowLetter, seatNumStr] = id.split("-");
+      const rowIdx = LETTERS.indexOf(rowLetter);
+      const startSeatNum = parseInt(seatNumStr, 10);
+      if (match && rowIdx >= 0) {
+        const prefix = match[1];
+        let n = parseInt(match[2], 10);
+        // Walk the row in visual order (LTR or RTL based on numberingRtl).
+        // For each seat AFTER the anchor: if it's an aisle, skip silently;
+        // otherwise set its custom label to `${prefix}${++n}`.
+        const order = numberingRtl
+          ? Array.from({ length: cols }, (_, i) => cols - i)
+          : Array.from({ length: cols }, (_, i) => i + 1);
+        const anchorPos = order.indexOf(startSeatNum);
+        for (let i = anchorPos + 1; i < order.length; i++) {
+          const nextSeatNum = order[i];
+          const nextId = `${rowLetter}-${nextSeatNum}`;
+          if (aisleSet.has(nextId)) continue; // skip aisles, keep numbering contiguous
+          n += 1;
+          updated[nextId] = `${prefix}${n}`;
+        }
+        const filled = order.length - anchorPos - 1;
+        if (filled > 0) {
+          toast.success(`Row ${rowLetter}: ${filled} seat${filled === 1 ? "" : "s"} renumbered starting at ${trimmed}`);
+        }
+      }
       onCustomLabelsChange?.(updated);
       return;
     }
@@ -200,7 +241,7 @@ export default function SeatDesigner({
       {/* Mode toggle */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-xs" style={{ color: "var(--text-dim)" }}>
-          Pick a paint mode, then tap (or drag) seats. Aisle = non-bookable. Categories show as colored chips on the public seatmap.
+          Pick a paint mode, then tap (or drag) seats. Aisle = non-bookable. In <strong style={{ color: "var(--text)" }}>Label</strong> mode, type a number like <code>B1</code> on the first seat — the rest of the row auto-numbers, skipping aisles.
         </div>
       </div>
       <div className="flex flex-wrap gap-1.5 p-1.5 rounded-xl" style={{ background: "var(--bg-elev)", border: "1px solid var(--border)" }} data-testid="paint-toolbar">
@@ -248,12 +289,29 @@ export default function SeatDesigner({
               border: mode === "label" ? "1px solid #0EA5E9" : "1px solid var(--border)",
             }}
             data-testid="designer-mode-label"
-            title="Tap a seat to rename it (custom labels like AA1, Box-3, etc.)"
+            title="Tap the first seat of a row, type a label like B1 — the rest of the row auto-numbers"
           >
             <Type className="w-3 h-3" /> Label
             {Object.keys(customLabels || {}).length > 0 && (
               <span className="opacity-70">({Object.keys(customLabels).length})</span>
             )}
+          </button>
+        )}
+        {onCustomLabelsChange && Object.keys(customLabels || {}).length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm(`Clear all ${Object.keys(customLabels).length} custom seat labels?`)) {
+                onCustomLabelsChange({});
+                toast.success("All custom labels cleared");
+              }
+            }}
+            className="px-2.5 py-1.5 rounded-lg text-xs transition"
+            style={{ background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border)" }}
+            data-testid="designer-clear-labels"
+            title="Reset every seat back to its auto-computed label"
+          >
+            Clear labels
           </button>
         )}
         {eventId && (
@@ -401,26 +459,36 @@ export default function SeatDesigner({
                         : "1px solid var(--border-strong)";
                   const dy = curveOffset(r, c);
                   const isClickable = mode !== "section";
+                  // Pull just the numeric suffix to display inside the seat
+                  // (the row letter is already shown on the left/right rail).
+                  const numericPart = idStr.match(/\d+$/)?.[0] || "";
+                  const showLabelInside =
+                    (mode === "label" || customStr) && seatSize >= 18 && !isAisle;
                   return (
                     <button
                       key={id}
                       type="button"
-                      onMouseDown={() => { if (isClickable) { setPaintingDown(true); applyMode(id); } }}
-                      onMouseEnter={() => { if (isClickable && paintingDown) applyMode(id); }}
+                      onMouseDown={() => { if (isClickable) { if (mode !== "label" && mode !== "hold") setPaintingDown(true); applyMode(id); } }}
+                      onMouseEnter={() => { if (isClickable && paintingDown && mode !== "label" && mode !== "hold") applyMode(id); }}
                       onMouseUp={() => setPaintingDown(false)}
                       onClick={(e) => { e.preventDefault(); /* handled in mousedown */ }}
                       disabled={!isClickable}
-                      className="transition shrink-0"
+                      className="transition shrink-0 flex items-center justify-center font-mono"
                       style={{
                         width: seatSize, height: seatSize, borderRadius: 5,
                         background: bg,
                         border,
                         transform: dy ? `translateY(${dy}px)` : undefined,
                         cursor: isClickable ? "pointer" : "default",
+                        fontSize: seatSize >= 22 ? 10 : 9,
+                        color: customStr ? "#FFFFFF" : "rgba(255,255,255,0.55)",
+                        fontWeight: customStr ? 700 : 400,
                       }}
                       title={`${idStr} — ${isAisle ? "aisle" : isHeld ? "on hold" : (seatCategory || "normal seat")}`}
                       data-testid={`designer-${id}`}
-                    />
+                    >
+                      {showLabelInside ? numericPart : ""}
+                    </button>
                   );
                 })}
                 <div className="w-5 text-[10px] font-mono text-center" style={{ color: "var(--text-dim)" }}>{LETTERS[r]}</div>
