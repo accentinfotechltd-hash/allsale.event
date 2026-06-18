@@ -788,3 +788,13 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 - Updated example syntax + tooltip in CreateEvent to surface the new keyword.
 - New tests: `test_offset_keyword_indents_row_and_records_row_offsets`, `test_offset_with_categories_shifts_category_seats_too` — both green.
 
+
+## Iteration 22 (2026-02-18) — Click-to-Hold mode in SeatDesigner
+
+- ✅ New "🔒 Hold" toolbar button in the paint mode rail (appears only when `eventId` prop is set — i.e. edit context, not new-event).
+- ✅ Tapping a seat in Hold mode posts to `POST /api/organizer/events/{id}/seat-blocks` (reuses the existing endpoint); tapping again removes the block via DELETE.
+- ✅ Optimistic UI: instant gray render on click, rollback on API failure with toast.
+- ✅ Held seats render in muted gray; tooltip shows "on hold".
+- ✅ Counter on the Hold button shows the current held-seat count.
+- ✅ On initial mount, fetches existing blocks once so the grid reflects truth.
+

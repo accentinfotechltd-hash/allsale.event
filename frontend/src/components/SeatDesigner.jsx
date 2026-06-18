@@ -6,8 +6,10 @@
  * adjustable opacity / x-offset / y-offset / scale so seats line up with the
  * actual seats in the photo.
  */
-import { useState } from "react";
-import { Sparkles, ImageOff, MoveVertical, MoveHorizontal, ZoomIn, Layers, Accessibility, Eye, Crown, Home } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Sparkles, ImageOff, MoveVertical, MoveHorizontal, ZoomIn, Layers, Accessibility, Eye, Crown, Home, Lock } from "lucide-react";
+import { toast } from "sonner";
+import api from "@/lib/api";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -36,10 +38,12 @@ export default function SeatDesigner({
   backdropOffsetY = 0,
   backdropOffsetX = 0,
   backdropScale = 1,
+  eventId = null,  // when provided, the Hold mode can call the seat-blocks API
   onChange,
 }) {
   const [mode, setMode] = useState("aisle");
   const [paintingDown, setPaintingDown] = useState(false);  // drag-paint state
+  const [blockedSeats, setBlockedSeats] = useState(new Set());
   const aisleSet = new Set(aisles);
   const sectionMap = new Map(sections.map((s) => [s.after_row, s.label]));
 
@@ -48,6 +52,46 @@ export default function SeatDesigner({
   Object.entries(categories || {}).forEach(([cat, ids]) => {
     (ids || []).forEach((id) => seatCategoryMap.set(id, cat));
   });
+
+  // Fetch existing seat blocks ONCE when in edit mode. Subsequent toggles
+  // mutate `blockedSeats` locally so the grid updates instantly without a
+  // round-trip per click.
+  useEffect(() => {
+    if (!eventId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get(`/organizer/events/${eventId}/seat-blocks`);
+        if (!cancelled) setBlockedSeats(new Set((data.blocks || []).map((b) => b.seat_id)));
+      } catch { /* silent — read-only fetch */ }
+    })();
+    return () => { cancelled = true; };
+  }, [eventId]);
+
+  const toggleHold = async (seatId) => {
+    if (!eventId) {
+      toast.error("Save the event first, then come back to hold seats");
+      return;
+    }
+    const wasBlocked = blockedSeats.has(seatId);
+    // Optimistic update; rollback on failure so the grid stays truthful.
+    const next = new Set(blockedSeats);
+    if (wasBlocked) next.delete(seatId); else next.add(seatId);
+    setBlockedSeats(next);
+    try {
+      if (wasBlocked) {
+        await api.delete(`/organizer/events/${eventId}/seat-blocks/${seatId}`);
+      } else {
+        await api.post(`/organizer/events/${eventId}/seat-blocks`, {
+          seats: [seatId], reason: "out_of_order", note: "Held via designer",
+        });
+      }
+    } catch (err) {
+      // Roll back optimistic update
+      setBlockedSeats(blockedSeats);
+      toast.error(err?.response?.data?.detail || "Couldn't update hold");
+    }
+  };
 
   const emit = (patch) => {
     onChange?.({
@@ -66,6 +110,10 @@ export default function SeatDesigner({
   // Apply current `mode` to a seat. Aisle is mutually exclusive with any
   // category (a seat is EITHER bookable+categorised OR a non-seat aisle).
   const applyMode = (id) => {
+    if (mode === "hold") {
+      toggleHold(id);
+      return;
+    }
     if (mode === "aisle") {
       const next = new Set(aisleSet);
       if (next.has(id)) next.delete(id);
@@ -175,6 +223,23 @@ export default function SeatDesigner({
         >
           Reset
         </button>
+        {eventId && (
+          <button
+            type="button"
+            onClick={() => setMode("hold")}
+            className="px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition"
+            style={{
+              background: mode === "hold" ? "#6B7280" : "transparent",
+              color: mode === "hold" ? "#FFFFFF" : "var(--text-muted)",
+              border: mode === "hold" ? "1px solid #6B7280" : "1px solid var(--border)",
+            }}
+            data-testid="designer-mode-hold"
+            title="Mark seats as unavailable (broken, reserved for staff, sightline-blocked, etc.)"
+          >
+            <Lock className="w-3 h-3" /> Hold
+            {blockedSeats.size > 0 && <span className="opacity-70">({blockedSeats.size})</span>}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setMode("section")}
@@ -282,18 +347,23 @@ export default function SeatDesigner({
                   const displayLabel = seatNumber - rowOffset;
                   const idStr = displayLabel > 0 ? `${LETTERS[r]}${displayLabel}` : id;
                   const isAisle = aisleSet.has(id);
+                  const isHeld = blockedSeats.has(id);
                   const seatCategory = seatCategoryMap.get(id);
                   const catDef = PAINT_CATEGORIES.find((p) => p.key === seatCategory);
                   const bg = isAisle
                     ? "transparent"
-                    : catDef
-                      ? catDef.color
-                      : "rgba(21,21,27,0.92)";
+                    : isHeld
+                      ? "rgba(107,114,128,0.45)"
+                      : catDef
+                        ? catDef.color
+                        : "rgba(21,21,27,0.92)";
                   const border = isAisle
                     ? "1px dashed var(--border-strong)"
-                    : catDef
-                      ? `1px solid ${catDef.color}`
-                      : "1px solid var(--border-strong)";
+                    : isHeld
+                      ? "1px solid #6B7280"
+                      : catDef
+                        ? `1px solid ${catDef.color}`
+                        : "1px solid var(--border-strong)";
                   const dy = curveOffset(r, c);
                   const isClickable = mode !== "section";
                   return (
@@ -313,7 +383,7 @@ export default function SeatDesigner({
                         transform: dy ? `translateY(${dy}px)` : undefined,
                         cursor: isClickable ? "pointer" : "default",
                       }}
-                      title={`${idStr} — ${isAisle ? "aisle" : (seatCategory || "normal seat")}`}
+                      title={`${idStr} — ${isAisle ? "aisle" : isHeld ? "on hold" : (seatCategory || "normal seat")}`}
                       data-testid={`designer-${id}`}
                     />
                   );

@@ -559,6 +559,7 @@ export default function CreateEvent() {
                   sections={form.seatmap_sections}
                   categories={form.seatmap_categories || {}}
                   rowOffsets={form.seatmap_row_offsets || {}}
+                  eventId={eventId}
                   curved={form.seatmap_curved}
                   numberingRtl={form.seatmap_numbering_rtl}
                   backdropUrl={form.seat_map_image_url}
