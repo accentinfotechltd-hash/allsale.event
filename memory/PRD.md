@@ -853,3 +853,15 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 - `frontend/src/pages/CreateEvent.jsx`
 
 
+
+## Iteration 26 (2026-02-18) — RTL label propagation bug fix
+
+**User report:** "Number seats right to left (e.g. seat #1 is on the right — standard for many Indian/ME cinemas) — when you select the label that, it will not change the number sequence from right to left."
+
+**Bug:** In iter 24 I walked the row in *visual* column order when propagating new labels. In RTL mode, the anchor seat (rightmost = seat #1) lived at the last visual column, so the propagation loop started AFTER it and immediately ended — meaning nothing past the anchor got renumbered for RTL venues.
+
+**Fix:** Walk in **seat-number order** (`startSeatNum + 1 → cols`) regardless of `numberingRtl`. Seat IDs are already number-indexed (`A-1`, `A-2`, …), so this is the correct invariant for both LTR and RTL — the renderer continues to map seat numbers to columns based on `numberingRtl`.
+
+**Verified:** Re-ran the 4 propagation unit cases (LTR start-at-12, RTL anchor at #1, gap rows, mid-row anchor) — all green. Lint clean.
+
+

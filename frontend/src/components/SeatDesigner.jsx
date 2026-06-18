@@ -147,21 +147,17 @@ export default function SeatDesigner({
       if (match && rowIdx >= 0) {
         const prefix = match[1];
         let n = parseInt(match[2], 10);
-        // Walk the row in visual order (LTR or RTL based on numberingRtl).
-        // For each seat AFTER the anchor: if it's an aisle, skip silently;
-        // otherwise set its custom label to `${prefix}${++n}`.
-        const order = numberingRtl
-          ? Array.from({ length: cols }, (_, i) => cols - i)
-          : Array.from({ length: cols }, (_, i) => i + 1);
-        const anchorPos = order.indexOf(startSeatNum);
-        for (let i = anchorPos + 1; i < order.length; i++) {
-          const nextSeatNum = order[i];
+        // Walk forward in SEAT-NUMBER order (always 1 → cols). Seat IDs are
+        // already number-based — RTL just changes which visual column shows
+        // which seat number, so we don't reorder here. Skip aisles silently
+        // so numbering stays contiguous across gaps.
+        for (let nextSeatNum = startSeatNum + 1; nextSeatNum <= cols; nextSeatNum++) {
           const nextId = `${rowLetter}-${nextSeatNum}`;
-          if (aisleSet.has(nextId)) continue; // skip aisles, keep numbering contiguous
+          if (aisleSet.has(nextId)) continue;
           n += 1;
           updated[nextId] = `${prefix}${n}`;
         }
-        const filled = order.length - anchorPos - 1;
+        const filled = cols - startSeatNum;
         if (filled > 0) {
           toast.success(`Row ${rowLetter}: ${filled} seat${filled === 1 ? "" : "s"} renumbered starting at ${trimmed}`);
         }
