@@ -61,6 +61,10 @@ class EventIn(BaseModel):
     seatmap_row_offsets: Dict[str, int] = Field(default_factory=dict)
     # Per-row label offset: {"C": 2} means row C's seat at grid col 3 displays as label "1" (col - offset).
     # Used when a row is visually indented under a wider front row (e.g. cinemas).
+    seatmap_custom_labels: Dict[str, str] = Field(default_factory=dict)
+    # Per-seat custom label override: {"A-3": "AA3", "B-1": "Box-1"}. When present,
+    # the frontend shows this value instead of the computed "row+col-offset" label.
+    # Seat IDs (the keys) stay column-indexed — only the displayed label changes.
     seatmap_backdrop_opacity: float = 0.4  # 0.0–1.0
     seatmap_backdrop_offset_y: int = 0
     seatmap_backdrop_offset_x: int = 0

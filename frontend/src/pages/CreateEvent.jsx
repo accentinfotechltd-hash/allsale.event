@@ -55,6 +55,7 @@ export default function CreateEvent() {
     seatmap_categories: {},
     seatmap_category_prices: {},
     seatmap_row_offsets: {},
+    seatmap_custom_labels: {},
   });
   const [tiers, setTiers] = useState([{ name: "General", price: 50.0, capacity: 200 }]);
   const [submitting, setSubmitting] = useState(false);
@@ -91,6 +92,7 @@ export default function CreateEvent() {
           seatmap_categories: data.seatmap_categories || {},
           seatmap_category_prices: data.seatmap_category_prices || {},
           seatmap_row_offsets: data.seatmap_row_offsets || {},
+          seatmap_custom_labels: data.seatmap_custom_labels || {},
           group_discount_min_qty: data?.group_discount?.min_qty || 0,
           group_discount_pct_off: data?.group_discount?.pct_off || 0,
         });
@@ -559,6 +561,8 @@ export default function CreateEvent() {
                   sections={form.seatmap_sections}
                   categories={form.seatmap_categories || {}}
                   rowOffsets={form.seatmap_row_offsets || {}}
+                  customLabels={form.seatmap_custom_labels || {}}
+                  onCustomLabelsChange={(next) => setForm((f) => ({ ...f, seatmap_custom_labels: next }))}
                   eventId={eventId}
                   curved={form.seatmap_curved}
                   numberingRtl={form.seatmap_numbering_rtl}

@@ -7,7 +7,7 @@
  * actual seats in the photo.
  */
 import { useEffect, useState } from "react";
-import { Sparkles, ImageOff, MoveVertical, MoveHorizontal, ZoomIn, Layers, Accessibility, Eye, Crown, Home, Lock } from "lucide-react";
+import { Sparkles, ImageOff, MoveVertical, MoveHorizontal, ZoomIn, Layers, Accessibility, Eye, Crown, Home, Lock, Type } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 
@@ -31,6 +31,8 @@ export default function SeatDesigner({
   sections = [],
   categories = {},  // {wheelchair: ["A-1"], house: [...], etc.}
   rowOffsets = {},  // {C: 2} → row C col 3 displays as label "1"
+  customLabels = {},  // {seat_id: "custom label"} — overrides auto label
+  onCustomLabelsChange = null,
   curved = false,
   numberingRtl = false,
   backdropUrl = null,
@@ -112,6 +114,18 @@ export default function SeatDesigner({
   const applyMode = (id) => {
     if (mode === "hold") {
       toggleHold(id);
+      return;
+    }
+    if (mode === "label") {
+      // Click-to-rename — prompt for a new label (or clear with empty input).
+      const current = customLabels?.[id] || "";
+      const next = window.prompt(`Custom label for seat ${id}\n(Leave blank to reset to the auto-computed label)`, current);
+      if (next === null) return; // user cancelled
+      const trimmed = next.trim();
+      const updated = { ...(customLabels || {}) };
+      if (trimmed) updated[id] = trimmed;
+      else delete updated[id];
+      onCustomLabelsChange?.(updated);
       return;
     }
     if (mode === "aisle") {
@@ -223,6 +237,25 @@ export default function SeatDesigner({
         >
           Reset
         </button>
+        {onCustomLabelsChange && (
+          <button
+            type="button"
+            onClick={() => setMode("label")}
+            className="px-2.5 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition"
+            style={{
+              background: mode === "label" ? "#0EA5E9" : "transparent",
+              color: mode === "label" ? "#FFFFFF" : "var(--text-muted)",
+              border: mode === "label" ? "1px solid #0EA5E9" : "1px solid var(--border)",
+            }}
+            data-testid="designer-mode-label"
+            title="Tap a seat to rename it (custom labels like AA1, Box-3, etc.)"
+          >
+            <Type className="w-3 h-3" /> Label
+            {Object.keys(customLabels || {}).length > 0 && (
+              <span className="opacity-70">({Object.keys(customLabels).length})</span>
+            )}
+          </button>
+        )}
         {eventId && (
           <button
             type="button"
@@ -345,7 +378,9 @@ export default function SeatDesigner({
                   const id = `${LETTERS[r]}-${seatNumber}`;
                   const rowOffset = (rowOffsets || {})[LETTERS[r]] || 0;
                   const displayLabel = seatNumber - rowOffset;
-                  const idStr = displayLabel > 0 ? `${LETTERS[r]}${displayLabel}` : id;
+                  const autoStr = displayLabel > 0 ? `${LETTERS[r]}${displayLabel}` : id;
+                  const customStr = (customLabels || {})[id];
+                  const idStr = customStr || autoStr;
                   const isAisle = aisleSet.has(id);
                   const isHeld = blockedSeats.has(id);
                   const seatCategory = seatCategoryMap.get(id);

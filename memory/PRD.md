@@ -798,3 +798,12 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 - ✅ Counter on the Hold button shows the current held-seat count.
 - ✅ On initial mount, fetches existing blocks once so the grid reflects truth.
 
+
+## Iteration 23 (2026-02-18) — Manual seat label override (click-to-rename)
+
+- ✅ New "🔤 Label" mode in the SeatDesigner toolbar (always available, not gated by `eventId`).
+- ✅ Tap a seat → browser prompt asks for a custom label (AA1, Box-3, VIP-7, etc.). Empty input clears the override and falls back to auto-computed label.
+- ✅ New event field `seatmap_custom_labels: dict[str, str]` — keyed by seat_id (column-indexed for backward compat), value is the displayed string.
+- ✅ Custom labels surfaced in SeatMap public view + SeatDesigner editor (tooltip, aria-label, seat title).
+- ✅ Counter on the Label button shows total renamed seats.
+

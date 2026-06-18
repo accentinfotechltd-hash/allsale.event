@@ -22,6 +22,7 @@ export default function SeatMap({
   categories = {},  // {wheelchair: ["A-1"], house: [...], disabled: [...], vip: [...], premium: [...]}
   categoryPrices = {},  // {vip: 80, premium: 60, ...}
   rowOffsets = {},  // {C: 2} means row C col 3 shows label "1"
+  customLabels = {},  // {seat_id: "AA1"} — overrides auto label on the public seatmap too
   defaultSeatPrice = 0,
   currency = "NZD",
   curved = false,
@@ -101,7 +102,8 @@ export default function SeatMap({
                 // backward compat with booking flows.
                 const rowOffset = (rowOffsets || {})[LETTERS[r]] || 0;
                 const displayLabel = seatNumber - rowOffset;
-                const idStr = displayLabel > 0 ? `${LETTERS[r]}${displayLabel}` : id;
+                const autoStr = displayLabel > 0 ? `${LETTERS[r]}${displayLabel}` : id;
+                const idStr = (customLabels || {})[id] || autoStr;
                 if (aisleSet.has(id)) {
                   return <div key={id} className="w-7 h-7" aria-hidden="true" />;
                 }
