@@ -881,3 +881,19 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 **File changed:** `/app/frontend/src/components/SeatDesigner.jsx` (single component, pure additive — no API/state changes).
 
 
+
+## Iteration 28 (2026-02-18) — Export row plan (CSV) for usher door duty
+
+**Why:** Ushers need a printable, scannable reference of every seat in every row on event night — particularly handy for venues with custom labels, offset rows, or RTL numbering where the venue's signage doesn't match the ticket label format.
+
+**Implementation:**
+- ✅ New "Export row plan (CSV)" button in the Numbering Preview header, opposite the collapse toggle.
+- ✅ CSV format: one row per theatre row, columns = visual positions (house-left to house-right). Cells show the effective label (custom > auto), `AISLE` for gaps. Header explicitly labels the first column "Pos 1 (house left)" and the last "Pos N (house right)" so ushers can pin the printout to the wall and read it L→R matching the physical room.
+- ✅ Section breaks (Mezzanine, Balcony, etc.) emit a separator row in the CSV so the printout naturally separates by section.
+- ✅ Filename includes the grid dimensions: `row-plan-{rows}x{cols}.csv`.
+- ✅ Toast confirmation on download.
+- ✅ Unit-verified output for LTR + RTL — pos 1 in RTL correctly maps to the highest seat number (house-left = farthest from seat #1).
+
+**File changed:** `/app/frontend/src/components/SeatDesigner.jsx` (added `exportRowPlanCsv` helper + Download button + data-testid `export-row-plan-csv`).
+
+

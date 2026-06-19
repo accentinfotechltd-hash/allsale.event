@@ -7,7 +7,7 @@
  * actual seats in the photo.
  */
 import { useEffect, useState } from "react";
-import { Sparkles, ImageOff, MoveVertical, MoveHorizontal, ZoomIn, Layers, Accessibility, Eye, Crown, Home, Lock, Type, ChevronDown, ChevronRight } from "lucide-react";
+import { Sparkles, ImageOff, MoveVertical, MoveHorizontal, ZoomIn, Layers, Accessibility, Eye, Crown, Home, Lock, Type, ChevronDown, ChevronRight, Download } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 
@@ -221,6 +221,54 @@ export default function SeatDesigner({
     }
   };
 
+  // Generate a CSV row plan: one CSV row per theatre row, one column per
+  // visual position (so ushers can scan from house-left to house-right).
+  // Aisles render as `AISLE` so they read clearly in Excel / printouts.
+  const exportRowPlanCsv = () => {
+    const escape = (v) => {
+      const s = String(v ?? "");
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const header = [
+      "Row",
+      "Seat count",
+      ...Array.from({ length: cols }, (_, i) =>
+        `Pos ${i + 1}${i === 0 ? " (house left)" : i === cols - 1 ? " (house right)" : ""}`
+      ),
+    ];
+    const lines = [header.map(escape).join(",")];
+    for (let r = 0; r < rows; r++) {
+      const rowLetter = LETTERS[r];
+      const rowOffset = (rowOffsets || {})[rowLetter] || 0;
+      let seatCount = 0;
+      const cells = Array.from({ length: cols }, (_, c) => {
+        const seatNumber = numberingRtl ? cols - c : c + 1;
+        const id = `${rowLetter}-${seatNumber}`;
+        if (aisleSet.has(id)) return "AISLE";
+        const displayLabel = seatNumber - rowOffset;
+        const autoStr = displayLabel > 0 ? `${rowLetter}${displayLabel}` : id;
+        seatCount += 1;
+        return (customLabels || {})[id] || autoStr;
+      });
+      lines.push([rowLetter, seatCount, ...cells].map(escape).join(","));
+      // Insert a blank row whenever a section break sits after this row, so
+      // the printout visually separates sections (Mezzanine, Balcony, etc.).
+      if (sectionMap.has(r)) {
+        lines.push([`--- ${sectionMap.get(r)} ---`].map(escape).join(","));
+      }
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `row-plan-${rows}x${cols}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success("Row plan downloaded — open in Excel / Google Sheets to print");
+  };
+
   // Adaptive seat size based on column count (so 15-col venues fit on screen)
   const seatSize = cols <= 10 ? 26 : cols <= 14 ? 22 : cols <= 18 ? 18 : 14;
   const seatGap = cols <= 14 ? 6 : 4;
@@ -403,20 +451,29 @@ export default function SeatDesigner({
       {/* Numbering preview — quick row-by-row sanity check so organizers
           can verify auto-numbering / aisles before customers see them. */}
       <div className="rounded-xl overflow-hidden" style={{ background: "var(--bg-elev)", border: "1px solid var(--border)" }} data-testid="numbering-preview">
-        <button
-          type="button"
-          onClick={() => setShowPreview((s) => !s)}
-          className="w-full flex items-center justify-between px-4 py-2.5 text-xs"
-          style={{ color: "var(--text-muted)" }}
-          data-testid="numbering-preview-toggle"
-        >
-          <span className="inline-flex items-center gap-2">
+        <div className="w-full flex items-center justify-between px-4 py-2.5 text-xs gap-3" style={{ color: "var(--text-muted)" }}>
+          <button
+            type="button"
+            onClick={() => setShowPreview((s) => !s)}
+            className="inline-flex items-center gap-2 flex-1 text-left"
+            data-testid="numbering-preview-toggle"
+          >
+            {showPreview ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
             <Eye className="w-3.5 h-3.5" />
             <span className="uppercase tracking-widest font-medium">Numbering preview</span>
-            <span className="opacity-60">— how each row will read to the buyer</span>
-          </span>
-          {showPreview ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-        </button>
+            <span className="opacity-60 hidden sm:inline">— how each row will read to the buyer</span>
+          </button>
+          <button
+            type="button"
+            onClick={exportRowPlanCsv}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition shrink-0"
+            style={{ background: "transparent", color: "var(--accent)", border: "1px solid var(--accent)" }}
+            data-testid="export-row-plan-csv"
+            title="Download a CSV of every row's seat sequence — hand to ushers for door duty"
+          >
+            <Download className="w-3 h-3" /> Export row plan (CSV)
+          </button>
+        </div>
         {showPreview && (
           <div className="px-4 pb-3 pt-1 space-y-1.5 max-h-56 overflow-y-auto text-xs font-mono">
             {Array.from({ length: rows }).map((_, r) => {
