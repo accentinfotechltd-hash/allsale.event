@@ -99,27 +99,14 @@
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
 
-        <!-- ====================== ANALYTICS (Google Analytics 4) ======================
-             Loads gtag.js when REACT_APP_GA_MEASUREMENT_ID is set at build time
-             (CRA substitutes %REACT_APP_*% inside public/index.html). Defaults
-             to a safe stub (`G-XXXXXXXXXX`) so SEO audit crawlers still detect
-             the tag — actual data tracking only fires for the real ID.
-        -->
-        <script
-            async
-            src="https://www.googletagmanager.com/gtag/js?id=%REACT_APP_GA_MEASUREMENT_ID%"
-        ></script>
+        <!-- ====================== ANALYTICS (Google Analytics 4) ====================== -->
+        <!-- Google tag (gtag.js) — Allsale Events production -->
+        <script async src="https://www.googletagmanager.com/gtag/js?id=G-E4WPC8V5XZ"></script>
         <script>
             window.dataLayer = window.dataLayer || [];
             function gtag(){dataLayer.push(arguments);}
             gtag('js', new Date());
-            // `config` only fires if the env var was actually substituted by CRA
-            // at build time. Otherwise the literal string '%REACT_APP_GA_MEASUREMENT_ID%'
-            // remains, which we detect and skip to avoid sending bad pageviews.
-            var __ga_id = '%REACT_APP_GA_MEASUREMENT_ID%';
-            if (__ga_id && __ga_id.indexOf('%') === -1) {
-                gtag('config', __ga_id, { send_page_view: true });
-            }
+            gtag('config', 'G-E4WPC8V5XZ');
         </script>
         <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
     </head>
