@@ -92,6 +92,10 @@ class HoldIn(BaseModel):
     seats: Optional[List[str]] = None
     code: Optional[str] = Field(default=None, max_length=24)  # optional discount code
     gift_card_code: Optional[str] = Field(default=None, max_length=32)  # optional gift card
+    # Ticket Protection — buyer opt-in. Adds TICKET_PROTECTION_PCT (default
+    # 6.5%) on top of the buyer total. Refunds are routed through the admin
+    # claim flow in /admin → Ticket Protection.
+    protection_opted: bool = False
 
 
 class CheckoutIn(BaseModel):

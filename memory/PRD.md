@@ -1161,3 +1161,47 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 **User action:** Push to Railway + Vercel → re-run the SEO audit at https://allsale.events. Score should now hit the projected 100/100 (Grade A).
 
 
+
+## Iteration 39 (2026-02-18) — Per-tier fee breakdown + DIY Ticket Protection (D)
+
+**User picked option D** after the Eventfinda checkout-screen comparison: both #1 (per-tier fee breakdown) and #2a (DIY internal-pool Ticket Protection).
+
+### #1 — Per-tier fee breakdown
+- ✅ New `/app/frontend/src/lib/fees.js` — `estimateBuyerFees(faceValue)` mirrors backend `fees.py:compute_fees()` with the same Platform-fee BPS (500 = 5%) + Stripe-fee BPS (270 = 2.7%) + flat ($0.30).
+- ✅ Tier card on EventDetail now renders an explicit "$30.00 + $3.09 fees" line under each tier price (`data-testid="tier-fee-breakdown-{tier_name}"`).
+- ✅ Skipped for free tiers (no fee row when price is 0).
+- ✅ Mirrors the live screenshot 1:1 — buyer sees exactly what's organizer's cut vs. fee.
+
+### #2a — DIY Ticket Protection (internal pool)
+**Backend (`routers/ticket_protection.py` — new, mounted in `server.py`):**
+- ✅ `GET /api/ticket-protection/quote?subtotal=X` — public; returns `{protection_amount, protection_pct_bps, covers[]}` for the buyer card.
+- ✅ `POST /api/ticket-protection/claims` — authed buyer; validates booking ownership + opted-in flag; idempotent.
+- ✅ `GET /api/ticket-protection/claims/mine` — buyer's own claims list.
+- ✅ `GET /api/admin/ticket-protection/claims` — admin list, optional `?status=pending`.
+- ✅ `POST /api/admin/.../approve` — flips claim to approved, stages booking for refund via the existing admin refund pipeline.
+- ✅ `POST /api/admin/.../deny` — records denial + admin note.
+- ✅ `TICKET_PROTECTION_PCT_BPS` env-overridable (default 650 = 6.5%).
+- ✅ Booking flow (`bookings.py`) now reads `protection_opted` flag on `HoldIn`, computes the surcharge, and adds it to `amount` so Stripe charges the right total. Field stored as `protection_opted` + `protection_amount` on the booking doc for downstream reporting.
+
+**Frontend (`pages/EventDetail.jsx`):**
+- ✅ New `protectionOpted` state + a Yes/No card with the orange "Ticket Protection" accent, refund coverage list, and the live +NZ$X.XX quote (recomputed via `estimateTicketProtection(total)`).
+- ✅ Total price line now adds the protection surcharge in real time.
+- ✅ Hold POST payload passes `protection_opted: true` when toggled.
+
+**Tested:**
+- 3 pytests pass (rate constant, amount math, claim row lifecycle).
+- Live curl: `GET /api/ticket-protection/quote?subtotal=30` returns `{protection_amount: 1.95}` (6.5%).
+- Live screenshot of an event detail page shows: fee breakdown under each tier, Ticket Protection card with Yes selected (orange), total updated to include +NZ$1.63.
+
+**Files changed/added:**
+- New: `backend/routers/ticket_protection.py`
+- New: `frontend/src/lib/fees.js`
+- New: `backend/tests/test_ticket_protection.py`
+- Edited: `backend/server.py` (router registration), `backend/models.py` (`HoldIn.protection_opted`), `backend/routers/bookings.py` (apply protection surcharge), `frontend/src/pages/EventDetail.jsx` (UI + state + payload)
+
+**Open follow-ups not yet built** (deferred until needed):
+- Admin UI tab to view + approve/deny claims (endpoints exist; UI is curl-only for now)
+- Profile "Request refund" button on a protected ticket (endpoint exists)
+- Insurance-pool accounting (sum of collected `protection_amount` minus approved refunds)
+
+

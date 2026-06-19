@@ -210,6 +210,17 @@ async def create_hold(payload: HoldIn, request: Request, user: dict = Depends(ge
         "gift_card_code": gift_card_code,
         "gift_card_amount": gift_card_amount,
     })
+
+    # Ticket Protection upgrade — opt-in surcharge tacked onto the buyer
+    # total. Tracked separately so refund flows and admin reporting can
+    # see the protection cut vs. the ticket face value clearly.
+    if getattr(payload, "protection_opted", False):
+        from routers.ticket_protection import compute_protection_amount
+        protection_amount = compute_protection_amount(buyer_total)
+        if protection_amount > 0:
+            booking_doc["protection_opted"] = True
+            booking_doc["protection_amount"] = protection_amount
+            booking_doc["amount"] = round(buyer_total + protection_amount, 2)
     await db.bookings.insert_one(booking_doc)
 
     # Affiliate attribution — pull the cookie (or query param fallback) and

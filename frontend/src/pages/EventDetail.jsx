@@ -9,6 +9,7 @@ import { ContactOrganizerButton } from "@/components/ContactOrganizerDialog";
 import FollowOrganizerButton from "@/components/FollowOrganizerButton";
 import AffiliateBanner from "@/components/AffiliateBanner";
 import { usePageMeta } from "@/lib/usePageMeta";
+import { estimateBuyerFees, estimateTicketProtection } from "@/lib/fees";
 import SocialShareButtons from "@/components/SocialShareButtons";
 import SeoHead from "@/components/SeoHead";
 import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi, Gift, Star, Sparkles } from "lucide-react";
@@ -33,6 +34,8 @@ export default function EventDetail() {
   const [myWaitlist, setMyWaitlist] = useState(null); // null=unknown, []=not on, [{...}]=on
   const [joiningWl, setJoiningWl] = useState(false);
   const [demand, setDemand] = useState([]);
+  // Ticket Protection — buyer opt-in toggle (Yes/No null = undecided).
+  const [protectionOpted, setProtectionOpted] = useState(false);
 
   // ---- SEO meta + JSON-LD Event schema. Googlebot executes JS so this gets
   // indexed. Built lazily once the event payload is loaded. ----
@@ -306,6 +309,7 @@ export default function EventDetail() {
         : { event_id: event.event_id, tier_name: tier, quantity: qty };
       if (appliedCode) payload.code = appliedCode.code;
       if (giftCardInfo) payload.gift_card_code = giftCardInfo.code;
+      if (protectionOpted) payload.protection_opted = true;
       const { data } = await api.post("/bookings/hold", payload);
       nav(`/checkout/${data.booking_id}`);
     } catch (e) {
@@ -525,6 +529,11 @@ export default function EventDetail() {
                           ) : (
                             <div className="serif text-2xl" style={{ color: "var(--accent)" }}>{formatMoney(t.price, event.currency, { minimumFractionDigits: 0, maximumFractionDigits: 2, free: true })}</div>
                           )}
+                          {Number(t.effective_price ?? t.price) > 0 && (
+                            <div className="text-[10px] mt-1" style={{ color: "var(--text-dim)" }} data-testid={`tier-fee-breakdown-${t.name}`}>
+                              {formatMoney(Number(t.effective_price ?? t.price), event.currency, { free: false })} + {formatMoney(estimateBuyerFees(Number(t.effective_price ?? t.price)).fees, event.currency, { free: false })} fees
+                            </div>
+                          )}
                         </div>
                       </div>
                     </button>
@@ -658,9 +667,64 @@ export default function EventDetail() {
               )}
               <div className="flex items-baseline justify-between pt-1">
                 <span className="text-sm uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Total</span>
-                <span className="serif text-4xl" style={{ color: "var(--accent)" }} data-testid="total-price">{formatMoney(total, event.currency, { free: true })}</span>
+                <span className="serif text-4xl" style={{ color: "var(--accent)" }} data-testid="total-price">{formatMoney(total + (protectionOpted ? estimateTicketProtection(total) : 0), event.currency, { free: true })}</span>
               </div>
             </div>
+
+            {/* Ticket Protection upgrade — opt-in refundable add-on. */}
+            {total > 0 && (
+              <div
+                className="rounded-xl p-3 mt-4 space-y-2"
+                style={{ background: "var(--bg-elev)", border: "1px solid var(--border)" }}
+                data-testid="ticket-protection-card"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--accent)" }}>Ticket Protection</div>
+                    <div className="text-sm" style={{ color: "var(--text)" }}>
+                      Refundable tickets — get up to 100% back if you can't make it
+                    </div>
+                    <div className="text-[11px] mt-1" style={{ color: "var(--text-dim)" }}>
+                      Covers illness, transport delays, severe weather, family emergencies and work commitments.
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Just</div>
+                    <div className="serif text-lg" style={{ color: "var(--accent)" }}>+{formatMoney(estimateTicketProtection(total), event.currency)}</div>
+                  </div>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setProtectionOpted(true)}
+                    className="flex-1 py-2 rounded-lg text-xs transition"
+                    style={{
+                      background: protectionOpted ? "var(--accent)" : "transparent",
+                      color: protectionOpted ? "#000" : "var(--text-muted)",
+                      border: "1px solid " + (protectionOpted ? "var(--accent)" : "var(--border)"),
+                      fontWeight: protectionOpted ? 600 : 400,
+                    }}
+                    data-testid="protection-yes-btn"
+                  >
+                    ✓ Yes, protect my booking
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProtectionOpted(false)}
+                    className="flex-1 py-2 rounded-lg text-xs transition"
+                    style={{
+                      background: protectionOpted === false ? "var(--bg-card)" : "transparent",
+                      color: "var(--text-muted)",
+                      border: "1px solid var(--border)",
+                      fontWeight: protectionOpted === false ? 500 : 400,
+                    }}
+                    data-testid="protection-no-btn"
+                  >
+                    No thanks
+                  </button>
+                </div>
+              </div>
+            )}
 
             <button onClick={onBook} disabled={submitting || (event.has_seatmap ? selectedSeats.length === 0 : qty < 1) || event.sold_out || event.is_past} className="btn-primary w-full justify-center mt-5" data-testid="book-now-btn">
               {submitting ? "Holding seats..." : event.is_past ? "Event ended" : event.sold_out ? "Sold out" : total === 0 ? "Reserve free spot" : "Book now"} <ArrowRight className="w-4 h-4" />
