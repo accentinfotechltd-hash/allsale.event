@@ -8,6 +8,7 @@ import ProfileEditPanel from "@/components/ProfileEditPanel";
 import ProfileWaitlistsPanel from "@/components/ProfileWaitlistsPanel";
 import RefundButton from "@/components/RefundButton";
 import TransferTicketButton from "@/components/TransferTicketButton";
+import ProtectionClaimButton from "@/components/ProtectionClaimButton";
 import { downloadTicketPdf } from "@/lib/ticketPdf";
 
 export default function Profile() {
@@ -123,8 +124,23 @@ export default function Profile() {
                   <MapPin className="w-3 h-3 inline ml-3 mr-1" /> {b.event_venue}
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-xs" style={{ color: "var(--text-dim)" }}>{b.tier_name} · {b.seats?.length || b.quantity}x</span>
+                  <span className="text-xs" style={{ color: "var(--text-dim)" }}>
+                    {b.tier_name} · {b.seats?.length || b.quantity}x
+                    {b.protection_opted && (
+                      <span
+                        className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] uppercase tracking-widest"
+                        style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+                        title="Refundable via Ticket Protection"
+                        data-testid={`protection-badge-${b.booking_id}`}
+                      >
+                        Protected
+                      </span>
+                    )}
+                  </span>
                   <div className="flex gap-1.5">
+                    {b.protection_opted && (
+                      <ProtectionClaimButton booking={b} />
+                    )}
                     <TransferTicketButton bookingId={b.booking_id} eventTitle={b.event_title} />
                     <RefundButton bookingId={b.booking_id} eventCurrency={b.currency} />
                     <button onClick={() => setActive(b)} className="btn-ghost !py-1.5 !px-3 text-xs" data-testid={`show-qr-${b.booking_id}`}>

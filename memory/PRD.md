@@ -1205,3 +1205,40 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 - Insurance-pool accounting (sum of collected `protection_amount` minus approved refunds)
 
 
+
+## Iteration 40 (2026-02-18) — Ticket Protection UI loop closed
+
+**Trigger:** Iter 39 shipped the buyer card + backend endpoints; this iteration adds the two UI surfaces that complete the round-trip so the feature is usable without curl.
+
+### A) Profile "Request refund" CTA
+- ✅ New `/app/frontend/src/components/ProtectionClaimButton.jsx`. On mount it polls `/api/ticket-protection/claims/mine` and either:
+  - renders a coloured status pill (pending = amber, approved = green, denied = red) if a claim already exists for this booking, **or**
+  - shows a "Request refund" ghost button.
+- ✅ Click opens a modal with a 10-character minimum reason textarea, optional evidence URL field, and a warning that false claims may result in account suspension + the protection fee itself is non-refundable.
+- ✅ Submit → `POST /api/ticket-protection/claims`. Toast on success, error detail surfaced on failure.
+- ✅ "Protected" pill added next to the tier/qty line on every protected booking row, so the buyer instantly sees their tickets are eligible for protection.
+- ✅ Wired into `Profile.jsx` — only rendered when `booking.protection_opted === true`.
+
+### B) Admin Claims Queue
+- ✅ New `Protection claims` tab in `/admin` (sits between Live chat and Settings, uses `ShieldAlert` icon).
+- ✅ New `ProtectionClaimsTab` component (appended to `pages/Admin.jsx`):
+  - Filter chips: pending (default) / approved / denied / all.
+  - Each row shows event title, buyer, amount, booking ID, reason (boxed), optional evidence link, admin note (if any), and the status pill.
+  - For pending claims: **Approve & stage refund** (primary) + **Deny** (ghost) — each prompts for an optional internal note.
+  - Approve hits `POST /admin/.../approve` → claim flipped + booking gets `refund_requested_at` so it lands in the existing admin refund pipeline.
+  - Deny hits `POST /admin/.../deny`.
+- ✅ Refresh button + live screenshot confirms the tab renders correctly (empty-state for now since no real claims exist in the preview DB).
+
+**Files changed/added:**
+- New: `frontend/src/components/ProtectionClaimButton.jsx`
+- Edited: `frontend/src/pages/Profile.jsx` (import + render under protected bookings + "Protected" pill)
+- Edited: `frontend/src/pages/Admin.jsx` (tab + `ProtectionClaimsTab` component)
+
+**Feature is now fully end-to-end:**
+1. Buyer opts in on the event page (iter 39)
+2. Stripe charges the +6.5% surcharge (iter 39)
+3. Buyer files a claim from `/profile` (this iter)
+4. Admin reviews in `/admin → Protection claims` (this iter)
+5. Approve → booking flagged → admin processes Stripe refund via existing `/admin → Bookings → Refund` button
+
+

@@ -30,11 +30,12 @@ export default function Admin() {
           <TabBtn id="stripe" current={tab} onClick={setTab} icon={<ShieldCheck className="w-4 h-4" />} label="Stripe" />
           <TabBtn id="emails" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Emails" />
           <TabBtn id="chats" current={tab} onClick={setTab} icon={<MessageCircle className="w-4 h-4" />} label="Live chat" />
+          <TabBtn id="protection" current={tab} onClick={setTab} icon={<ShieldAlert className="w-4 h-4" />} label="Protection claims" />
           <TabBtn id="settings" current={tab} onClick={setTab} icon={<SettingsIcon className="w-4 h-4" />} label="Settings" />
         </div>
       </div>
 
-      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : <SettingsTab />}
+      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : tab === "protection" ? <ProtectionClaimsTab /> : <SettingsTab />}
     </div>
   );
 }
@@ -2139,3 +2140,160 @@ function AdminAttachment({ att }) {
   );
 }
 
+
+
+/**
+ * ProtectionClaimsTab — admin queue of Ticket Protection refund claims.
+ *
+ * Lifecycle the admin sees:
+ *   pending → approve / deny
+ *     • approve → claim flips to "approved", booking gets `refund_requested_at`
+ *       stamp. Actual Stripe refund happens via the existing /admin → Bookings
+ *       refund button (we deliberately keep the two-step so admin can sanity-
+ *       check the booking record before sending money back).
+ *     • deny → claim flips to "denied" with an optional internal note.
+ */
+function ProtectionClaimsTab() {
+  const [claims, setClaims] = useState([]);
+  const [filter, setFilter] = useState("pending");
+  const [loading, setLoading] = useState(true);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const url = filter === "all"
+        ? "/admin/ticket-protection/claims"
+        : `/admin/ticket-protection/claims?status=${filter}`;
+      const { data } = await api.get(url);
+      setClaims(data || []);
+    } catch {
+      toast.error("Couldn't load claims");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
+
+  const decide = async (claim, decision) => {
+    const note = window.prompt(`Optional internal note for this ${decision}:`, "") || "";
+    try {
+      await api.post(
+        `/admin/ticket-protection/claims/${claim.claim_id}/${decision}`,
+        { admin_note: note }
+      );
+      toast.success(`Claim ${decision === "approve" ? "approved" : "denied"}`);
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || `Couldn't ${decision} claim`);
+    }
+  };
+
+  const statusColor = (s) => ({
+    pending: { bg: "rgba(255,165,0,0.15)", fg: "#ff9100" },
+    approved: { bg: "rgba(46,204,113,0.15)", fg: "#2ECC71" },
+    denied: { bg: "rgba(231,76,60,0.15)", fg: "#E74C3C" },
+  }[s] || { bg: "var(--bg-elev)", fg: "var(--text-muted)" });
+
+  return (
+    <div className="space-y-4" data-testid="admin-protection-tab">
+      <div className="flex items-center gap-2 flex-wrap">
+        {["pending", "approved", "denied", "all"].map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className="px-3 py-1.5 rounded-full text-xs transition"
+            style={{
+              background: filter === f ? "var(--accent)" : "transparent",
+              color: filter === f ? "#000" : "var(--text-muted)",
+              border: "1px solid " + (filter === f ? "var(--accent)" : "var(--border)"),
+              fontWeight: filter === f ? 600 : 400,
+              textTransform: "capitalize",
+            }}
+            data-testid={`protection-filter-${f}`}
+          >
+            {f}
+          </button>
+        ))}
+        <button
+          onClick={load}
+          className="ml-auto inline-flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg"
+          style={{ color: "var(--text-muted)", border: "1px solid var(--border)" }}
+          data-testid="protection-refresh"
+        >
+          <RefreshCw className="w-3 h-3" /> Refresh
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="text-sm py-10 text-center" style={{ color: "var(--text-dim)" }}>Loading…</div>
+      ) : claims.length === 0 ? (
+        <div className="text-sm py-10 text-center rounded-xl border" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }} data-testid="protection-empty">
+          No {filter === "all" ? "" : filter} claims right now.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {claims.map((c) => {
+            const col = statusColor(c.status);
+            return (
+              <div key={c.claim_id} className="rounded-xl p-4 border" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }} data-testid={`claim-${c.claim_id}`}>
+                <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="serif text-lg mb-0.5">{c.event_title || "Event"}</div>
+                    <div className="text-xs flex flex-wrap gap-x-3 gap-y-1" style={{ color: "var(--text-dim)" }}>
+                      <span>👤 {c.user_name || c.user_email}</span>
+                      <span>💵 {c.currency} {Number(c.amount || 0).toFixed(2)}</span>
+                      <span>📅 {new Date(c.created_at).toLocaleString()}</span>
+                      <span className="font-mono">{c.booking_id}</span>
+                    </div>
+                  </div>
+                  <span
+                    className="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-widest shrink-0"
+                    style={{ background: col.bg, color: col.fg }}
+                  >
+                    {c.status}
+                  </span>
+                </div>
+                <div className="text-sm rounded-lg p-3 mb-3" style={{ background: "var(--bg-elev)", color: "var(--text)" }}>
+                  {c.reason || <em style={{ color: "var(--text-dim)" }}>No reason provided</em>}
+                  {c.evidence_url && (
+                    <div className="mt-2 text-xs">
+                      Evidence: <a href={c.evidence_url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)" }}>{c.evidence_url}</a>
+                    </div>
+                  )}
+                </div>
+                {c.admin_note && (
+                  <div className="text-xs mb-3 italic" style={{ color: "var(--text-muted)" }}>
+                    Admin note: {c.admin_note}
+                  </div>
+                )}
+                {c.status === "pending" ? (
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => decide(c, "approve")}
+                      className="btn-primary !py-1.5 !px-3 text-xs"
+                      data-testid={`approve-claim-${c.claim_id}`}
+                    >
+                      <Check className="w-3 h-3" /> Approve & stage refund
+                    </button>
+                    <button
+                      onClick={() => decide(c, "deny")}
+                      className="btn-ghost !py-1.5 !px-3 text-xs"
+                      data-testid={`deny-claim-${c.claim_id}`}
+                    >
+                      <X className="w-3 h-3" /> Deny
+                    </button>
+                  </div>
+                ) : (
+                  <div className="text-xs" style={{ color: "var(--text-dim)" }}>
+                    Decided {c.decided_at ? new Date(c.decided_at).toLocaleString() : ""}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
