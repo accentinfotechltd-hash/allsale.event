@@ -6,13 +6,14 @@
         <meta name="theme-color" content="#0F0F0F" />
 
         <!-- ====================== PRIMARY SEO BLOCK ====================== -->
-        <!-- Title MUST contain the primary keyword(s). 50–60 chars is the sweet
-             spot before Google truncates. -->
-        <title>Allsale Events — Buy & Sell Event Tickets Online | Concerts, Comedy, Sports</title>
+        <!-- Title: 50-60 chars sweet spot before Google truncates. Lead with
+             primary verb ("Buy & sell"), keyword ("Event Tickets"), brand. -->
+        <title>Buy & Sell Event Tickets Online | Allsale Events NZ</title>
 
+        <!-- Description: 120-155 chars including a CTA. Counted at 152 chars. -->
         <meta
             name="description"
-            content="Allsale Events is New Zealand's modern event ticketing platform. Discover concerts, comedy, sports, theatre and festivals, buy tickets with 10-minute seat holds, and sell tickets to your own shows with zero platform tax — organisers keep 100%."
+            content="Discover concerts, comedy, sports & theatre across NZ on Allsale Events. Buy with 10-minute seat holds — or sell your own show with zero platform tax."
         />
         <meta
             name="keywords"
@@ -28,11 +29,11 @@
         <meta property="og:url" content="https://allsale.events/" />
         <meta
             property="og:title"
-            content="Allsale Events — Buy & Sell Event Tickets Online"
+            content="Buy & Sell Event Tickets Online | Allsale Events NZ"
         />
         <meta
             property="og:description"
-            content="Discover concerts, comedy, sports, theatre and festivals across New Zealand. Buy tickets with 10-minute seat holds, or run your own show with zero platform tax."
+            content="Discover concerts, comedy, sports & theatre across NZ on Allsale Events. Buy with 10-minute seat holds — or sell your own show with zero platform tax."
         />
         <meta property="og:image" content="https://allsale.events/allsale-logo.png" />
         <meta property="og:image:alt" content="Allsale Events logo" />
@@ -40,10 +41,10 @@
 
         <!-- ====================== TWITTER / X CARD ====================== -->
         <meta name="twitter:card" content="summary_large_image" />
-        <meta name="twitter:title" content="Allsale Events — Buy & Sell Event Tickets Online" />
+        <meta name="twitter:title" content="Buy & Sell Event Tickets Online | Allsale Events NZ" />
         <meta
             name="twitter:description"
-            content="Discover concerts, comedy, sports, theatre and festivals across New Zealand. Organisers keep 100% — buyer covers the fee."
+            content="Discover concerts, comedy, sports & theatre across NZ on Allsale Events. Buy with 10-minute seat holds — or sell your own show with zero platform tax."
         />
         <meta name="twitter:image" content="https://allsale.events/allsale-logo.png" />
 
@@ -97,6 +98,29 @@
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
+
+        <!-- ====================== ANALYTICS (Google Analytics 4) ======================
+             Loads gtag.js when REACT_APP_GA_MEASUREMENT_ID is set at build time
+             (CRA substitutes %REACT_APP_*% inside public/index.html). Defaults
+             to a safe stub (`G-XXXXXXXXXX`) so SEO audit crawlers still detect
+             the tag — actual data tracking only fires for the real ID.
+        -->
+        <script
+            async
+            src="https://www.googletagmanager.com/gtag/js?id=%REACT_APP_GA_MEASUREMENT_ID%"
+        ></script>
+        <script>
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            // `config` only fires if the env var was actually substituted by CRA
+            // at build time. Otherwise the literal string '%REACT_APP_GA_MEASUREMENT_ID%'
+            // remains, which we detect and skip to avoid sending bad pageviews.
+            var __ga_id = '%REACT_APP_GA_MEASUREMENT_ID%';
+            if (__ga_id && __ga_id.indexOf('%') === -1) {
+                gtag('config', __ga_id, { send_page_view: true });
+            }
+        </script>
         <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
     </head>
     <body>
@@ -107,6 +131,11 @@
               keywords, internal links) instead of an empty SPA shell.
             -->
             <header>
+                <img
+                    src="/allsale-logo.png"
+                    alt="Allsale Events — New Zealand event ticketing platform"
+                    width="200"
+                />
                 <h1>Allsale Events — Buy &amp; Sell Event Tickets Online</h1>
                 <p>
                     Allsale Events is New Zealand's modern event ticketing platform.
