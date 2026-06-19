@@ -2,5 +2,18 @@
   "buildCommand": "yarn build",
   "installCommand": "yarn install --network-timeout 100000",
   "outputDirectory": "build",
-  "framework": "create-react-app"
+  "framework": "create-react-app",
+  "rewrites": [
+    {
+      "source": "/events/:id",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": "(?i).*(facebookexternalhit|Facebot|Twitterbot|LinkedInBot|WhatsApp|Slackbot|Slack-ImgProxy|Discordbot|TelegramBot|Pinterest|Applebot|SkypeUriPreview|vkShare|redditbot|Embedly|iframely|Bluesky).*"
+        }
+      ],
+      "destination": "/api/og-event?id=:id"
+    }
+  ]
 }
