@@ -5,7 +5,7 @@ import EventCard from "@/components/EventCard";
 import FeatureShowcase from "@/components/FeatureShowcase";
 import TrendingCarousel from "@/components/TrendingCarousel";
 import { useAuth } from "@/lib/auth";
-import { ArrowRight, Search, Calendar, Zap, Award, Sparkles } from "lucide-react";
+import { ArrowRight, Search, Calendar, Zap, Award, Sparkles, Ticket, ScanLine, DollarSign, ShieldCheck, Smartphone, Megaphone } from "lucide-react";
 
 export default function Landing() {
   const { user } = useAuth();
@@ -72,6 +72,10 @@ export default function Landing() {
 
   return (
     <div>
+      {/* TOP FEATURE STRIP — first thing every visitor sees: a one-glance summary
+          of what Allsale does. Marquee on mobile, static row on desktop. */}
+      <FeatureStrip />
+
       {/* HERO */}
       <section className="relative overflow-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-10 sm:pt-16 pb-12 grid lg:grid-cols-12 gap-10 items-end">
@@ -341,5 +345,65 @@ export default function Landing() {
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * FeatureStrip — slim, eye-level ribbon at the very top of the landing page
+ * so every visitor sees Allsale's core capabilities within half a second.
+ * On wide screens it lays out in a single row; on phones it horizontally
+ * scrolls (touch + keyboard friendly) so we don't sacrifice copy density.
+ */
+const TOP_FEATURES = [
+  { icon: Ticket, label: "Multi-tier ticketing", sub: "Early Bird, GA, VIP" },
+  { icon: Calendar, label: "Custom seat maps", sub: "Aisles, categories, holds" },
+  { icon: Zap, label: "Instant e-tickets", sub: "QR delivered in seconds" },
+  { icon: ScanLine, label: "Door-scanner PWA", sub: "Works offline at the gate" },
+  { icon: DollarSign, label: "Keep 100%", sub: "Buyer covers the fee" },
+  { icon: ShieldCheck, label: "Stripe payouts", sub: "5 days after the show" },
+  { icon: Megaphone, label: "Creator marketplace", sub: "Pay only on sales" },
+  { icon: Smartphone, label: "PWA + mobile-first", sub: "Install, no app store" },
+];
+
+function FeatureStrip() {
+  return (
+    <section
+      className="border-b"
+      style={{ borderColor: "var(--border)", background: "var(--bg-elev)" }}
+      data-testid="landing-feature-strip"
+      aria-label="Platform features"
+    >
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3">
+        <div
+          className="flex items-center gap-2.5 overflow-x-auto sm:overflow-visible sm:flex-wrap sm:justify-center scrollbar-hide"
+          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        >
+          <span
+            className="text-[10px] uppercase tracking-[0.25em] font-medium shrink-0 hidden sm:inline-block"
+            style={{ color: "var(--accent)" }}
+          >
+            What you get
+          </span>
+          <span className="hidden sm:inline-block w-px h-3" style={{ background: "var(--border-strong)" }} />
+          {TOP_FEATURES.map(({ icon: Icon, label, sub }) => (
+            <div
+              key={label}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full shrink-0 border"
+              style={{
+                background: "var(--bg-card)",
+                borderColor: "var(--border)",
+                color: "var(--text)",
+              }}
+              data-testid={`feature-chip-${label.toLowerCase().replace(/\s+/g, "-")}`}
+              title={sub}
+            >
+              <Icon className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} />
+              <span className="text-xs font-medium whitespace-nowrap">{label}</span>
+              <span className="text-[10px] opacity-60 whitespace-nowrap hidden md:inline">· {sub}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }

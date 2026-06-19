@@ -982,3 +982,27 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 - Live screenshot of `/organizer/new` shows the bar rendered under the rows/cols grid.
 
 
+
+## Iteration 33 (2026-02-18) — Top-of-page feature ribbon on Landing
+
+**User request:** "Make feature list on home page top. Whoever comes on page they can see the features of our website."
+
+**Implementation:**
+- ✅ New `FeatureStrip` component rendered as the **very first thing** on the landing page, above the hero — so every visitor sees the platform's capabilities the instant the page loads.
+- ✅ 8 feature chips on a single accent-bordered ribbon:
+  - 🎫 Multi-tier ticketing — Early Bird, GA, VIP
+  - 📅 Custom seat maps — Aisles, categories, holds
+  - ⚡ Instant e-tickets — QR delivered in seconds
+  - 🔍 Door-scanner PWA — Works offline at the gate
+  - 💲 Keep 100% — Buyer covers the fee
+  - 🛡️ Stripe payouts — 5 days after the show
+  - 📣 Creator marketplace — Pay only on sales
+  - 📱 PWA + mobile-first — Install, no app store
+- ✅ Responsive: horizontal scroll on phones (touch-friendly), wrap-flex on desktop, sub-labels visible only on `md+` to keep the strip slim.
+- ✅ Uses existing CSS vars (matches the dark/orange theme) — no new design tokens.
+- ✅ Lives ABOVE the existing `<FeatureShowcase>` (which is the long-form "everything we do" section further down). Visitors get the elevator pitch first, deeper detail when they scroll.
+- ✅ Data test-ids: `landing-feature-strip` + `feature-chip-{slug}` per pill.
+
+**File changed:** `/app/frontend/src/pages/Landing.jsx` (single file, lint clean — pre-existing quote warnings on unrelated lines).
+
+
