@@ -150,21 +150,42 @@ async def seed_demo():
     # once, sign in, then DELETE the env var (so the password isn't sitting in
     # plaintext in your dashboard). The check is idempotent — running it twice
     # with the same value is a no-op apart from re-hashing.
-    reset_pw = os.environ.get("ADMIN_PASSWORD_RESET", "").strip()
+    #
+    # Hardened against common Railway pitfalls:
+    #   • Strips wrapping quotes (users often paste "pwd" which Railway keeps).
+    #   • Refuses to set a blank or whitespace-only password.
+    #   • Logs a 4-character prefix so the operator can sanity-check the env
+    #     var was picked up correctly without leaking the full password.
+    #   • Logs the target email + whether the admin row existed.
+    raw_reset = os.environ.get("ADMIN_PASSWORD_RESET", "")
+    reset_pw = raw_reset.strip()
+    # Strip a single layer of wrapping quotes if pasted with them.
+    if len(reset_pw) >= 2 and reset_pw[0] == reset_pw[-1] and reset_pw[0] in ("'", '"'):
+        reset_pw = reset_pw[1:-1]
     if reset_pw:
-        await db.users.update_one(
-            {"email": ADMIN_EMAIL},
-            {"$set": {
-                "password_hash": hash_password(reset_pw),
-                "password_reset_at": utc_now().isoformat(),
-                "auth_provider": "password",  # ensure password login is allowed
-            }},
-        )
-        logger.warning(
-            "[seed] ADMIN_PASSWORD_RESET env var detected — admin password "
-            "was reset. REMOVE the env var on Railway now to clear the "
-            "plaintext from your dashboard."
-        )
+        admin_row = await db.users.find_one({"email": ADMIN_EMAIL}, {"_id": 0, "user_id": 1})
+        if not admin_row:
+            logger.error(
+                f"[seed] ADMIN_PASSWORD_RESET set but no admin user found for "
+                f"ADMIN_EMAIL={ADMIN_EMAIL!r}. Cannot reset. Check the email matches."
+            )
+        else:
+            await db.users.update_one(
+                {"email": ADMIN_EMAIL},
+                {"$set": {
+                    "password_hash": hash_password(reset_pw),
+                    "password_reset_at": utc_now().isoformat(),
+                    "auth_provider": "password",  # ensure password login is allowed
+                }},
+            )
+            # 4-char prefix is enough for the operator to confirm Railway picked
+            # the right env var without exposing the full secret in logs.
+            prefix = reset_pw[:4]
+            logger.warning(
+                f"[seed] ADMIN_PASSWORD_RESET applied → email={ADMIN_EMAIL} "
+                f"(pw starts with '{prefix}…', length={len(reset_pw)}). "
+                f"REMOVE the env var on Railway now."
+            )
     # Backfill admin display name for legacy seeds
     await db.users.update_one(
         {"email": ADMIN_EMAIL, "name": "AURA Admin"},
