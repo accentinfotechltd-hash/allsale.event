@@ -88,7 +88,7 @@ export default function InfluencerOnboarding() {
         {existing ? "Edit your creator profile" : "Become an Allsale creator"}
       </h1>
       <p className="opacity-70 mb-8 max-w-xl">
-        Earn 10% commission (or more) on every ticket sold through your unique link. Promote events you love.
+        Earn 5% commission (or more) on every ticket sold through your unique link. Promote events you love.
         Get paid monthly via Stripe. No minimum followers required.
       </p>
 

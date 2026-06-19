@@ -103,7 +103,7 @@ export default function Flyer() {
             heading="For Creators"
             tagline="Earn promoting events you love."
             bullets={[
-              { icon: <DollarSign size={14} />, text: "10% default commission on every ticket you sell" },
+              { icon: <DollarSign size={14} />, text: "5% default commission on every ticket you sell" },
               { icon: <Megaphone size={14} />, text: "Self-join open campaigns in one click" },
               { icon: <BarChart3 size={14} />, text: "Live dashboard of clicks, conversions, earnings" },
               { icon: <ShieldCheck size={14} />, text: "Monthly Stripe payouts ($50 minimum)" },

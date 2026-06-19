@@ -79,7 +79,7 @@ class EventIn(BaseModel):
     # Open influencer marketplace — when True, any influencer can self-join
     # this event's affiliate program with the default commission %.
     affiliate_program_open: bool = False
-    affiliate_default_commission_pct: float = 10.0
+    affiliate_default_commission_pct: float = 5.0
     # Group-booking auto-discount: when buyers purchase >= `min_qty` tickets in
     # one go they get `pct_off` % off automatically. Set min_qty=0 to disable.
     group_discount: Optional[Dict[str, Any]] = None  # {min_qty: int, pct_off: float}

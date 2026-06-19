@@ -43,7 +43,7 @@ from core import db, get_current_user, utc_now
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["influencers"])
 
-DEFAULT_COMMISSION_PCT = 10.0
+DEFAULT_COMMISSION_PCT = 5.0
 PAYOUT_MIN_USD = 50.0
 
 

@@ -938,3 +938,19 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 **Tested:** Frontend lint clean, backend lint clean. Backend restarted; `GET /api/influencers` still returns existing profiles (the new field is `null` for legacy rows, no migration needed). New profiles will accept the field via the form.
 
 
+
+## Iteration 31 (2026-02-18) — Default creator commission 10% → 5%
+
+**User request:** "Change the commission on referral 5% each" (referring to the creator program copy "Earn 10% commission…").
+
+**Changes:**
+- ✅ `routers/influencers.py` — `DEFAULT_COMMISSION_PCT = 5.0` (was 10.0). Drives the open-marketplace default whenever an event doesn't override.
+- ✅ `models.py` — `Event.affiliate_default_commission_pct: float = 5.0` (was 10.0). New events created post-deploy default to 5%.
+- ✅ `pages/InfluencerOnboarding.jsx` — hero copy updated to "Earn **5%** commission (or more) on every ticket sold through your unique link…".
+- ✅ `pages/Flyer.jsx` — feature bullet updated to "5% default commission on every ticket you sell".
+
+**No migration:** Existing events keep whatever commission % was already set on them; this only changes the default for new events and the public marketing copy. Organizers can still bump individual campaigns higher per event.
+
+**Verified on live preview:** screenshot of `/influencer/onboarding` confirms the new 5% copy + Facebook handle row are both rendering.
+
+
