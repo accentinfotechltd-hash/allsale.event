@@ -1034,3 +1034,31 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 - Edited: `frontend/src/App.js` (route)
 
 
+
+## Iteration 35 (2026-02-18) — Printable ticket PDF download
+
+**User request:** "User can receive ticket in PDF as well so they can print out — with QR code shown on left side top in PDF."
+
+**Implementation (client-side, no backend changes):**
+- ✅ Added `jspdf` dep to frontend (`yarn add jspdf`).
+- ✅ New helper `/app/frontend/src/lib/ticketPdf.js` exposing `downloadTicketPdf(booking)` — builds an A5 landscape PDF with:
+  - **QR code anchored top-left** (55×55 mm — large enough to scan after a phone-camera reprint).
+  - "Scan at the door" caption below the QR.
+  - Right column: orange "ALLSALE EVENTS · E-TICKET" tag, big serif event title (wraps to 2 lines), date + time, venue + city.
+  - 2×2 detail grid: Type / Seats (or Qty) / Booking ID / Total paid (auto-renders "Free" when amount is 0).
+  - Footer: instructions ("Present this QR…") + support email.
+  - Filename built from event title + booking-id slug.
+- ✅ Graceful fallback when `qr_code` data URL is missing — draws a placeholder box with "QR unavailable" instead of crashing.
+- ✅ Wired into the QR modal on `/profile`: new "Download PDF" primary button alongside the Close button (uses `FileDown` lucide icon). Button is disabled until the QR has loaded. Toast confirmation on download.
+
+**Tested:**
+- Lint clean on Profile.jsx + ticketPdf.js.
+- Live in-browser jsPDF round-trip confirmed via headless eval — `{ok: true, bytes: 3157}`.
+- Admin account has no paid tickets in preview env so visual snapshot of the button skipped; the wiring is straightforward and the data shape (`active.qr_code`, `active.event_title`, etc.) matches what the existing modal already consumes.
+
+**Files changed:**
+- `frontend/package.json` (+ `jspdf@4.2.1`)
+- New: `frontend/src/lib/ticketPdf.js`
+- Edited: `frontend/src/pages/Profile.jsx` (import + button)
+
+

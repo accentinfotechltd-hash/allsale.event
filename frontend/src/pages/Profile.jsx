@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Calendar, MapPin, Download, QrCode, UserCog, Sparkles } from "lucide-react";
+import { Calendar, MapPin, Download, QrCode, UserCog, Sparkles, FileDown } from "lucide-react";
 import { toast } from "sonner";
 import ProfileEditPanel from "@/components/ProfileEditPanel";
 import ProfileWaitlistsPanel from "@/components/ProfileWaitlistsPanel";
 import RefundButton from "@/components/RefundButton";
 import TransferTicketButton from "@/components/TransferTicketButton";
+import { downloadTicketPdf } from "@/lib/ticketPdf";
 
 export default function Profile() {
   const { user, setUser } = useAuth();
@@ -172,7 +173,24 @@ export default function Profile() {
               <div className="text-left"><div style={{ color: "var(--text-dim)" }}>Type</div><div>{active.tier_name}</div></div>
               <div className="text-left"><div style={{ color: "var(--text-dim)" }}>{active.seats?.length ? "Seats" : "Qty"}</div><div>{active.seats?.length ? active.seats.join(", ") : active.quantity}</div></div>
             </div>
-            <button onClick={() => setActive(null)} className="btn-ghost mt-6">Close</button>
+            <div className="flex gap-2 mt-6">
+              <button
+                onClick={() => {
+                  try {
+                    downloadTicketPdf(active);
+                    toast.success("Ticket PDF downloaded — print or save it to your phone");
+                  } catch (e) {
+                    toast.error("Couldn't generate the PDF — try refreshing");
+                  }
+                }}
+                className="btn-primary flex-1 justify-center"
+                data-testid="download-ticket-pdf"
+                disabled={!active.qr_code}
+              >
+                <FileDown className="w-4 h-4" /> Download PDF
+              </button>
+              <button onClick={() => setActive(null)} className="btn-ghost flex-1" data-testid="ticket-modal-close">Close</button>
+            </div>
           </div>
         </div>
       )}
