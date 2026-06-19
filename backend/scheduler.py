@@ -544,6 +544,75 @@ async def _check_webhook_silent_failure(db) -> bool:
     return True
 
 
+async def _send_boost_recaps(db: Any) -> int:
+    """Send a one-shot "Your Boost just ended — here's how it performed"
+    recap email to organizers once their boost window expires.
+
+    Idempotent: stamps `boost_recap_sent_at` on the event so re-running the
+    scheduler tick doesn't double-send.
+    """
+    sent = 0
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=14)).isoformat()  # don't recap ancient boosts
+    cur = db.events.find(
+        {
+            "boosted_until": {"$lt": now.isoformat(), "$gte": cutoff},
+            "boost_recap_sent_at": {"$exists": False},
+        },
+        {"_id": 0},
+    )
+    async for event in cur:
+        try:
+            organizer = await db.users.find_one(
+                {"user_id": event.get("organizer_id")},
+                {"_id": 0, "email": 1, "name": 1},
+            )
+            if not organizer or not organizer.get("email"):
+                # Still stamp so we don't keep scanning this event every tick.
+                await db.events.update_one(
+                    {"event_id": event["event_id"]},
+                    {"$set": {"boost_recap_sent_at": now.isoformat(), "boost_recap_skipped": "no_email"}},
+                )
+                continue
+            # Pull the lift stats by reusing the analytics function — keeps a
+            # single source of truth for the math vs. duplicating it here.
+            try:
+                from routers.analytics import boost_lift  # type: ignore
+                # Minimal user shim for the dep — the function checks organizer/admin.
+                stats = await boost_lift.__wrapped__(  # type: ignore[attr-defined]
+                    event["event_id"], {"user_id": event.get("organizer_id"), "role": "organizer"}
+                )
+            except Exception:  # noqa: BLE001
+                # Fallback: just send the recap without lift numbers
+                stats = {"during_views": None, "during_bookings": None, "view_lift_pct": None, "booking_lift_pct": None}
+
+            from emails import send_template_fireforget
+            send_template_fireforget(
+                "boost_recap",
+                organizer["email"],
+                {
+                    "organizer_name": organizer.get("name", "there"),
+                    "event_title": event.get("title", "your event"),
+                    "event_id": event["event_id"],
+                    "boost_tier": event.get("last_boost_tier") or ("paid" if event.get("last_boost_kind") == "paid" else "free"),
+                    "boost_kind": event.get("last_boost_kind", "free"),
+                    "during_views": stats.get("during_views"),
+                    "during_bookings": stats.get("during_bookings"),
+                    "view_lift_pct": stats.get("view_lift_pct"),
+                    "booking_lift_pct": stats.get("booking_lift_pct"),
+                },
+                db,
+            )
+            await db.events.update_one(
+                {"event_id": event["event_id"]},
+                {"$set": {"boost_recap_sent_at": now.isoformat()}},
+            )
+            sent += 1
+        except Exception:  # noqa: BLE001
+            logger.exception(f"[scheduler] boost recap failed for event={event.get('event_id')}")
+    return sent
+
+
 async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
     """Top-level loop — sleeps 30s on startup, then ticks every `interval_seconds`."""
     await asyncio.sleep(30)
@@ -555,12 +624,13 @@ async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
             n_nudge = await _send_stripe_setup_nudges(db)
             n_fdigest = await _send_follower_weekly_digest(db)
             n_welcome = await _send_organizer_welcome_followups(db)
+            n_boost = await _send_boost_recaps(db)
             webhook_alert = await _check_webhook_silent_failure(db)
             payout_summary = await run_due_event_payouts(db)
-            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
+            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or n_boost or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
                 logger.info(
-                    "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s webhook_alert=%s payouts=%s",
-                    n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, webhook_alert, payout_summary,
+                    "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s boost_recaps=%s webhook_alert=%s payouts=%s",
+                    n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, n_boost, webhook_alert, payout_summary,
                 )
         except Exception as exc:  # pragma: no cover
             logger.exception("[scheduler] tick failed: %s", exc)

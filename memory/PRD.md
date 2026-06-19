@@ -1305,3 +1305,33 @@ User picked **"ALL THREE"**: bulk seat-block, paid Boost via Stripe, printable d
 - Edited: `frontend/src/pages/Organizer.jsx` (Fragment row + BoostStats import)
 
 
+
+## Iteration 43 (2026-02-18) — Boost recap email automation
+
+**User said yes** to auto-emailing the organizer a "Your Boost just ended" recap.
+
+**Email template (`emails.py:_t_boost_recap`):**
+- ✅ Branded HTML + plain-text version.
+- ✅ Two big metric cards side-by-side: **Views** and **Bookings** during the boost, each with `+X% vs before` lift below.
+- ✅ Handles missing stats gracefully (renders `—` instead of crashing).
+- ✅ CTA: "Want another Boost? Open your dashboard →" — drives the repeat-purchase loop.
+- ✅ Registered in `TEMPLATES["boost_recap"]`.
+
+**Scheduler hook (`scheduler.py:_send_boost_recaps`):**
+- ✅ Runs every scheduler tick. Scans events whose `boosted_until < now`, capped at 14 days ago to avoid recapping ancient boosts.
+- ✅ Idempotent via `events.boost_recap_sent_at` stamp — second tick is a no-op for the same event.
+- ✅ Skips events whose organizer has no email (stamps `boost_recap_skipped: "no_email"` so we don't keep scanning).
+- ✅ Reuses the `boost_lift` math from `routers/analytics.py` so the email numbers match the dashboard widget exactly (single source of truth).
+- ✅ Logged alongside the other periodic counters in the scheduler tick line.
+
+**Tests (`tests/test_boost_recap.py`, 3/3 pass):**
+- Template renders correctly with full stats (`+47.5%` / `+80.0%` shown).
+- Template handles all-None stats (`—` placeholders).
+- Scheduler picks up an expired boost, sends, stamps; second run is a no-op (idempotent).
+
+**Files changed/added:**
+- New: `backend/tests/test_boost_recap.py`
+- Edited: `backend/emails.py` (+ `_t_boost_recap` + `TEMPLATES["boost_recap"]`)
+- Edited: `backend/scheduler.py` (+ `_send_boost_recaps` + tick-loop wiring)
+
+

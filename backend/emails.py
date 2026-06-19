@@ -283,7 +283,68 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "organizer_welcome_3_first_sale": lambda ctx: _t_organizer_welcome_3_first_sale(ctx),
     "organizer_welcome_4_reactivate": lambda ctx: _t_organizer_welcome_4_reactivate(ctx),
     "gift_card_delivered": lambda ctx: _t_gift_card_delivered(ctx),
+    "boost_recap": lambda ctx: _t_boost_recap(ctx),
 }
+
+
+def _t_boost_recap(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Sent ~1 hour after a Boost expires — shows the organizer the lift
+    their boosted listing actually drove (views + bookings vs the equivalent
+    pre-boost window) and nudges them to repeat the buy on their next event.
+    """
+    name = ctx.get("organizer_name", "there")
+    event_title = ctx.get("event_title", "your event")
+    tier = ctx.get("boost_tier") or ("paid" if ctx.get("boost_kind") == "paid" else "free")
+    views = ctx.get("during_views")
+    bookings = ctx.get("during_bookings")
+    view_lift = ctx.get("view_lift_pct")
+    booking_lift = ctx.get("booking_lift_pct")
+
+    def fmt_lift(v):
+        if v is None:
+            return "—"
+        return f"{'+' if v >= 0 else ''}{v}%"
+
+    views_str = "—" if views is None else str(views)
+    bookings_str = "—" if bookings is None else str(bookings)
+    subject = f"Your Boost just ended — here's how '{event_title}' performed"
+    html = f"""
+    <h2 style="font-family:Georgia,serif;color:#FF6B35;margin:0 0 4px 0;">Boost recap</h2>
+    <p style="margin:0 0 16px 0;color:#444;">Hi {name},</p>
+    <p style="margin:0 0 16px 0;color:#444;">
+      Your <strong>{tier}</strong> boost on <strong>{event_title}</strong> just ended.
+      Here's what it did:
+    </p>
+    <table cellpadding="12" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;margin:0 0 16px 0;">
+      <tr>
+        <td style="background:#FFF4ED;border-radius:8px;width:50%;text-align:center;">
+          <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:2px;">Views</div>
+          <div style="font-size:28px;font-weight:700;color:#FF6B35;font-family:Georgia,serif;">{views_str}</div>
+          <div style="font-size:12px;color:#444;">{fmt_lift(view_lift)} vs before</div>
+        </td>
+        <td style="width:8px;"></td>
+        <td style="background:#FFF4ED;border-radius:8px;width:50%;text-align:center;">
+          <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:2px;">Bookings</div>
+          <div style="font-size:28px;font-weight:700;color:#FF6B35;font-family:Georgia,serif;">{bookings_str}</div>
+          <div style="font-size:12px;color:#444;">{fmt_lift(booking_lift)} vs before</div>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0 0 16px 0;color:#444;">
+      Want another boost on your next event?
+      <a href="https://allsale.events/organizer" style="color:#FF6B35;font-weight:600;">Open your dashboard →</a>
+    </p>
+    <p style="margin:24px 0 0 0;font-size:11px;color:#999;">Allsale Events · support@allsale.events</p>
+    """
+    text = (
+        f"Hi {name},\n\n"
+        f"Your {tier} Boost on {event_title} just ended.\n\n"
+        f"Views: {views_str} ({fmt_lift(view_lift)} vs before)\n"
+        f"Bookings: {bookings_str} ({fmt_lift(booking_lift)} vs before)\n\n"
+        f"Want another Boost? https://allsale.events/organizer\n\n"
+        f"— Allsale Events"
+    )
+    return subject, html, text
 
 
 def _t_gift_card_delivered(ctx: Dict[str, Any]) -> tuple[str, str, str]:
