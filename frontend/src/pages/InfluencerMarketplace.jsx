@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Search, Users, Instagram, Music, Twitter, Youtube, MapPin } from "lucide-react";
+import { Search, Users, Instagram, Music, Twitter, Youtube, Facebook, MapPin } from "lucide-react";
 import api from "@/lib/api";
 
 const CATS = ["", "music", "comedy", "sports", "tech", "food", "art", "fitness", "nightlife", "family"];
@@ -115,6 +115,7 @@ function Card({ profile }) {
         {h.tiktok && <Music size={12} />}
         {h.twitter && <Twitter size={12} />}
         {h.youtube && <Youtube size={12} />}
+        {h.facebook && <Facebook size={12} />}
       </div>
       {profile.categories?.length > 0 && (
         <div className="flex flex-wrap gap-1 mt-3">

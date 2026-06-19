@@ -917,3 +917,24 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 **Note on existing data:** legacy `referral_signup_bonus` credit rows already in the DB still display in the credit ledger UI (the conditional in `OrganizerReferral.jsx` continues to label them as "Welcome bonus"). Nothing is migrated or refunded retroactively — only new approvals follow the new policy.
 
 
+
+## Iteration 30 (2026-02-18) — Facebook handle in influencer profile
+
+**User request:** "Add facebook" to the social handles set (Instagram / TikTok / X / YouTube on the influencer onboarding form).
+
+**Implementation (all additive, backward-compatible):**
+- ✅ Backend `SocialHandles` Pydantic schema gains optional `facebook: Optional[str]`.
+- ✅ Frontend onboarding form (`InfluencerOnboarding.jsx`):
+  - Imports `Facebook` from lucide-react.
+  - `social_handles` initial state seeded with `facebook: ""`.
+  - Pre-populates the field from the API response if the influencer already has it.
+  - Renders a 5th `<Handle>` row with the Facebook icon + placeholder.
+  - `data-testid="onboard-facebook"`.
+- ✅ Public influencer profile (`InfluencerProfile.jsx`):
+  - `SOCIAL_URL.facebook` → `https://facebook.com/{handle}`.
+  - Renders the Facebook icon chip when the handle is set.
+- ✅ Marketplace card (`InfluencerMarketplace.jsx`): shows a Facebook icon when present.
+
+**Tested:** Frontend lint clean, backend lint clean. Backend restarted; `GET /api/influencers` still returns existing profiles (the new field is `null` for legacy rows, no migration needed). New profiles will accept the field via the form.
+
+

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Instagram, Music, Twitter, Youtube, Users, MapPin, MousePointerClick, Megaphone, ExternalLink } from "lucide-react";
+import { Instagram, Music, Twitter, Youtube, Facebook, Users, MapPin, MousePointerClick, Megaphone, ExternalLink } from "lucide-react";
 import api from "@/lib/api";
 
 const SOCIAL_URL = {
@@ -8,6 +8,7 @@ const SOCIAL_URL = {
   tiktok: (h) => `https://tiktok.com/@${h}`,
   twitter: (h) => `https://twitter.com/${h}`,
   youtube: (h) => `https://youtube.com/@${h}`,
+  facebook: (h) => `https://facebook.com/${h}`,
 };
 
 export default function InfluencerProfile() {
@@ -83,6 +84,7 @@ export default function InfluencerProfile() {
               {k === "tiktok" && <Music size={14} />}
               {k === "twitter" && <Twitter size={14} />}
               {k === "youtube" && <Youtube size={14} />}
+              {k === "facebook" && <Facebook size={14} />}
               @{v}
               <ExternalLink size={11} className="opacity-50" />
             </a>

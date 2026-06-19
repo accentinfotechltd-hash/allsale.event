@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Sparkles, Instagram, Music, Twitter, Youtube } from "lucide-react";
+import { Sparkles, Instagram, Music, Twitter, Youtube, Facebook } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -18,7 +18,7 @@ export default function InfluencerOnboarding() {
     follower_count_total: "",
     city: "",
     categories: [],
-    social_handles: { instagram: "", tiktok: "", twitter: "", youtube: "" },
+    social_handles: { instagram: "", tiktok: "", twitter: "", youtube: "", facebook: "" },
   });
 
   useEffect(() => {
@@ -40,6 +40,7 @@ export default function InfluencerOnboarding() {
               tiktok: data.social_handles?.tiktok || "",
               twitter: data.social_handles?.twitter || "",
               youtube: data.social_handles?.youtube || "",
+              facebook: data.social_handles?.facebook || "",
             },
           });
         } else {
@@ -153,6 +154,7 @@ export default function InfluencerOnboarding() {
             <Handle icon={Music} placeholder="TikTok" value={form.social_handles.tiktok} onChange={(v) => setForm({ ...form, social_handles: { ...form.social_handles, tiktok: v } })} testid="onboard-tiktok" />
             <Handle icon={Twitter} placeholder="X / Twitter" value={form.social_handles.twitter} onChange={(v) => setForm({ ...form, social_handles: { ...form.social_handles, twitter: v } })} testid="onboard-twitter" />
             <Handle icon={Youtube} placeholder="YouTube" value={form.social_handles.youtube} onChange={(v) => setForm({ ...form, social_handles: { ...form.social_handles, youtube: v } })} testid="onboard-youtube" />
+            <Handle icon={Facebook} placeholder="Facebook" value={form.social_handles.facebook} onChange={(v) => setForm({ ...form, social_handles: { ...form.social_handles, facebook: v } })} testid="onboard-facebook" />
           </div>
         </div>
 

@@ -56,6 +56,7 @@ class SocialHandles(BaseModel):
     tiktok: Optional[str] = None
     twitter: Optional[str] = None
     youtube: Optional[str] = None
+    facebook: Optional[str] = None
 
 
 class InfluencerProfileIn(BaseModel):
