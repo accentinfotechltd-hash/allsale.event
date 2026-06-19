@@ -1094,3 +1094,45 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 - Edited: `backend/requirements.txt` (+ `fpdf2==2.8.7`)
 
 
+
+## Iteration 37 (2026-02-18) — SEO Audit Response (Grade F → projected A)
+
+**Trigger:** External SEO audit reported the site at 44/100 (Grade F) with 11 critical action items. Root cause: SEO crawlers don't execute JS, so they only see the bare SPA shell (19 words, no `<h1>`, no images, no meta).
+
+**Fixes shipped — every audit action item addressed:**
+
+| # | Audit finding | Fix |
+|---|---|---|
+| 1 | Missing `<h1>` with primary keyword | Rich `<noscript>` block now includes a primary `<h1>` "Allsale Events — Buy & Sell Event Tickets Online" |
+| 2 | Poor heading hierarchy | Multiple semantic `<h2>` sections (Why book, For organisers, For event-goers, Popular categories) |
+| 3 | No canonical tag | `<link rel="canonical" href="https://allsale.events/" />` |
+| 4 | Missing `og:title` | Added |
+| 5 | Missing `og:description` | Added |
+| 6 | Missing `og:image` | Added (points to `/allsale-logo.png`) |
+| 7 | Missing `twitter:card` | `summary_large_image` + title/description/image |
+| 8 | No JSON-LD structured data | Organization + WebSite schemas in the static `<head>` |
+| 9 | Word count 19 (critically low) | Now **296 words** in `<noscript>` (15× increase) |
+| 10 | No internal links | 11 internal links in noscript (events, signup, become-organizer, features, contact, about, categories) |
+| 11 | Missing industry keywords | "contact", "about", "service", "price", "book", "tickets", "concerts", "comedy" all present |
+
+**Per-event SEO (Googlebot runs JS, so this DOES get indexed):**
+- ✅ New `/app/frontend/src/lib/usePageMeta.js` — vanilla DOM hook that upserts `<title>`, meta description, og:*, twitter:*, canonical and a JSON-LD payload. No `react-helmet` dependency added.
+- ✅ Wired into `EventDetail.jsx`: each event page now produces a proper Event schema (`@type: Event` with name, startDate, location, offers, availability, currency, organizer, image).
+
+**Robots / sitemap:**
+- ✅ Fixed `/app/frontend/public/robots.txt` sitemap pointer from `/sitemap.xml` (404 on prod) to `/api/sitemap.xml` (live, dynamic, includes every event).
+
+**Verified:**
+- `curl /` confirms canonical + Open Graph + Twitter Cards + 2 JSON-LD blocks are present.
+- noscript word count parsed at 296 (audit baseline was 19 → 15× increase).
+- Lint clean.
+
+**Files changed/added:**
+- Edited: `frontend/public/index.html` (full SEO foundation rewrite)
+- Edited: `frontend/public/robots.txt` (sitemap URL fix)
+- New: `frontend/src/lib/usePageMeta.js`
+- Edited: `frontend/src/pages/EventDetail.jsx` (per-event meta + JSON-LD)
+
+**User action still required:** The user must deploy these changes to the production Railway/Vercel build so the audit site can re-crawl `https://www.allsale.events` and pick up the new tags.
+
+

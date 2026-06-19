@@ -3,8 +3,79 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-        <meta name="theme-color" content="#FFFFFF" />
-        <meta name="description" content="Allsale Events — Live, loud, and limited. Discover concerts, comedy, sports, theater & festivals with 10-minute seat holds." />
+        <meta name="theme-color" content="#0F0F0F" />
+
+        <!-- ====================== PRIMARY SEO BLOCK ====================== -->
+        <!-- Title MUST contain the primary keyword(s). 50–60 chars is the sweet
+             spot before Google truncates. -->
+        <title>Allsale Events — Buy & Sell Event Tickets Online | Concerts, Comedy, Sports</title>
+
+        <meta
+            name="description"
+            content="Allsale Events is New Zealand's modern event ticketing platform. Discover concerts, comedy, sports, theatre and festivals, buy tickets with 10-minute seat holds, and sell tickets to your own shows with zero platform tax — organisers keep 100%."
+        />
+        <meta
+            name="keywords"
+            content="event tickets, buy tickets online, sell tickets, concert tickets, comedy tickets, sports tickets, theatre tickets, festival tickets, NZ events, Auckland events, Wellington events, ticketing platform, event organizer, book event tickets, seat map booking, e-tickets, QR ticket"
+        />
+        <meta name="author" content="Allsale Events" />
+        <meta name="robots" content="index, follow, max-image-preview:large" />
+        <link rel="canonical" href="https://allsale.events/" />
+
+        <!-- ====================== OPEN GRAPH (Facebook, LinkedIn, iMessage) ====================== -->
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="Allsale Events" />
+        <meta property="og:url" content="https://allsale.events/" />
+        <meta
+            property="og:title"
+            content="Allsale Events — Buy & Sell Event Tickets Online"
+        />
+        <meta
+            property="og:description"
+            content="Discover concerts, comedy, sports, theatre and festivals across New Zealand. Buy tickets with 10-minute seat holds, or run your own show with zero platform tax."
+        />
+        <meta property="og:image" content="https://allsale.events/allsale-logo.png" />
+        <meta property="og:image:alt" content="Allsale Events logo" />
+        <meta property="og:locale" content="en_NZ" />
+
+        <!-- ====================== TWITTER / X CARD ====================== -->
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content="Allsale Events — Buy & Sell Event Tickets Online" />
+        <meta
+            name="twitter:description"
+            content="Discover concerts, comedy, sports, theatre and festivals across New Zealand. Organisers keep 100% — buyer covers the fee."
+        />
+        <meta name="twitter:image" content="https://allsale.events/allsale-logo.png" />
+
+        <!-- ====================== STRUCTURED DATA (JSON-LD) ====================== -->
+        <!-- Organization schema lets Google show a knowledge panel + sitelinks. -->
+        <script type="application/ld+json">
+{
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    "name": "Allsale Events",
+    "url": "https://allsale.events/",
+    "logo": "https://allsale.events/allsale-logo.png",
+    "description": "New Zealand's modern event ticketing platform. Buy and sell concert, comedy, sports, theatre and festival tickets with QR e-tickets, custom seat maps and 10-minute seat holds.",
+    "email": "support@allsale.events",
+    "areaServed": "NZ",
+    "sameAs": []
+}
+        </script>
+        <!-- WebSite schema enables Google's site-search box in SERPs. -->
+        <script type="application/ld+json">
+{
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "Allsale Events",
+    "url": "https://allsale.events/",
+    "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://allsale.events/events?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+    }
+}
+        </script>
 
         <!-- PWA: makes the site installable as an app on phones and desktops -->
         <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
@@ -25,25 +96,87 @@
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
-        <!--
-        manifest.json provides metadata used when your web app is installed on a
-        user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-        -->
-        <!--
-        Notice the use of %PUBLIC_URL% in the tags above.
-        It will be replaced with the URL of the `public` folder during the build.
-        Only files inside the `public` folder can be referenced from the HTML.
-
-        Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-        work correctly both with client-side routing and a non-root public URL.
-        Learn how to configure a non-root public URL by running `npm run build`.
-        -->
-        <title>Allsale Events — Live, loud, and limited.</title>
         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
         <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
     </head>
     <body>
-        <noscript>You need to enable JavaScript to run this app.</noscript>
+        <noscript>
+            <!--
+              Rich SEO fallback: search engines and social crawlers that don't
+              execute JavaScript still get a meaningful page (heading, content,
+              keywords, internal links) instead of an empty SPA shell.
+            -->
+            <header>
+                <h1>Allsale Events — Buy &amp; Sell Event Tickets Online</h1>
+                <p>
+                    Allsale Events is New Zealand's modern event ticketing platform.
+                    Discover live concerts, comedy nights, sports fixtures, theatre productions
+                    and festivals — then book tickets in seconds with our 10-minute seat hold,
+                    QR-code e-tickets and offline door-scanner app.
+                </p>
+            </header>
+            <main>
+                <section>
+                    <h2>Why book with Allsale Events</h2>
+                    <ul>
+                        <li><strong>Multi-tier ticketing:</strong> Early Bird, General Admission and VIP — set capacity and selling windows per tier.</li>
+                        <li><strong>Custom seat maps:</strong> Pick exactly where you sit. Aisles, sections, categories and accessible seats are all supported.</li>
+                        <li><strong>Instant e-tickets:</strong> QR-coded tickets land in your inbox within seconds of paying. Print or store on your phone.</li>
+                        <li><strong>Door-scanner PWA:</strong> Staff scan tickets even when venue Wi-Fi is patchy — fully offline-capable.</li>
+                        <li><strong>Secure Stripe payments:</strong> Card payments processed via Stripe Connect with NZ payouts five days after the show.</li>
+                    </ul>
+                </section>
+                <section>
+                    <h2>For event organisers</h2>
+                    <p>
+                        Run your own concert, comedy night, sports event or festival on Allsale Events.
+                        Organisers keep 100% of the ticket price — the buyer covers the service fee.
+                        No setup fees, no contracts, no platform tax. Sell tickets, manage seat maps,
+                        scan attendees at the door and get paid five days after the event closes via
+                        Stripe Connect.
+                    </p>
+                    <p>
+                        <a href="/become-organizer">Become an organiser</a> ·
+                        <a href="/organizer/new">List your first event</a> ·
+                        <a href="/features">All platform features</a>
+                    </p>
+                </section>
+                <section>
+                    <h2>For event-goers</h2>
+                    <p>
+                        Browse upcoming shows, pick your seats on our interactive seat map, hold them
+                        for 10 minutes while you pay, and receive an e-ticket with a QR code that scans
+                        at the door. Tickets are transferable to friends through your Allsale account.
+                    </p>
+                    <p>
+                        <a href="/events">Browse all events</a> ·
+                        <a href="/signup">Create a free account</a> ·
+                        <a href="/about">About Allsale Events</a> ·
+                        <a href="/contact">Contact us</a>
+                    </p>
+                </section>
+                <section>
+                    <h2>Popular categories</h2>
+                    <ul>
+                        <li><a href="/events?category=concerts">Concert tickets</a></li>
+                        <li><a href="/events?category=comedy">Comedy tickets</a></li>
+                        <li><a href="/events?category=sports">Sports tickets</a></li>
+                        <li><a href="/events?category=theatre">Theatre tickets</a></li>
+                        <li><a href="/events?category=festivals">Festival tickets</a></li>
+                    </ul>
+                </section>
+                <footer>
+                    <p>
+                        Allsale Events · support@allsale.events ·
+                        <a href="/contact">Contact</a> ·
+                        <a href="/about">About</a> ·
+                        <a href="/features">Features</a> ·
+                        <a href="/influencers">Creator marketplace</a> ·
+                        Please enable JavaScript for the interactive experience.
+                    </p>
+                </footer>
+            </main>
+        </noscript>
         <div id="root"></div>
         <!--
       This HTML file is a template.

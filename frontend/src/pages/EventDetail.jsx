@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -8,6 +8,7 @@ import useEventLiveUpdates from "@/lib/useEventLiveUpdates";
 import { ContactOrganizerButton } from "@/components/ContactOrganizerDialog";
 import FollowOrganizerButton from "@/components/FollowOrganizerButton";
 import AffiliateBanner from "@/components/AffiliateBanner";
+import { usePageMeta } from "@/lib/usePageMeta";
 import SocialShareButtons from "@/components/SocialShareButtons";
 import SeoHead from "@/components/SeoHead";
 import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi, Gift, Star, Sparkles } from "lucide-react";
@@ -32,6 +33,57 @@ export default function EventDetail() {
   const [myWaitlist, setMyWaitlist] = useState(null); // null=unknown, []=not on, [{...}]=on
   const [joiningWl, setJoiningWl] = useState(false);
   const [demand, setDemand] = useState([]);
+
+  // ---- SEO meta + JSON-LD Event schema. Googlebot executes JS so this gets
+  // indexed. Built lazily once the event payload is loaded. ----
+  const seoMeta = useMemo(() => {
+    if (!event) return {};
+    const baseUrl = (typeof window !== "undefined" && window.location?.origin) || "https://allsale.events";
+    const url = `${baseUrl}/events/${event.event_id}`;
+    const venueLine = [event.venue, event.city].filter(Boolean).join(", ");
+    const minPrice = event.has_seatmap
+      ? Number(event.seat_price || 0)
+      : Math.min(...((event.tiers || []).map((t) => Number(t.price)).concat([Number(event.seat_price || 0)])).filter((n) => !Number.isNaN(n)));
+    const description = `${event.title} — ${venueLine || event.city || "live event"}. Book tickets on Allsale Events. ${event.description ? String(event.description).slice(0, 140) : ""}`.trim();
+    const jsonLd = {
+      "@context": "https://schema.org",
+      "@type": "Event",
+      name: event.title,
+      description: event.description || description,
+      startDate: event.date,
+      eventStatus: event.sold_out ? "https://schema.org/EventScheduled" : "https://schema.org/EventScheduled",
+      eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+      image: event.banner_url || event.image_url ? [event.banner_url || event.image_url] : undefined,
+      url,
+      location: venueLine
+        ? {
+            "@type": "Place",
+            name: event.venue || event.city,
+            address: { "@type": "PostalAddress", addressLocality: event.city, addressCountry: "NZ" },
+          }
+        : undefined,
+      offers: {
+        "@type": "Offer",
+        url,
+        priceCurrency: event.currency || "NZD",
+        price: Number.isFinite(minPrice) ? minPrice : 0,
+        availability: event.sold_out ? "https://schema.org/SoldOut" : "https://schema.org/InStock",
+        validFrom: event.created_at,
+      },
+      organizer: event.organizer_name
+        ? { "@type": "Organization", name: event.organizer_name }
+        : undefined,
+    };
+    return {
+      title: `${event.title} — ${event.city || "Tickets"} | Allsale Events`,
+      description,
+      image: event.banner_url || event.image_url,
+      canonical: url,
+      jsonLd,
+      jsonLdId: "event-jsonld",
+    };
+  }, [event]);
+  usePageMeta(seoMeta);
 
   // Fire a single anonymous-friendly view ping (debounced to once per minute per browser tab)
   useEffect(() => {
