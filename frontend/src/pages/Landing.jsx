@@ -355,14 +355,14 @@ export default function Landing() {
  * scrolls (touch + keyboard friendly) so we don't sacrifice copy density.
  */
 const TOP_FEATURES = [
-  { icon: Ticket, label: "Multi-tier ticketing", sub: "Early Bird, GA, VIP" },
-  { icon: Calendar, label: "Custom seat maps", sub: "Aisles, categories, holds" },
-  { icon: Zap, label: "Instant e-tickets", sub: "QR delivered in seconds" },
-  { icon: ScanLine, label: "Door-scanner PWA", sub: "Works offline at the gate" },
-  { icon: DollarSign, label: "Keep 100%", sub: "Buyer covers the fee" },
-  { icon: ShieldCheck, label: "Stripe payouts", sub: "5 days after the show" },
-  { icon: Megaphone, label: "Creator marketplace", sub: "Pay only on sales" },
-  { icon: Smartphone, label: "PWA + mobile-first", sub: "Install, no app store" },
+  { slug: "multi-tier-ticketing", icon: Ticket, label: "Multi-tier ticketing", sub: "Early Bird, GA, VIP" },
+  { slug: "custom-seat-maps", icon: Calendar, label: "Custom seat maps", sub: "Aisles, categories, holds" },
+  { slug: "instant-e-tickets", icon: Zap, label: "Instant e-tickets", sub: "QR delivered in seconds" },
+  { slug: "door-scanner-pwa", icon: ScanLine, label: "Door-scanner PWA", sub: "Works offline at the gate" },
+  { slug: "keep-100", icon: DollarSign, label: "Keep 100%", sub: "Buyer covers the fee" },
+  { slug: "stripe-payouts", icon: ShieldCheck, label: "Stripe payouts", sub: "5 days after the show" },
+  { slug: "creator-marketplace", icon: Megaphone, label: "Creator marketplace", sub: "Pay only on sales" },
+  { slug: "pwa-mobile-first", icon: Smartphone, label: "PWA + mobile-first", sub: "Install, no app store" },
 ];
 
 function FeatureStrip() {
@@ -385,22 +385,23 @@ function FeatureStrip() {
             What you get
           </span>
           <span className="hidden sm:inline-block w-px h-3" style={{ background: "var(--border-strong)" }} />
-          {TOP_FEATURES.map(({ icon: Icon, label, sub }) => (
-            <div
+          {TOP_FEATURES.map(({ icon: Icon, label, sub, slug }) => (
+            <Link
               key={label}
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full shrink-0 border"
+              to={`/features#${slug}`}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full shrink-0 border transition hover:-translate-y-px hover:shadow-sm"
               style={{
                 background: "var(--bg-card)",
                 borderColor: "var(--border)",
                 color: "var(--text)",
               }}
-              data-testid={`feature-chip-${label.toLowerCase().replace(/\s+/g, "-")}`}
-              title={sub}
+              data-testid={`feature-chip-${slug}`}
+              title={`${sub} — click to learn how`}
             >
               <Icon className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} />
               <span className="text-xs font-medium whitespace-nowrap">{label}</span>
               <span className="text-[10px] opacity-60 whitespace-nowrap hidden md:inline">· {sub}</span>
-            </div>
+            </Link>
           ))}
         </div>
       </div>

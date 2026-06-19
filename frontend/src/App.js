@@ -39,6 +39,7 @@ import InfluencerPayouts from "@/pages/InfluencerPayouts";
 import InfluencerMarketplace from "@/pages/InfluencerMarketplace";
 import InfluencerProfile from "@/pages/InfluencerProfile";
 import Flyer from "@/pages/Flyer";
+import Features from "@/pages/Features";
 import Feedback from "@/pages/Feedback";
 import GiftCards from "@/pages/GiftCards";
 import GiftCardSuccess from "@/pages/GiftCardSuccess";
@@ -105,6 +106,7 @@ function AppRouter() {
         <Route path="/influencer/campaigns" element={<InfluencerCampaigns />} />
         <Route path="/influencer/payouts" element={<InfluencerPayouts />} />
         <Route path="/flyer" element={<Flyer />} />
+        <Route path="/features" element={<Features />} />
         <Route path="/feedback/:id" element={<Feedback />} />
         <Route path="/gift-cards" element={<GiftCards />} />
         <Route path="/gift-cards/success" element={<GiftCardSuccess />} />

@@ -1006,3 +1006,31 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 **File changed:** `/app/frontend/src/pages/Landing.jsx` (single file, lint clean — pre-existing quote warnings on unrelated lines).
 
 
+
+## Iteration 34 (2026-02-18) — Clickable feature chips → tutorial page
+
+**User request:** "When they click on feature, take them to the page and get information / tutorial how to use it."
+
+**Implementation:**
+- ✅ New `/features` page (`/app/frontend/src/pages/Features.jsx`) with deep-linkable sections for all 8 platform capabilities.
+- ✅ Each landing feature chip now wraps in a `<Link to="/features#{slug}">`. Slugs are shared between Landing's `TOP_FEATURES` array and Features' `FEATURES` array so they always stay aligned.
+- ✅ Hash-aware: the page reads `window.location.hash` on mount and smoothly scrolls to the matching `id` (with `scroll-mt-24` so the header doesn't overlap).
+- ✅ Each section has:
+  - Numbered feature badge ("Feature 02") with the matching lucide icon
+  - Title + one-line tagline
+  - Body copy
+  - 6-step "How to use it" card on the right, numbered chips, with a closing trust line ("No setup fees, no contracts, no platform tax on tickets.")
+  - Per-feature CTA button (e.g. "Open seat designer" → `/organizer/new`, "View my tickets" → `/profile`, "Browse creators" → `/influencers`).
+- ✅ Sticky in-page navigation row of pill links at the top of `/features` so visitors can jump between features without scrolling.
+- ✅ Bottom CTA card ("Ready to run your show?") with Sign-up + Browse buttons.
+- ✅ Route registered in `App.js`: `<Route path="/features" element={<Features />} />`.
+- ✅ Hover micro-interaction added to the landing chips (`hover:-translate-y-px`) so they feel obviously clickable.
+
+**Tested:** Lint clean. Live screenshot of `/features#custom-seat-maps` confirms the deep link scrolls to the right section with the full tutorial visible.
+
+**Files changed:**
+- New: `frontend/src/pages/Features.jsx`
+- Edited: `frontend/src/pages/Landing.jsx` (chips → Link)
+- Edited: `frontend/src/App.js` (route)
+
+
