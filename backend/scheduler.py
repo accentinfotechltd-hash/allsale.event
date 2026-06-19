@@ -613,6 +613,109 @@ async def _send_boost_recaps(db: Any) -> int:
     return sent
 
 
+
+async def _send_event_recaps(db: Any) -> int:
+    """Post-event recap. Sends ~1 hour after an event's start_date passes.
+
+    Includes: tickets sold, gross revenue, check-in rate, top promo code (if any),
+    and repeat-customer count (users who'd bought tickets to a prior event from
+    the same organizer). Idempotent via `events.event_recap_sent_at` stamp.
+    """
+    sent = 0
+    now = datetime.now(timezone.utc)
+    floor = (now - timedelta(days=30)).isoformat()
+    cur = db.events.find(
+        {
+            "date": {"$lt": now.isoformat(), "$gte": floor},
+            "event_recap_sent_at": {"$exists": False},
+            "status": {"$ne": "draft"},
+        },
+        {"_id": 0},
+    )
+    async for event in cur:
+        try:
+            organizer = await db.users.find_one(
+                {"user_id": event.get("organizer_id")},
+                {"_id": 0, "email": 1, "name": 1},
+            )
+            if not organizer or not organizer.get("email"):
+                await db.events.update_one(
+                    {"event_id": event["event_id"]},
+                    {"$set": {"event_recap_sent_at": now.isoformat(), "event_recap_skipped": "no_email"}},
+                )
+                continue
+            event_id = event["event_id"]
+            # Tickets sold + gross
+            agg = await db.bookings.aggregate([
+                {"$match": {"event_id": event_id, "status": {"$in": ["paid", "confirmed"]}}},
+                {"$group": {
+                    "_id": None,
+                    "tickets": {"$sum": {"$ifNull": ["$quantity", 1]}},
+                    "gross": {"$sum": {"$ifNull": ["$face_value", "$amount"]}},
+                }},
+            ]).to_list(1)
+            tickets = int((agg[0] if agg else {}).get("tickets") or 0)
+            gross = float((agg[0] if agg else {}).get("gross") or 0)
+            # Scan rate
+            scanned = await db.bookings.count_documents({
+                "event_id": event_id,
+                "status": {"$in": ["paid", "confirmed"]},
+                "checked_in_at": {"$exists": True, "$ne": None},
+            })
+            scan_rate = round((scanned / tickets) * 100, 1) if tickets else None
+            # Top promo code
+            top_promo_agg = await db.bookings.aggregate([
+                {"$match": {
+                    "event_id": event_id, "status": {"$in": ["paid", "confirmed"]},
+                    "code": {"$exists": True, "$ne": None, "$ne": ""},
+                }},
+                {"$group": {"_id": "$code", "n": {"$sum": 1}}},
+                {"$sort": {"n": -1}},
+                {"$limit": 1},
+            ]).to_list(1)
+            top_promo = (top_promo_agg[0]["_id"] if top_promo_agg else None)
+            top_promo_count = (top_promo_agg[0]["n"] if top_promo_agg else 0)
+            # Repeat customers — anyone who bought a prior ticket from this organizer too.
+            buyer_ids = await db.bookings.distinct(
+                "user_id",
+                {"event_id": event_id, "status": {"$in": ["paid", "confirmed"]}},
+            )
+            repeat_count = 0
+            if buyer_ids:
+                repeat_count = await db.bookings.count_documents({
+                    "user_id": {"$in": buyer_ids},
+                    "event_id": {"$ne": event_id},
+                    "status": {"$in": ["paid", "confirmed"]},
+                })
+
+            from emails import send_template_fireforget
+            send_template_fireforget(
+                "event_recap",
+                organizer["email"],
+                {
+                    "organizer_name": organizer.get("name", "there"),
+                    "event_title": event.get("title", "your event"),
+                    "event_id": event_id,
+                    "tickets": tickets,
+                    "gross": round(gross, 2),
+                    "currency": event.get("currency", "NZD"),
+                    "scan_rate": scan_rate,
+                    "top_promo": top_promo,
+                    "top_promo_count": top_promo_count,
+                    "repeat_customers": repeat_count,
+                },
+                db,
+            )
+            await db.events.update_one(
+                {"event_id": event_id},
+                {"$set": {"event_recap_sent_at": now.isoformat()}},
+            )
+            sent += 1
+        except Exception:  # noqa: BLE001
+            logger.exception(f"[scheduler] event recap failed for event={event.get('event_id')}")
+    return sent
+
+
 async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
     """Top-level loop — sleeps 30s on startup, then ticks every `interval_seconds`."""
     await asyncio.sleep(30)
@@ -625,12 +728,13 @@ async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
             n_fdigest = await _send_follower_weekly_digest(db)
             n_welcome = await _send_organizer_welcome_followups(db)
             n_boost = await _send_boost_recaps(db)
+            n_recap = await _send_event_recaps(db)
             webhook_alert = await _check_webhook_silent_failure(db)
             payout_summary = await run_due_event_payouts(db)
-            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or n_boost or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
+            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or n_boost or n_recap or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
                 logger.info(
-                    "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s boost_recaps=%s webhook_alert=%s payouts=%s",
-                    n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, n_boost, webhook_alert, payout_summary,
+                    "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s boost_recaps=%s event_recaps=%s webhook_alert=%s payouts=%s",
+                    n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, n_boost, n_recap, webhook_alert, payout_summary,
                 )
         except Exception as exc:  # pragma: no cover
             logger.exception("[scheduler] tick failed: %s", exc)

@@ -284,7 +284,73 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "organizer_welcome_4_reactivate": lambda ctx: _t_organizer_welcome_4_reactivate(ctx),
     "gift_card_delivered": lambda ctx: _t_gift_card_delivered(ctx),
     "boost_recap": lambda ctx: _t_boost_recap(ctx),
+    "event_recap": lambda ctx: _t_event_recap(ctx),
 }
+
+
+def _t_event_recap(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Sent ~1 hour after an event ends. Quick post-mortem the organizer
+    can scan in 10 seconds: tickets sold, gross, scan rate, top promo,
+    repeat-customer count."""
+    name = ctx.get("organizer_name", "there")
+    title = ctx.get("event_title", "your event")
+    tickets = ctx.get("tickets") or 0
+    gross = ctx.get("gross") or 0
+    currency = ctx.get("currency", "NZD")
+    scan_rate = ctx.get("scan_rate")
+    top_promo = ctx.get("top_promo")
+    top_promo_count = ctx.get("top_promo_count") or 0
+    repeat = ctx.get("repeat_customers") or 0
+    scan_str = f"{scan_rate}%" if scan_rate is not None else "—"
+    promo_line = (
+        f"Top promo: <strong>{top_promo}</strong> ({top_promo_count} redemption{'s' if top_promo_count != 1 else ''})"
+        if top_promo
+        else "No promo codes used."
+    )
+    subject = f"How '{title}' sold — your event recap"
+    html = f"""
+    <h2 style="font-family:Georgia,serif;color:#FF6B35;margin:0 0 4px 0;">Your event recap</h2>
+    <p style="margin:0 0 16px 0;color:#444;">Hi {name},</p>
+    <p style="margin:0 0 16px 0;color:#444;">
+      <strong>{title}</strong> is in the books. Here's how it went:
+    </p>
+    <table cellpadding="12" cellspacing="0" border="0" style="border-collapse:collapse;width:100%;margin:0 0 16px 0;">
+      <tr>
+        <td style="background:#FFF4ED;border-radius:8px;width:33%;text-align:center;">
+          <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:2px;">Tickets sold</div>
+          <div style="font-size:26px;font-weight:700;color:#FF6B35;font-family:Georgia,serif;">{tickets}</div>
+        </td>
+        <td style="width:6px;"></td>
+        <td style="background:#FFF4ED;border-radius:8px;width:33%;text-align:center;">
+          <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:2px;">Gross</div>
+          <div style="font-size:26px;font-weight:700;color:#FF6B35;font-family:Georgia,serif;">{currency} {gross:,.2f}</div>
+        </td>
+        <td style="width:6px;"></td>
+        <td style="background:#FFF4ED;border-radius:8px;width:33%;text-align:center;">
+          <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:2px;">Scan rate</div>
+          <div style="font-size:26px;font-weight:700;color:#FF6B35;font-family:Georgia,serif;">{scan_str}</div>
+        </td>
+      </tr>
+    </table>
+    <p style="margin:0 0 8px 0;color:#444;">{promo_line}</p>
+    <p style="margin:0 0 16px 0;color:#444;">{repeat} returning customer{'s' if repeat != 1 else ''} attended this event.</p>
+    <p style="margin:0 0 16px 0;color:#444;">
+      Running another show? <a href="https://allsale.events/organizer/new" style="color:#FF6B35;font-weight:600;">List a new event →</a>
+    </p>
+    <p style="margin:24px 0 0 0;font-size:11px;color:#999;">Allsale Events · support@allsale.events</p>
+    """
+    text = (
+        f"Hi {name},\n\n"
+        f"{title} is in the books. Recap:\n\n"
+        f"  Tickets sold: {tickets}\n"
+        f"  Gross: {currency} {gross:,.2f}\n"
+        f"  Scan rate: {scan_str}\n"
+        f"  {'Top promo: ' + str(top_promo) + ' (' + str(top_promo_count) + ' redemptions)' if top_promo else 'No promo codes used.'}\n"
+        f"  Returning customers: {repeat}\n\n"
+        f"Run another? https://allsale.events/organizer/new\n\n"
+        f"— Allsale Events"
+    )
+    return subject, html, text
 
 
 def _t_boost_recap(ctx: Dict[str, Any]) -> tuple[str, str, str]:

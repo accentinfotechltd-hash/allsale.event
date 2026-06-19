@@ -14,6 +14,17 @@
 
 const MEASUREMENT_ID = process.env.REACT_APP_GA_MEASUREMENT_ID || "";
 
+// Whether to fire events. We fire if EITHER:
+//   (a) a build-time env-var measurement ID is set, OR
+//   (b) the global window.gtag is already loaded by `public/index.html`
+// This way the hardcoded tag in index.html (G-E4WPC8V5XZ) keeps working
+// even without a build-time env var configured.
+function gaEnabled() {
+  if (typeof window === "undefined") return false;
+  if (MEASUREMENT_ID) return true;
+  return typeof window.gtag === "function";
+}
+
 function gtag(...args) {
   if (typeof window === "undefined") return;
   window.dataLayer = window.dataLayer || [];
@@ -24,32 +35,33 @@ let initialized = false;
 
 export function initAnalytics() {
   if (initialized) return;
-  if (!MEASUREMENT_ID) return; // no-op when env var missing
+  // If the loader was already injected by public/index.html, skip — just
+  // mark as initialized so trackPageView etc. fire normally.
+  if (typeof window !== "undefined" && typeof window.gtag === "function") {
+    initialized = true;
+    return;
+  }
+  if (!MEASUREMENT_ID) return; // nothing to load
   if (typeof window === "undefined") return;
   initialized = true;
 
-  // Inject the async gtag.js loader exactly once
   const script = document.createElement("script");
   script.async = true;
   script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(MEASUREMENT_ID)}`;
   document.head.appendChild(script);
 
-  // Bootstrap the dataLayer (matches the snippet GA gives you in the console)
   window.dataLayer = window.dataLayer || [];
   window.gtag = function () { window.dataLayer.push(arguments); };
   window.gtag("js", new Date());
-  // We send_page_view=false because we manage SPA page views ourselves
-  // (React Router doesn't fire window navigations).
   window.gtag("config", MEASUREMENT_ID, { send_page_view: false });
 }
 
 export function trackPageView(path, title) {
-  if (!MEASUREMENT_ID) return;
+  if (!gaEnabled()) return;
   gtag("event", "page_view", {
     page_path: path,
     page_title: title || (typeof document !== "undefined" ? document.title : ""),
     page_location: typeof window !== "undefined" ? window.location.href : "",
-    send_to: MEASUREMENT_ID,
   });
 }
 
@@ -59,14 +71,43 @@ export function trackPageView(path, title) {
  * @param {object} params - GA4 recommended params for that event
  */
 export function trackEvent(name, params = {}) {
-  if (!MEASUREMENT_ID) return;
-  gtag("event", name, { ...params, send_to: MEASUREMENT_ID });
+  if (!gaEnabled()) return;
+  gtag("event", name, params);
 }
 
 /* ---------------------------------------------------------------------------
- * Convenience wrappers for the conversions we care about most.
- * Using GA4 recommended event names so the standard reports light up.
+ * GA4 Enhanced E-commerce — funnel events for the booking flow.
+ * Standard event names so GA4's built-in Monetization reports light up
+ * (Reports → Monetization → E-commerce purchases / Conversions / Funnel).
  * ---------------------------------------------------------------------------*/
+
+export function trackViewItem({ eventId, eventTitle, price, currency = "NZD", category }) {
+  trackEvent("view_item", {
+    currency,
+    value: Number(price) || 0,
+    items: [{
+      item_id: eventId,
+      item_name: eventTitle,
+      item_category: category,
+      price: Number(price) || 0,
+      quantity: 1,
+    }],
+  });
+}
+
+export function trackAddToCart({ eventId, eventTitle, price, currency = "NZD", quantity = 1, tier }) {
+  trackEvent("add_to_cart", {
+    currency,
+    value: (Number(price) || 0) * quantity,
+    items: [{
+      item_id: eventId,
+      item_name: eventTitle,
+      item_variant: tier,
+      price: Number(price) || 0,
+      quantity,
+    }],
+  });
+}
 
 export function trackPurchase({ bookingId, eventId, eventTitle, amount, currency = "NZD", quantity = 1 }) {
   trackEvent("purchase", {
