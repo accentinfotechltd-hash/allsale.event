@@ -954,3 +954,31 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 **Verified on live preview:** screenshot of `/influencer/onboarding` confirms the new 5% copy + Facebook handle row are both rendering.
 
 
+
+## Iteration 32 (2026-02-18) — Save seat layout as a reusable template (P2)
+
+**Why:** Organizers who run the same venue weekly (comedy clubs, recurring shows) had to rebuild aisles, categories, row offsets and custom labels from scratch every time. Now they save once and reuse.
+
+**Backend (`routers/seatmap_templates.py`, mounted in `server.py`):**
+- ✅ New collection `seatmap_templates` keyed by `template_id`.
+- ✅ `GET  /api/organizer/seatmap-templates` — list mine (newest first).
+- ✅ `POST /api/organizer/seatmap-templates` — save (snapshot only whitelisted seatmap fields, ignores title / capacities / etc.).
+- ✅ `GET  /api/organizer/seatmap-templates/{id}` — fetch one (owner + admin).
+- ✅ `DELETE /api/organizer/seatmap-templates/{id}` — delete.
+- ✅ `POST /api/organizer/seatmap-templates/apply` `{template_id, event_id}` — copy template fields into an event. **Guarded** with a 409 when the target event already has paid/confirmed bookings (prevents seat-ID drift breaking real tickets).
+
+**Snapshot fields (`TEMPLATE_FIELDS`)** — pure venue geometry + visual config: `seat_rows`, `seat_cols`, `aisles`, `seatmap_curved`, `seatmap_numbering_rtl`, `seatmap_sections`, `seatmap_categories`, `seatmap_category_prices`, `seatmap_row_offsets`, `seatmap_custom_labels`, `seat_price`, `seat_map_image_url`, plus the four `seatmap_backdrop_*` fields. Bookings, capacities, tier definitions and event metadata are intentionally NOT included.
+
+**Frontend (`pages/CreateEvent.jsx`):**
+- ✅ New self-contained `SeatmapTemplateBar` component slotted between the rows/cols/price grid and the rest of the seatmap section.
+- ✅ Three controls: **Load (n)** dropdown listing my saved templates with row×col + aisle/label counts; **Save current as template** prompts for a name; **× delete** per row in the dropdown.
+- ✅ For a brand-new event the load hydrates the form locally (no server round-trip, no bookings to worry about).
+- ✅ For an existing event in edit mode the load hits the server `/apply` endpoint so the backend can refuse if bookings already exist.
+- ✅ Data test-ids: `seatmap-templates-bar`, `seatmap-templates-load`, `seatmap-templates-save`, `seatmap-templates-picker`, `seatmap-template-{id}`, `seatmap-template-delete-{id}`.
+
+**Tested:**
+- 3 new pytests pass (`tests/test_seatmap_templates.py`) — strip whitelist, critical-field coverage, full lifecycle round-trip.
+- Live curl e2e: list (empty) → save → list (1) → delete. All returned 200.
+- Live screenshot of `/organizer/new` shows the bar rendered under the rows/cols grid.
+
+

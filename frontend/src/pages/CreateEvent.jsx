@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Bookmark, BookmarkPlus, X } from "lucide-react";
 import ImageUploader from "@/components/ImageUploader";
 import SeatDesigner from "@/components/SeatDesigner";
 import DateTimePicker from "@/components/DateTimePicker";
@@ -356,6 +356,12 @@ export default function CreateEvent() {
                 <Field label={`Default price / seat (${form.currency})`} hint={Number(form.seat_price) === 0 ? "🎉 Set to 0 — this event will be marketed as Free" : null}><input type="number" step="0.01" min="0" value={form.seat_price} onChange={(e) => update("seat_price", parseFloat(e.target.value) || 0)} data-testid="seat-price-input" /></Field>
               </div>
 
+              <SeatmapTemplateBar
+                form={form}
+                applyTemplate={(layout) => setForm((f) => ({ ...f, has_seatmap: true, ...layout }))}
+                eventId={eventId}
+              />
+
               {/* Per-category seat prices — only meaningful once at least one
                   category has actual seats assigned, so we surface this once
                   the categories map is non-empty. */}
@@ -693,6 +699,166 @@ function Field({ label, children, hint }) {
       <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>{label}</label>
       {children}
       {hint && <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>{hint}</div>}
+    </div>
+  );
+}
+
+/**
+ * SeatmapTemplateBar — save the current seatmap form as a reusable template
+ * and load any of my saved templates back into the form. Lazily fetches the
+ * organizer's templates on first render; refreshes after each save/delete.
+ *
+ * Lives under the rows/cols/price row so it sits naturally above the designer.
+ */
+const TEMPLATE_FIELDS = [
+  "seat_rows", "seat_cols", "aisles",
+  "seatmap_curved", "seatmap_numbering_rtl",
+  "seatmap_sections", "seatmap_categories",
+  "seatmap_category_prices",
+  "seatmap_row_offsets", "seatmap_custom_labels",
+  "seat_price", "seat_map_image_url",
+  "seatmap_backdrop_opacity", "seatmap_backdrop_offset_y",
+  "seatmap_backdrop_offset_x", "seatmap_backdrop_scale",
+];
+
+function SeatmapTemplateBar({ form, applyTemplate, eventId }) {
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [picker, setPicker] = useState(false);
+
+  const refresh = async () => {
+    try {
+      const { data } = await api.get("/organizer/seatmap-templates");
+      setTemplates(data || []);
+    } catch (e) {
+      // 401/403 just means we're not logged in as organizer — silent.
+    }
+  };
+
+  useEffect(() => { refresh(); }, []);
+
+  const onSave = async () => {
+    const name = window.prompt(
+      "Name this layout (e.g. 'Comedy Club Main Stage'):",
+      `${form.seat_rows}×${form.seat_cols} layout`
+    );
+    if (!name) return;
+    const layout = Object.fromEntries(
+      TEMPLATE_FIELDS.filter((k) => form[k] !== undefined).map((k) => [k, form[k]])
+    );
+    setLoading(true);
+    try {
+      await api.post("/organizer/seatmap-templates", { name: name.trim(), layout });
+      toast.success(`Saved "${name.trim()}" — reuse it on your next show`);
+      refresh();
+    } catch (err) {
+      toast.error(formatApiErrorDetail(err?.response?.data?.detail) || "Couldn't save template");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onLoad = async (tmpl) => {
+    if (eventId) {
+      // We're editing an existing event — apply server-side so backend can
+      // guard against overwriting a layout that already has bookings sold.
+      if (!window.confirm(`Replace this event's seat layout with "${tmpl.name}"? Existing seat IDs may shift.`)) return;
+      try {
+        await api.post("/organizer/seatmap-templates/apply", {
+          template_id: tmpl.template_id, event_id: eventId,
+        });
+        applyTemplate(tmpl.layout);
+        toast.success(`Loaded "${tmpl.name}" — saved on the event`);
+        setPicker(false);
+      } catch (err) {
+        toast.error(formatApiErrorDetail(err?.response?.data?.detail) || "Couldn't apply template");
+      }
+    } else {
+      // New event — just hydrate the form. Saves the round-trip.
+      applyTemplate(tmpl.layout);
+      toast.success(`Loaded "${tmpl.name}" into the form`);
+      setPicker(false);
+    }
+  };
+
+  const onDelete = async (tmpl, e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Delete template "${tmpl.name}"?`)) return;
+    try {
+      await api.delete(`/organizer/seatmap-templates/${tmpl.template_id}`);
+      toast.success("Template deleted");
+      refresh();
+    } catch {
+      toast.error("Couldn't delete");
+    }
+  };
+
+  return (
+    <div className="rounded-lg p-3 flex flex-wrap items-center gap-2" style={{ background: "var(--bg-elev)", border: "1px dashed var(--border)" }} data-testid="seatmap-templates-bar">
+      <div className="text-xs flex items-center gap-1.5 mr-1" style={{ color: "var(--text-muted)" }}>
+        <Bookmark className="w-3.5 h-3.5" /> Layout templates
+      </div>
+      <button
+        type="button"
+        onClick={() => setPicker((s) => !s)}
+        disabled={!templates.length}
+        className="text-xs px-2.5 py-1 rounded-md transition"
+        style={{
+          background: "transparent",
+          border: "1px solid var(--border)",
+          color: templates.length ? "var(--text)" : "var(--text-dim)",
+          cursor: templates.length ? "pointer" : "not-allowed",
+        }}
+        data-testid="seatmap-templates-load"
+      >
+        Load {templates.length > 0 && <span className="opacity-60">({templates.length})</span>}
+      </button>
+      <button
+        type="button"
+        onClick={onSave}
+        disabled={loading || !form.has_seatmap || !form.seat_rows || !form.seat_cols}
+        className="text-xs px-2.5 py-1 rounded-md inline-flex items-center gap-1 transition"
+        style={{ background: "var(--accent-soft)", color: "var(--accent)", border: "1px solid var(--accent)" }}
+        data-testid="seatmap-templates-save"
+      >
+        <BookmarkPlus className="w-3 h-3" /> Save current as template
+      </button>
+      <div className="text-[10px] opacity-60 ml-auto" style={{ color: "var(--text-dim)" }}>
+        Saves rows, aisles, categories, custom labels — not bookings.
+      </div>
+
+      {picker && templates.length > 0 && (
+        <div className="w-full mt-2 rounded-lg overflow-hidden" style={{ background: "var(--bg)", border: "1px solid var(--border)" }} data-testid="seatmap-templates-picker">
+          {templates.map((t) => (
+            <button
+              key={t.template_id}
+              type="button"
+              onClick={() => onLoad(t)}
+              className="w-full text-left flex items-center justify-between px-3 py-2 hover:bg-[color:var(--bg-elev)] transition"
+              data-testid={`seatmap-template-${t.template_id}`}
+            >
+              <div>
+                <div className="text-sm font-medium">{t.name}</div>
+                <div className="text-[10px]" style={{ color: "var(--text-dim)" }}>
+                  {t.layout?.seat_rows || 0} × {t.layout?.seat_cols || 0}
+                  {(t.layout?.aisles?.length || 0) > 0 && ` · ${t.layout.aisles.length} aisle(s)`}
+                  {Object.keys(t.layout?.seatmap_custom_labels || {}).length > 0 &&
+                    ` · ${Object.keys(t.layout.seatmap_custom_labels).length} custom label(s)`}
+                  {" · "}saved {new Date(t.created_at).toLocaleDateString()}
+                </div>
+              </div>
+              <span
+                onClick={(e) => onDelete(t, e)}
+                className="text-xs opacity-50 hover:opacity-100 px-2 py-1 rounded"
+                title="Delete template"
+                data-testid={`seatmap-template-delete-${t.template_id}`}
+              >
+                <X className="w-3 h-3" />
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
