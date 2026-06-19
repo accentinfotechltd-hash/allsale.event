@@ -1242,3 +1242,42 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 5. Approve → booking flagged → admin processes Stripe refund via existing `/admin → Bookings → Refund` button
 
 
+
+## Iteration 41 (2026-02-18) — All three P2s shipped in one pass
+
+User picked **"ALL THREE"**: bulk seat-block, paid Boost via Stripe, printable door signs PDF.
+
+### 1. Bulk seat-block tool (SeatDesigner)
+- ✅ New `bulkBlock(input)` parser handles single seats (`B5`), in-row ranges (`B1-B10`), and cross-row ranges (`A1-B5` walks A1..A{cols}, B1..B5). Case-insensitive, comma-separated, whitespace-tolerant.
+- ✅ Toolbar button **"Bulk block…"** opens a `window.prompt` with examples → applies to `blockedSeats` so the existing Hold-mode pipeline persists them.
+- ✅ Aisle seats are silently skipped (can't block what's already a gap).
+- ✅ Reports added/skipped counts via toast.
+
+### 2. Paid Boost via Stripe (events router)
+- ✅ Three tiers: **1day NZ$15 / 3days NZ$35 / 1week NZ$75** (env-overridable via `BOOST_TIERS` in code — easy to change).
+- ✅ `GET /api/organizer/events/{id}/boost/tiers` — returns the pricing table for frontend display.
+- ✅ `POST /api/organizer/events/{id}/boost/checkout` — creates a Stripe Checkout session via `emergentintegrations`, returns `{url, session_id}`.
+- ✅ Stripe webhook in `payments.py` extended: `kind == "paid_boost"` calls `finalize_paid_boost(meta)` which flips `boosted_at` + `boosted_until` + records `last_boost_kind` / `last_boost_tier` on the event.
+- ✅ Frontend `Organizer.jsx` boost button now prompts for tier (free / 1day / 3days / 1week). Free goes via the existing no-cost endpoint; paid tiers redirect to Stripe Checkout.
+- ✅ Live curl verified: `/boost/tiers` returns all three with correct prices.
+
+### 3. Door-sign PDF (one A4 per row)
+- ✅ New `/app/backend/door_sign_pdf.py` builds a multi-page A4 portrait PDF: huge orange `ROW X` headline (240pt!) + seat sequence chips at the bottom + brand band + footer. Honours custom labels, row offsets, aisles (rendered as `·`), and RTL numbering — same logic as the row-plan CSV so they stay in sync.
+- ✅ `GET /api/organizer/events/{id}/door-signs.pdf` — returns the PDF blob with `Content-Disposition: attachment`.
+- ✅ Frontend SeatDesigner has a new **"Door signs (PDF)"** button next to the existing CSV export. It fetches as a blob (so auth headers work) and triggers download with a friendly filename.
+- ✅ 2 pytests pass: multi-page output + raises on no-seatmap event.
+
+**Tests:** 11/11 across all backend modules touched today (door_sign_pdf, ticket_protection, seatmap_templates, ticket_pdf).
+
+**Files changed/added:**
+- New: `backend/door_sign_pdf.py`, `backend/tests/test_door_sign_pdf.py`
+- Edited: `backend/routers/events.py` (+ paid Boost tiers, checkout endpoint, finalize hook), `backend/routers/payments.py` (webhook hook), `backend/routers/seatmap_templates.py` (door-signs endpoint)
+- Edited: `frontend/src/components/SeatDesigner.jsx` (bulkBlock + Bulk block button + Door signs button)
+- Edited: `frontend/src/pages/Organizer.jsx` (paid-boost prompt)
+
+**Remaining backlog:**
+- P3: Protection P&L widget on `/admin` (deferred until ~50 claims have flowed through)
+- Admin claims tab UI for Ticket Protection (shipped iter 40)
+- Profile "Request refund" CTA (shipped iter 40)
+
+

@@ -5,7 +5,7 @@ from datetime import timedelta
 from typing import Optional, Dict, Any
 from xml.sax.saxutils import escape as xml_escape
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -499,6 +499,101 @@ async def boost_event(event_id: str, user: dict = Depends(get_current_user)):
         "duration_hours": BOOST_DURATION_HOURS,
         "next_boost_available_in_hours": BOOST_COOLDOWN_HOURS,
     }
+
+
+# ---------------------------------------------------------------------------
+# Paid Boost — Stripe-backed premium promotion tiers
+# ---------------------------------------------------------------------------
+# Tiered pricing — organizers pick a duration. We charge upfront via Stripe
+# Checkout and only flip `boosted_until` on webhook success.
+BOOST_TIERS = {
+    "1day":  {"hours": 24,   "price": 15.0, "label": "1 day"},
+    "3days": {"hours": 72,   "price": 35.0, "label": "3 days"},
+    "1week": {"hours": 168,  "price": 75.0, "label": "1 week"},
+}
+
+
+@router.get("/organizer/events/{event_id}/boost/tiers")
+async def get_boost_tiers(event_id: str, user: dict = Depends(get_current_user)):
+    """Public-to-organizer endpoint listing the paid boost options + the free
+    self-serve fallback. Frontend renders this as a 4-card picker."""
+    return {
+        "currency": "NZD",
+        "tiers": [
+            {"id": tid, **t} for tid, t in BOOST_TIERS.items()
+        ],
+        "free_duration_hours": BOOST_DURATION_HOURS,
+    }
+
+
+class PaidBoostIn(BaseModel):
+    tier: str
+    origin_url: str
+
+
+@router.post("/organizer/events/{event_id}/boost/checkout")
+async def create_paid_boost_checkout(event_id: str, payload: PaidBoostIn, request: Request, user: dict = Depends(get_current_user)):
+    """Create a Stripe Checkout session for a paid Boost. The actual flag flip
+    happens on the Stripe webhook (`finalize_paid_boost` below)."""
+    await require_role(user, "organizer", "admin")
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event["organizer_id"] != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not your event")
+    tier = BOOST_TIERS.get(payload.tier)
+    if not tier:
+        raise HTTPException(status_code=400, detail="Invalid boost tier")
+    try:
+        from emergentintegrations.payments.stripe.checkout import (
+            StripeCheckout, CheckoutSessionRequest,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=503, detail="Payments are temporarily unavailable") from exc
+    from core import STRIPE_API_KEY
+    host_url = str(request.base_url)
+    fwd_proto = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    if fwd_proto == "https" and host_url.startswith("http://"):
+        host_url = "https://" + host_url[len("http://"):]
+    webhook_url = (os.environ.get("STRIPE_WEBHOOK_URL") or "").strip() or f"{host_url}api/webhook/stripe"
+    stripe = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
+    req = CheckoutSessionRequest(
+        amount=float(tier["price"]),
+        currency="nzd",
+        success_url=f"{payload.origin_url}/organizer?boost_success=1&event={event_id}",
+        cancel_url=f"{payload.origin_url}/organizer",
+        metadata={
+            "kind": "paid_boost",
+            "event_id": event_id,
+            "tier": payload.tier,
+            "hours": str(tier["hours"]),
+            "organizer_id": user["user_id"],
+        },
+    )
+    session = await stripe.create_checkout_session(req)
+    return {"url": session.url, "session_id": session.session_id, "amount": tier["price"], "hours": tier["hours"]}
+
+
+async def finalize_paid_boost(meta: Dict[str, Any]) -> bool:
+    """Webhook-time hook: flip the event's boost flags once Stripe confirms."""
+    event_id = meta.get("event_id")
+    hours = int(meta.get("hours") or BOOST_DURATION_HOURS)
+    if not event_id:
+        return False
+    now = utc_now()
+    until = (now + timedelta(hours=hours)).isoformat()
+    res = await db.events.update_one(
+        {"event_id": event_id},
+        {"$set": {
+            "boosted_at": now.isoformat(),
+            "boosted_until": until,
+            "last_boost_kind": "paid",
+            "last_boost_tier": meta.get("tier"),
+        }},
+    )
+    logger.info(f"[boost] paid boost activated for event {event_id} until {until}")
+    return res.modified_count > 0
+
 
 
 @router.get("/sitemap.xml")

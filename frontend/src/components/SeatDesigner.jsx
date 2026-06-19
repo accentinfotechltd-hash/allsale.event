@@ -212,6 +212,67 @@ export default function SeatDesigner({
 
   const toggleAisle = (id) => applyMode(id);  // kept for back-compat with existing handlers
 
+  /**
+   * Bulk-block a comma-separated list of seat ranges. Accepts:
+   *   • Single seat ids: "B5"
+   *   • Ranges within a row: "B1-B10", "C5-C15"
+   *   • Across-row ranges (rare but supported): "A1-B5" walks A1..A{cols}, B1..B5
+   *   • Whitespace is forgiven; case-insensitive row letters.
+   * Each parsed seat is added to `blockedSeats` (the existing Hold mode set),
+   * so the public seat map renders them as unavailable.
+   */
+  const bulkBlock = (input) => {
+    const text = (input || "").trim();
+    if (!text) return;
+    const next = new Set(blockedSeats);
+    let added = 0;
+    const skipped = [];
+    text.split(",").forEach((chunk) => {
+      const part = chunk.trim().toUpperCase();
+      if (!part) return;
+      const m = part.match(/^([A-Z])(\d+)\s*-\s*([A-Z])(\d+)$/);
+      if (m) {
+        const r1 = LETTERS.indexOf(m[1]);
+        const r2 = LETTERS.indexOf(m[3]);
+        const n1 = parseInt(m[2], 10);
+        const n2 = parseInt(m[4], 10);
+        if (r1 < 0 || r2 < 0 || r1 > r2 || r1 >= rows || r2 >= rows) {
+          skipped.push(part);
+          return;
+        }
+        for (let r = r1; r <= r2; r++) {
+          const start = r === r1 ? n1 : 1;
+          const end = r === r2 ? n2 : cols;
+          for (let n = start; n <= Math.min(end, cols); n++) {
+            const id = `${LETTERS[r]}-${n}`;
+            if (!aisleSet.has(id)) {
+              next.add(id);
+              added += 1;
+            }
+          }
+        }
+        return;
+      }
+      const single = part.match(/^([A-Z])(\d+)$/);
+      if (single) {
+        const r = LETTERS.indexOf(single[1]);
+        const n = parseInt(single[2], 10);
+        if (r >= 0 && r < rows && n >= 1 && n <= cols) {
+          const id = `${LETTERS[r]}-${n}`;
+          if (!aisleSet.has(id)) {
+            next.add(id);
+            added += 1;
+            return;
+          }
+        }
+      }
+      skipped.push(part);
+    });
+    setBlockedSeats(next);
+    if (added > 0) toast.success(`Blocked ${added} seat${added === 1 ? "" : "s"}`);
+    if (skipped.length) toast.error(`Couldn't parse: ${skipped.join(", ")}`);
+  };
+
   const toggleSection = (afterRow) => {
     if (sectionMap.has(afterRow)) {
       emit({ sections: sections.filter((s) => s.after_row !== afterRow) });
@@ -376,6 +437,28 @@ export default function SeatDesigner({
             {blockedSeats.size > 0 && <span className="opacity-70">({blockedSeats.size})</span>}
           </button>
         )}
+        {eventId && (
+          <button
+            type="button"
+            onClick={() => {
+              const input = window.prompt(
+                "Block multiple seats at once — separate with commas.\n" +
+                "Examples:\n" +
+                "  • B1-B10  (block seats 1 through 10 in row B)\n" +
+                "  • C5, C7, C9  (block specific seats)\n" +
+                "  • A1-B5  (across rows: A1..end and B1..B5)",
+                ""
+              );
+              if (input) bulkBlock(input);
+            }}
+            className="px-2.5 py-1.5 rounded-lg text-xs inline-flex items-center gap-1.5 transition"
+            style={{ background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border)" }}
+            data-testid="designer-bulk-block"
+            title="Block many seats at once by typing ranges like B1-B10"
+          >
+            <Lock className="w-3 h-3" /> Bulk block…
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setMode("section")}
@@ -473,6 +556,33 @@ export default function SeatDesigner({
           >
             <Download className="w-3 h-3" /> Export row plan (CSV)
           </button>
+          {eventId && (
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const res = await api.get(`/organizer/events/${eventId}/door-signs.pdf`, { responseType: "blob" });
+                  const url = URL.createObjectURL(res.data);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `door-signs-${eventId}.pdf`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                  toast.success("Door signs downloaded — print A4, one per row");
+                } catch (e) {
+                  toast.error(e?.response?.data?.detail || "Couldn't generate door signs");
+                }
+              }}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition shrink-0"
+              style={{ background: "transparent", color: "var(--text-muted)", border: "1px solid var(--border)" }}
+              data-testid="download-door-signs"
+              title="Download printable A4 signs — one per row, with the row letter HUGE so ushers can stick at the start of each aisle"
+            >
+              <Download className="w-3 h-3" /> Door signs (PDF)
+            </button>
+          )}
         </div>
         {showPreview && (
           <div className="px-4 pb-3 pt-1 space-y-1.5 max-h-56 overflow-y-auto text-xs font-mono">

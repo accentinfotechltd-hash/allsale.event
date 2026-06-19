@@ -137,3 +137,26 @@ async def apply_template(payload: ApplyTemplateIn, user: dict = Depends(get_curr
     await db.events.update_one({"event_id": payload.event_id}, {"$set": update})
     logger.info(f"[seatmap-template] applied {payload.template_id} to {payload.event_id}")
     return {"ok": True, "applied_fields": list(update.keys())}
+
+
+
+# ---------------------------------------------------------------------------
+# Door-sign PDF — printable, one A4 page per row, for ushers on the night of.
+# ---------------------------------------------------------------------------
+@router.get("/organizer/events/{event_id}/door-signs.pdf")
+async def door_signs_pdf(event_id: str, user: dict = Depends(get_current_user)):
+    from fastapi.responses import Response
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event.get("organizer_id") != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not your event")
+    if not event.get("has_seatmap"):
+        raise HTTPException(status_code=400, detail="Door signs are only available for events with a seatmap")
+    from door_sign_pdf import build_door_sign_pdf
+    pdf_bytes, filename = build_door_sign_pdf(event)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

@@ -45,11 +45,37 @@ export default function Organizer() {
   };
 
   const boostEvent = async (e) => {
+    // Modal-free quick-pick: prompt with the three paid options + the free fallback.
+    // Hitting cancel = free 72hr boost (no Stripe round-trip). Picking 1/3/7
+    // hits the Stripe Checkout endpoint and redirects.
+    const choice = window.prompt(
+      `Boost "${e.title}"?\n\n` +
+      `Type one of:\n` +
+      `  free   — 72hr free Trending badge (1 boost / 7 days)\n` +
+      `  1day   — NZ$15 / 24 hr Boost (no cooldown)\n` +
+      `  3days  — NZ$35 / 3 day Boost (no cooldown)\n` +
+      `  1week  — NZ$75 / 7 day Boost (no cooldown)`,
+      "1day"
+    );
+    if (!choice) return;
+    const tier = choice.trim().toLowerCase();
     try {
-      const { data } = await api.post(`/organizer/events/${e.event_id}/boost`);
-      const until = new Date(data.boosted_until).toLocaleDateString();
-      toast.success(`🔥 Boosted! "${e.title}" gets a Trending badge until ${until}.`);
-      load();
+      if (tier === "free") {
+        const { data } = await api.post(`/organizer/events/${e.event_id}/boost`);
+        const until = new Date(data.boosted_until).toLocaleDateString();
+        toast.success(`🔥 Boosted! "${e.title}" gets a Trending badge until ${until}.`);
+        load();
+        return;
+      }
+      if (!["1day", "3days", "1week"].includes(tier)) {
+        toast.error("Type one of: free, 1day, 3days, 1week");
+        return;
+      }
+      const { data } = await api.post(
+        `/organizer/events/${e.event_id}/boost/checkout`,
+        { tier, origin_url: window.location.origin }
+      );
+      if (data?.url) window.location.assign(data.url);
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Couldn't boost event");
     }

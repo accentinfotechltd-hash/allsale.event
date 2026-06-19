@@ -537,6 +537,12 @@ async def stripe_webhook(request: Request):
                 await finalize_bundle_purchase(meta.get("purchase_id"))
             except Exception:  # noqa: BLE001
                 logger.exception("Failed to finalize bundle from webhook")
+        elif kind == "paid_boost":
+            try:
+                from routers.events import finalize_paid_boost
+                await finalize_paid_boost(meta)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to finalize paid boost from webhook")
         else:
             booking_id = meta.get("booking_id")
             if booking_id:
