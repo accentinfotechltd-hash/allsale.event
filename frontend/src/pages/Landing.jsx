@@ -128,12 +128,28 @@ export default function Landing() {
             <div className="lg:col-span-5 fade-up fade-up-2">
               <Link
                 to={`/events/${hero.event_id}`}
-                className="block relative aspect-[3/4] rounded-2xl overflow-hidden border"
-                style={{ borderColor: heroIsEditorPick ? "var(--accent)" : "var(--border)" }}
+                className="group block relative aspect-[3/4] rounded-2xl overflow-hidden border shadow-xl"
+                style={{
+                  borderColor: heroIsEditorPick ? "var(--accent)" : "var(--border)",
+                  boxShadow: "0 20px 60px -20px rgba(0,0,0,0.6)",
+                }}
                 data-testid={heroIsEditorPick ? "landing-editor-pick" : "landing-hero-featured"}
               >
-                <img src={hero.banner_url || hero.image_url} alt={hero.title} className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent" />
+                <img
+                  src={hero.banner_url || hero.image_url}
+                  alt={hero.title}
+                  className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.04]"
+                />
+                {/* Two-layer scrim: a tall soft gradient + a solid panel on the
+                    bottom 40% guarantees the title is readable no matter how
+                    light the underlying image is. */}
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    background:
+                      "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 35%, rgba(0,0,0,0.55) 65%, rgba(0,0,0,0.88) 100%)",
+                  }}
+                />
                 <div className="absolute inset-x-0 bottom-0 p-6">
                   <span
                     className={`chip mb-3 ${heroIsEditorPick ? "chip-accent" : "chip-accent"}`}
@@ -141,17 +157,29 @@ export default function Landing() {
                   >
                     {heroBadge}
                   </span>
-                  <h3 className="serif text-3xl leading-tight mb-2">{hero.title}</h3>
+                  <h3
+                    className="serif text-3xl leading-tight mb-2"
+                    style={{
+                      color: "#FFFFFF",
+                      textShadow: "0 2px 12px rgba(0,0,0,0.65)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {hero.title}
+                  </h3>
                   {heroBlurb ? (
                     <p
                       className="text-sm italic leading-snug mb-2 line-clamp-3"
-                      style={{ color: "var(--text-muted)" }}
+                      style={{ color: "rgba(255,255,255,0.85)", textShadow: "0 1px 6px rgba(0,0,0,0.5)" }}
                       data-testid="hero-blurb"
                     >
                       "{heroBlurb}"
                     </p>
                   ) : null}
-                  <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+                  <p
+                    className="text-sm"
+                    style={{ color: "rgba(255,255,255,0.8)", textShadow: "0 1px 6px rgba(0,0,0,0.5)" }}
+                  >
                     {hero.venue} · {hero.city}
                   </p>
                 </div>
