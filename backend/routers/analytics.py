@@ -162,3 +162,84 @@ async def sales_velocity(event_id: str, user: dict = Depends(get_current_user)):
         "forecast_days": forecast_days,
         "forecast_label": forecast_label,
     }
+
+
+
+# ---------------------------------------------------------------------------
+# Boost lift — measure the +views / +bookings a Boost actually drove
+# ---------------------------------------------------------------------------
+@router.get("/organizer/events/{event_id}/boost/stats")
+async def boost_lift(event_id: str, user: dict = Depends(get_current_user)):
+    """Compare views + bookings during the active boost window to an equal-
+    length window immediately before it. Returns null fields if the event has
+    never been boosted so the frontend can hide the widget.
+    """
+    event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if event.get("organizer_id") != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not your event")
+
+    boost_start = event.get("boosted_at")
+    boost_until = event.get("boosted_until")
+    if not boost_start or not boost_until:
+        return {"boosted": False}
+
+    try:
+        start_dt = datetime.fromisoformat(boost_start.replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(boost_until.replace("Z", "+00:00"))
+    except ValueError:
+        return {"boosted": False}
+
+    # If we're still mid-boost, compare against time elapsed rather than the
+    # full planned duration — otherwise the "control" window is bigger than
+    # the "during" window and the lift % gets misleading.
+    now = utc_now()
+    effective_end = min(end_dt, now)
+    if effective_end <= start_dt:
+        return {"boosted": True, "during_views": 0, "before_views": 0, "during_bookings": 0, "before_bookings": 0, "view_lift_pct": 0, "booking_lift_pct": 0}
+
+    window_secs = (effective_end - start_dt).total_seconds()
+    before_start = start_dt - timedelta(seconds=window_secs)
+
+    async def _count_views(start, end):
+        cur = db.event_views.find(
+            {"event_id": event_id, "at": {"$gte": start.isoformat(), "$lt": end.isoformat()}},
+            {"_id": 0, "fingerprint": 1},
+        )
+        seen = set()
+        async for doc in cur:
+            seen.add(doc.get("fingerprint") or "anon")
+        return len(seen)
+
+    async def _count_bookings(start, end):
+        return await db.bookings.count_documents({
+            "event_id": event_id,
+            "status": {"$in": ["paid", "confirmed"]},
+            "created_at": {"$gte": start.isoformat(), "$lt": end.isoformat()},
+        })
+
+    during_views = await _count_views(start_dt, effective_end)
+    before_views = await _count_views(before_start, start_dt)
+    during_bookings = await _count_bookings(start_dt, effective_end)
+    before_bookings = await _count_bookings(before_start, start_dt)
+
+    def _lift(a, b):
+        if b == 0:
+            return None if a == 0 else 100 * a  # treat 0 baseline as raw multiplier
+        return round(((a - b) / b) * 100, 1)
+
+    return {
+        "boosted": True,
+        "is_active": end_dt > now,
+        "boost_start": boost_start,
+        "boost_until": boost_until,
+        "boost_tier": event.get("last_boost_tier"),
+        "boost_kind": event.get("last_boost_kind", "free"),
+        "during_views": during_views,
+        "before_views": before_views,
+        "during_bookings": during_bookings,
+        "before_bookings": before_bookings,
+        "view_lift_pct": _lift(during_views, before_views),
+        "booking_lift_pct": _lift(during_bookings, before_bookings),
+    }

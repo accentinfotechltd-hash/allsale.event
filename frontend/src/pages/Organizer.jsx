@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, Fragment } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -6,6 +6,7 @@ import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet, ScanLine, Pencil, Tras
 import { toast } from "sonner";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { formatMoney } from "@/lib/currencies";
+import BoostStats from "@/components/BoostStats";
 import DoorCheckinPanel from "@/components/DoorCheckinPanel";
 import OrganizerInboxPanel from "@/components/OrganizerInboxPanel";
 import StripeConnectPanel from "@/components/StripeConnectPanel";
@@ -174,8 +175,10 @@ export default function Organizer() {
               <tr><td colSpan="6" className="p-8 text-center" style={{ color: "var(--text-dim)" }}>No events yet. Create your first one!</td></tr>
             ) : events.map((e) => {
               const perE = (analytics?.per_event || []).find((x) => x.event_id === e.event_id) || {};
+              const everBoosted = !!e.boosted_at;
               return (
-                <tr key={e.event_id} className="border-b hover:bg-[color:var(--bg-elev)] transition" style={{ borderColor: "var(--border)" }} data-testid={`org-event-row-${e.event_id}`}>
+                <Fragment key={e.event_id}>
+                <tr className="border-b hover:bg-[color:var(--bg-elev)] transition" style={{ borderColor: "var(--border)" }} data-testid={`org-event-row-${e.event_id}`}>
                   <td className="p-4">
                     <Link to={`/organizer/events/${e.event_id}`} className="hover:text-[color:var(--accent)]">{e.title}</Link>
                     <div className="text-xs" style={{ color: "var(--text-dim)" }}>{e.venue} · {e.city}</div>
@@ -247,6 +250,14 @@ export default function Organizer() {
                     </div>
                   </td>
                 </tr>
+                {everBoosted && (
+                  <tr style={{ borderBottom: "1px solid var(--border)" }} data-testid={`org-event-boost-row-${e.event_id}`}>
+                    <td colSpan="6" className="px-4 pb-3">
+                      <BoostStats eventId={e.event_id} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               );
             })}
           </tbody>

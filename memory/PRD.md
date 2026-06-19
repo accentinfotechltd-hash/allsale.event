@@ -1281,3 +1281,27 @@ User picked **"ALL THREE"**: bulk seat-block, paid Boost via Stripe, printable d
 - Profile "Request refund" CTA (shipped iter 40)
 
 
+
+## Iteration 42 (2026-02-18) — Boost analytics widget
+
+**User said yes** to the friendly idea: show organizers the +views / +bookings each Boost actually delivered, so they can self-justify the spend and repeat-buy.
+
+**Backend (`routers/analytics.py`):**
+- ✅ `GET /api/organizer/events/{event_id}/boost/stats` — owner-gated.
+- ✅ Compares **views + bookings during the active boost window** to an equal-length window immediately before it. Uses unique fingerprints for views (so refresh-spam doesn't pad the numbers) and `paid|confirmed` booking statuses only.
+- ✅ Handles mid-boost gracefully: when the boost is still running, the "during" window uses `now - boost_start` and the "before" window matches that length — keeps the comparison fair.
+- ✅ Returns `{boosted, is_active, during_views, before_views, during_bookings, before_bookings, view_lift_pct, booking_lift_pct, boost_kind, boost_tier}`.
+- ✅ Returns `{boosted: false}` for events that were never boosted so the frontend can skip rendering.
+
+**Frontend (`components/BoostStats.jsx` + `pages/Organizer.jsx`):**
+- ✅ New `BoostStats` component fetches the endpoint on mount; silently hides on error / never-boosted.
+- ✅ Pill row shows tier label ("Live now · Paid 1day" / "Last boost · Free boost"), trend arrows + colour-coded percentages (green up, red down), and a friendly "X views · Y bookings during Boost" tail line.
+- ✅ Rendered as an extra dashed-border row underneath each boosted event in the Organizer dashboard table (`<tr colspan=6>`) — non-invasive and doesn't break existing layout.
+- ✅ Live curl confirms endpoint returns proper data on a real seeded event.
+
+**Files changed/added:**
+- New: `frontend/src/components/BoostStats.jsx`
+- Edited: `backend/routers/analytics.py` (new endpoint)
+- Edited: `frontend/src/pages/Organizer.jsx` (Fragment row + BoostStats import)
+
+
