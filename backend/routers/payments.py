@@ -136,7 +136,12 @@ async def payments_health(user: dict = Depends(get_current_user)):
 
 
 async def _send_booking_confirmation_email(booking_id: str) -> None:
-    """Fetch fresh booking + event and queue confirmation email (non-blocking)."""
+    """Fetch fresh booking + event and queue confirmation email (non-blocking).
+
+    Attaches the printable ticket PDF (QR top-left + details) so the buyer
+    can open their inbox at the door and just show the attachment — no need
+    to log back into the site.
+    """
     booking = await db.bookings.find_one({"booking_id": booking_id}, {"_id": 0})
     if not booking or not booking.get("user_email"):
         return
@@ -155,7 +160,26 @@ async def _send_booking_confirmation_email(booking_id: str) -> None:
         "quantity": booking.get("quantity", 1),
         "amount": booking.get("amount", 0),
     }
-    send_template_fireforget("booking_confirmation", booking["user_email"], ctx, db)
+    # Build a print-ready PDF and attach it. Best-effort — if PDF generation
+    # fails we still send the email without the attachment (the buyer can
+    # still download it from /profile).
+    attachments = None
+    try:
+        from ticket_pdf import build_ticket_pdf  # local import to keep startup lean
+        pdf_ctx = {
+            **ctx,
+            "event_venue": event.get("venue", ""),
+            "event_city": event.get("city", ""),
+            "qr_code": booking.get("qr_code"),
+            "currency": booking.get("currency") or event.get("currency", "NZD"),
+        }
+        pdf_bytes, filename = build_ticket_pdf(pdf_ctx)
+        attachments = [{"content": pdf_bytes, "filename": filename}]
+    except Exception:  # noqa: BLE001
+        logger.exception(f"[email] ticket PDF build failed for booking {booking_id}")
+    send_template_fireforget(
+        "booking_confirmation", booking["user_email"], ctx, db, attachments=attachments
+    )
 
 
 @router.post("/checkout/session")

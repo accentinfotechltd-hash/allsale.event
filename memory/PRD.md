@@ -1062,3 +1062,35 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 - Edited: `frontend/src/pages/Profile.jsx` (import + button)
 
 
+
+## Iteration 36 (2026-02-18) — Booking confirmation email auto-attaches PDF
+
+**User request:** "yes" to "auto-attach the PDF to the booking-confirmation email".
+
+**Stack pick:** `fpdf2` for the server-side PDF (tiny dep tree, no system libs, identical layout API to the JS `jspdf` helper from iter 35).
+
+**Implementation:**
+- ✅ `fpdf2` added to `/app/backend/requirements.txt`.
+- ✅ New `/app/backend/ticket_pdf.py` mirroring the front-end layout 1:1:
+  - A5 landscape, 4mm orange brand band at the top.
+  - QR code top-left, 55×55 mm, "Scan at the door" caption below.
+  - Right column: tag, big title, date+time, venue, divider, 2×2 detail grid (Type/Seats/BookingID/Total — "Free" when amount=0).
+  - Footer with usage instructions + support email.
+  - `_latin1()` sanitizer handles emoji / smart-quotes / em-dashes (Helvetica is Latin-1 only).
+  - Graceful fallback when QR is missing (renders a placeholder rectangle).
+- ✅ `emails.send_template()` and `send_template_fireforget()` now accept an optional `attachments=[{content, filename}]` list and forward it to Resend's params.
+- ✅ `routers/payments._send_booking_confirmation_email()` builds the PDF via `build_ticket_pdf(...)` and attaches it. Best-effort: PDF generation errors are logged but don't block the email send.
+
+**Tests** (`backend/tests/test_ticket_pdf.py`, 3/3 pass):
+- with-QR full booking → valid PDF (>1.5 KB, `%PDF-` header, filename based on event slug + booking id).
+- without-QR → fallback placeholder still produces a valid PDF.
+- Unicode title (`🎉 Geeta Rabari's Garba — Live! 🎶`) → no crash, sanitized output rendered.
+
+**Files changed/added:**
+- New: `backend/ticket_pdf.py`
+- New: `backend/tests/test_ticket_pdf.py` (3 tests pass)
+- Edited: `backend/emails.py` (attachments param)
+- Edited: `backend/routers/payments.py` (build + attach)
+- Edited: `backend/requirements.txt` (+ `fpdf2==2.8.7`)
+
+

@@ -13,7 +13,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
 try:
@@ -768,7 +768,7 @@ def _t_organizer_stripe_setup_nudge(ctx: Dict[str, Any]) -> tuple[str, str, str]
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
-async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None) -> Dict[str, Any]:
+async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None, attachments: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Render and dispatch a template. Always returns a result dict; never raises.
 
     Logs to `email_logs` collection (if db provided) with status: queued | sent | failed | skipped.
@@ -776,6 +776,10 @@ async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None) ->
     If a user with this email has set `notification_email`, the message is
     transparently re-routed to that address (the original `to` is recorded
     on the log as `to_requested` for auditability).
+
+    :param attachments: Optional list of dicts with keys `content` (bytes or
+        base64 str) and `filename` (str). Forwarded to Resend's attachments
+        API verbatim. Used to attach the booking-confirmation ticket PDF.
     """
     log_id = uuid4().hex[:16]
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -828,6 +832,11 @@ async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None) ->
         # targets. Lets us send FROM a verified domain while keeping support
         # in a shared Gmail inbox.
         params["reply_to"] = [REPLY_TO_EMAIL]
+    # Forward attachments to Resend. Each attachment dict needs `content` and
+    # `filename`. Resend accepts raw bytes (which get auto-base64'd by the
+    # `resend` SDK) — so we just pass through whatever the caller hands us.
+    if attachments:
+        params["attachments"] = attachments
 
     try:
         result = await asyncio.to_thread(resend.Emails.send, params)
@@ -843,7 +852,7 @@ async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None) ->
         return {"status": "failed", "log_id": log_id, "reason": str(e)}
 
 
-def send_template_fireforget(template: str, to: str, ctx: Dict[str, Any], db=None):
+def send_template_fireforget(template: str, to: str, ctx: Dict[str, Any], db=None, attachments: Optional[List[Dict[str, Any]]] = None):
     """Schedule send without awaiting. Use when caller shouldn't block on email I/O.
 
     Returns the asyncio.Task on success or None if the event loop is closed
@@ -852,7 +861,7 @@ def send_template_fireforget(template: str, to: str, ctx: Dict[str, Any], db=Non
     used to surface when background-task email sends ran after the loop closed.
     """
     try:
-        return asyncio.create_task(send_template(template, to, ctx, db))
+        return asyncio.create_task(send_template(template, to, ctx, db, attachments=attachments))
     except RuntimeError:
         # Loop already closed — happens in test teardown. Drop the send silently.
         return None
