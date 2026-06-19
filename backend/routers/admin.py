@@ -113,8 +113,9 @@ async def admin_approve(event_id: str, user: dict = Depends(get_current_user)):
             import logging as _l
             _l.getLogger(__name__).warning(f"[follow-notify] failed: {exc}")
 
-        # Referral program — first-event-approved triggers $100 credit
-        # to both referrer + referred organizer. Idempotent.
+        # Referral program — first-event-approved triggers a $50 credit
+        # to the REFERRER only (no welcome bonus for the new organizer).
+        # Idempotent via `users.referral_credited_at`.
         try:
             from routers.organizer_referrals import maybe_grant_referral_on_first_approval
             await maybe_grant_referral_on_first_approval(event)

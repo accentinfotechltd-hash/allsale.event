@@ -897,3 +897,23 @@ Built a full two-sided creator marketplace on top of the existing affiliate plum
 **File changed:** `/app/frontend/src/components/SeatDesigner.jsx` (added `exportRowPlanCsv` helper + Download button + data-testid `export-row-plan-csv`).
 
 
+
+## Iteration 29 (2026-02-18) — Referral program retuned: $50, referrer-only
+
+**User request:** "Both you and the organizer you invite get $100 NZD credit the moment their first event goes live — change this with $50 only for the referrer not organizer."
+
+**Changes:**
+- ✅ `REFERRAL_CREDIT_NZD` default flipped from `100` → `50` (still overridable via env).
+- ✅ `maybe_grant_referral_on_first_approval`:
+  - Removed the second `_grant_credit` call to the referred organizer (no more `referral_signup_bonus` ledger row created going forward).
+  - Idempotency now keyed on `users.referral_credited_at` (a fresh ISO-stamp field) instead of the absent ledger row — protects against double-credit on event re-approval.
+  - Welcome email to the referred organizer also dropped; the referrer-side email is kept.
+- ✅ Frontend `OrganizerReferral.jsx`: doc comment updated, hero copy changed to "You earn $X NZD credit the moment the organizer you invite launches their first event", share-text reworded to drop the credit promise to the recipient.
+- ✅ Frontend `Signup.jsx`: referral banner no longer promises the signup user $100 — now reads "Referral active — you're signing up via an organizer's invite link".
+- ✅ `admin.py` approval comment updated to reflect new behaviour.
+
+**Tests:** `tests/test_organizer_referrals.py` updated to assert only the referrer is credited and the referred user is stamped `referral_credited_at`. All 3 tests pass. Live API verified: `GET /api/organizer/referral` returns `credit_per_referral_nzd: 50.0`.
+
+**Note on existing data:** legacy `referral_signup_bonus` credit rows already in the DB still display in the credit ledger UI (the conditional in `OrganizerReferral.jsx` continues to label them as "Welcome bonus"). Nothing is migrated or refunded retroactively — only new approvals follow the new policy.
+
+

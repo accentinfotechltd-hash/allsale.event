@@ -74,7 +74,7 @@ export default function Signup() {
             >
               <Sparkles size={14} style={{ color: "var(--accent)" }} />
               <div className="text-xs" style={{ color: "var(--accent)" }}>
-                Referral active — launch your first event and get <strong>$100 NZD credit</strong>.
+                Referral active — you're signing up via an organizer's invite link.
               </div>
             </div>
           )}

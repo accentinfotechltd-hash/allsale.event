@@ -50,20 +50,25 @@ def test_referral_credit_grants_on_first_approval_and_is_idempotent():
             event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
             ok = await maybe_grant_referral_on_first_approval(event)
             assert ok is True
+            # Referrer gets a single $50 credit; the referred organizer
+            # does NOT receive a welcome bonus (program update — refer-only).
             referrer_credits = await db.organizer_credits.count_documents(
                 {"user_id": referrer_id, "reason": "referral_payout"}
             )
             referred_credits = await db.organizer_credits.count_documents(
-                {"user_id": referred_id, "reason": "referral_signup_bonus"}
+                {"user_id": referred_id}
             )
             assert referrer_credits == 1
-            assert referred_credits == 1
+            assert referred_credits == 0
+            # Referred user is stamped so a second pass is a no-op.
+            stamped = await db.users.find_one({"user_id": referred_id}, {"_id": 0})
+            assert stamped.get("referral_credited_at")
 
             # Second call → no new credits (idempotent)
             ok2 = await maybe_grant_referral_on_first_approval(event)
             assert ok2 is False
             assert await db.organizer_credits.count_documents(
-                {"user_id": referred_id, "reason": "referral_signup_bonus"}
+                {"user_id": referrer_id, "reason": "referral_payout"}
             ) == 1
         finally:
             await db.organizer_credits.delete_many({"user_id": {"$in": [referrer_id, referred_id]}})

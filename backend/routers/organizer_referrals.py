@@ -5,15 +5,16 @@ Mechanics:
     derived from their user_id. Share the link `?ref=<code>` anywhere.
   • New users that sign up via that link get `referred_by_code` stamped on
     their user doc.
-  • The FIRST time the referred user's event is approved, both the referrer
-    and the new organizer get a $100 platform credit. This is captured as
-    an `organizer_credits` ledger row — admins can apply it manually
-    against the next payout / Stripe invoice.
+  • The FIRST time the referred user's event is approved, the REFERRER
+    gets a $50 NZD platform credit. The new organizer doesn't receive a
+    welcome bonus — keeps the program lean and prevents self-referral
+    abuse via burner accounts. This is captured as an `organizer_credits`
+    ledger row — admins apply it manually against the next payout.
   • Credits don't auto-deduct from organizer revenue. Surface them in the
     referral dashboard + nudge the organizer to mention them on payout day.
 
-Why $100 vs % cashback? Flat amounts are simple, predictable, low fraud
-risk; aligns with the user-stated "$100 credit on first event" plan.
+Flat amount ($50) is simple, predictable, and low-fraud — aligns with the
+user-stated "$50 referrer-only credit on first event" plan.
 """
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ from core import db, get_current_user, require_role, utc_now, logger
 
 router = APIRouter(tags=["organizer_referrals"])
 
-REFERRAL_CREDIT_NZD = float(os.environ.get("REFERRAL_CREDIT_NZD", "100"))
+REFERRAL_CREDIT_NZD = float(os.environ.get("REFERRAL_CREDIT_NZD", "50"))
 
 
 def _ref_code_for(user_id: str) -> str:
@@ -66,11 +67,10 @@ async def maybe_grant_referral_on_first_approval(event: dict) -> bool:
     ref_code = (organizer.get("referred_by_code") or "").strip().lower()
     if not ref_code or not ref_code.startswith("ref_"):
         return False
-    # Already credited? bail.
-    existing = await db.organizer_credits.find_one(
-        {"user_id": organizer_id, "reason": "referral_signup_bonus"}, {"_id": 0}
-    )
-    if existing:
+    # Already credited? bail. We stamp the organizer doc once the credit is
+    # granted (rather than checking the credits ledger), so removing the
+    # referee-side bonus doesn't break idempotency.
+    if organizer.get("referral_credited_at"):
         return False
     # Count this organizer's approved events (>= 1 means this is the moment).
     approved_count = await db.events.count_documents(
@@ -90,20 +90,24 @@ async def maybe_grant_referral_on_first_approval(event: dict) -> bool:
     # Don't credit if user referred themselves (paranoia)
     if referrer["user_id"] == organizer_id:
         return False
-    # Grant both
+    # Grant credit ONLY to the referrer. The newly-onboarded organizer
+    # no longer gets a welcome bonus — keeps the program tight against
+    # burner-account self-referral abuse.
     await _grant_credit(
         referrer["user_id"], REFERRAL_CREDIT_NZD,
         reason="referral_payout", related_event=event["event_id"],
     )
-    await _grant_credit(
-        organizer_id, REFERRAL_CREDIT_NZD,
-        reason="referral_signup_bonus", related_event=event["event_id"],
+    # Stamp the referred organizer so a subsequent re-approval of the same
+    # event (or another early event) doesn't credit the referrer twice.
+    await db.users.update_one(
+        {"user_id": organizer_id},
+        {"$set": {"referral_credited_at": utc_now().isoformat()}},
     )
     logger.info(
-        f"[referral] credited ${REFERRAL_CREDIT_NZD} NZD each to "
-        f"referrer={referrer['user_id']} and referred={organizer_id}"
+        f"[referral] credited ${REFERRAL_CREDIT_NZD} NZD to "
+        f"referrer={referrer['user_id']} (no bonus for referred={organizer_id})"
     )
-    # Best-effort emails to both parties
+    # Best-effort email to the referrer only
     try:
         from emails import send_template_fireforget
         if referrer.get("email"):
@@ -114,17 +118,6 @@ async def maybe_grant_referral_on_first_approval(event: dict) -> bool:
                     "organizer_name": referrer.get("name", "organizer"),
                     "amount": REFERRAL_CREDIT_NZD,
                     "event_title": f"Referral reward — {organizer.get('name','your friend')} just launched!",
-                },
-                db,
-            )
-        if organizer.get("email"):
-            send_template_fireforget(
-                "organizer_payout_issued",
-                organizer["email"],
-                {
-                    "organizer_name": organizer.get("name", "organizer"),
-                    "amount": REFERRAL_CREDIT_NZD,
-                    "event_title": "Welcome bonus — your first event is live!",
                 },
                 db,
             )

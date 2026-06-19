@@ -5,8 +5,10 @@ import api from "@/lib/api";
 
 /**
  * OrganizerReferral — show my referral link + stats, and a list of
- * credits I've earned. Shareable everywhere; both parties get $100 NZD
- * when the referred organizer's FIRST event is approved.
+ * credits I've earned. Shareable everywhere; the REFERRER gets a $50 NZD
+ * credit the moment the referred organizer's FIRST event is approved.
+ * (The new organizer does not receive a welcome bonus — keeps the
+ * program lean and reduces self-referral abuse via burner accounts.)
  */
 export default function OrganizerReferral() {
   const [stats, setStats] = useState(null);
@@ -44,7 +46,7 @@ export default function OrganizerReferral() {
     try {
       await navigator.share({
         title: "Sell tickets with Allsale Events",
-        text: `Get $${stats.credit_per_referral_nzd} NZD credit when you launch your first event. Join me on Allsale Events:`,
+        text: `Join me on Allsale Events — keep 100% of your ticket revenue. Sign up with my link:`,
         url: stats.share_url,
       });
     } catch { /* user dismissed */ }
@@ -59,8 +61,8 @@ export default function OrganizerReferral() {
         <h1 className="serif text-3xl">Refer an organizer, earn ${stats.credit_per_referral_nzd}</h1>
       </div>
       <p className="text-sm mb-8" style={{ color: "var(--text-muted)" }}>
-        Both you and the organizer you invite get <strong>${stats.credit_per_referral_nzd} NZD</strong> credit
-        the moment their first event goes live.
+        You earn <strong>${stats.credit_per_referral_nzd} NZD</strong> credit the moment the organizer
+        you invite launches their first event. Credit is applied to your next payout.
       </p>
 
       <div className="rounded-2xl border p-5 mb-8" style={{ borderColor: "var(--border-strong)", background: "var(--bg-card)" }} data-testid="referral-card">
