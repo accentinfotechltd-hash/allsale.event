@@ -1412,3 +1412,62 @@ User picked **"ALL THREE"**: bulk seat-block, paid Boost via Stripe, printable d
 - Edited: `frontend/src/lib/analytics.js` (+ `trackShare`)
 - Rewrote: `frontend/src/components/SocialShareButtons.jsx`
 
+
+
+
+## Iteration 46 (2026-02-19) — Admin operator workflow: create users, create events for organizers, admin↔organizer chat
+
+A bundled operator workflow upgrade. Three features that connect:
+admin onboards an organizer → creates their first event → talks to them in-app.
+
+### Shipped
+
+**A. Admin creates users**
+
+- `POST /api/admin/users` (admin-only) — body: `{name, email, password, role, send_welcome_email}`. Hashes the password via the same `core.hash_password` used by registration; rejects existing emails with 409; persists `created_by_admin: <admin_uid>` for audit.
+- Email template `admin_created_account` fires (fire-and-forget) with the temp password + a "Log in" CTA → `${APP_PUBLIC_URL}/login`.
+- Admin → Users tab has a new **Create user** button that opens a modal (`CreateUserDialog`) with name/email/password/role + a Generate-password helper + a "Email login credentials" toggle (default ON).
+- Tested end-to-end: 3 users created via curl + UI; welcome email queued; new user can log in immediately.
+
+**B. Admin creates events on behalf of an organizer**
+
+- `POST /api/events` (existing endpoint) now accepts an optional `on_behalf_of_organizer_id` field, silently ignored for non-admins. When set by an admin, the event's `organizer_id` and `organizer_name` are attributed to the chosen organizer (NOT the admin). The doc also stores `created_by_admin_id` + `created_by_admin_name` for audit.
+- The target organizer receives a `admin_created_event_for_you` email with venue/date and an **Open event in dashboard** CTA pointing at `/organizer/events/{id}/edit`.
+- CreateEvent.jsx renders an admin-only "Create on behalf of organizer" picker at the top of the form in create mode. Defaults to "Myself". Hidden in edit mode (re-attribution belongs to a separate UX).
+- Admin-created events are still auto-`approved` (existing behaviour preserved).
+- Tested end-to-end: admin posted an event with `on_behalf_of_organizer_id=user_f8da6d41c37e` and the response showed `organizer_id` correctly attributed to the target organizer.
+
+**C. Admin ↔ Organizer chat (Intercom-style, one thread per organizer)**
+
+- New router `routers/admin_organizer_chat.py` with endpoints:
+  - `GET  /api/admin/organizer-threads` — list every organizer with last-message preview + admin-side unread count (94 threads at test time).
+  - `GET  /api/admin/organizer-threads/{organizer_id}/messages` — fetch + auto-mark-as-read on admin's side.
+  - `POST /api/admin/organizer-threads/{organizer_id}/messages` — admin sends; fires `admin_message_to_organizer` email.
+  - `POST /api/admin/organizer-threads/{organizer_id}/read` — manual mark-as-read.
+  - `GET  /api/organizer/admin-thread` — organizer fetches their own thread (auto-marks admin msgs as read).
+  - `POST /api/organizer/admin-thread` — organizer sends; fires `organizer_message_to_admin` email to ALL admins.
+  - `GET  /api/organizer/admin-thread/unread` — cheap polling endpoint for the red-dot badge.
+  - `POST /api/organizer/admin-thread/read` — manual mark-as-read.
+- New Mongo collection: `admin_organizer_messages` — fields: `message_id, organizer_id (thread key), sender_role ("admin"|"organizer"), sender_user_id, sender_name, body, created_at, read_by_admin, read_by_organizer`.
+- Admin UI: new **Organizer chat** tab in `/admin` with a left sidebar (searchable thread list + unread badges) and a right pane (chat bubbles, Enter-to-send textarea, scroll-to-bottom on new messages). Deep-link friendly via `?tab=org-chat&organizer=<uid>` (used by the email CTA).
+- Organizer UI: new `AdminChatPanel` component dropped into the Organizer dashboard. Collapses into a toggle row with an unread badge; expands into a full chat panel. Polls `/organizer/admin-thread/unread` every 30s so admin replies show a red dot without a page refresh.
+- Both sides exchanged messages live in the smoke-test (admin → organizer → admin); unread badges cleared correctly on each open.
+
+### Email templates added (`backend/emails.py`)
+- `admin_created_account` — welcome with temp credentials + Login CTA.
+- `admin_created_event_for_you` — organizer sees the new event, has an "Open in dashboard" CTA pointing at the edit URL.
+- `admin_message_to_organizer` — preview of the admin's message + "Reply on dashboard" CTA.
+- `organizer_message_to_admin` — preview + deep-link to `/admin?tab=org-chat&organizer=<uid>`.
+
+### Files
+- New: `backend/routers/admin_organizer_chat.py`
+- New: `frontend/src/components/AdminChatPanel.jsx`
+- Edited: `backend/routers/admin.py` (POST /api/admin/users)
+- Edited: `backend/routers/events.py` (on_behalf_of_organizer_id support + organizer-notify email)
+- Edited: `backend/models.py` (EventIn.on_behalf_of_organizer_id field)
+- Edited: `backend/emails.py` (4 new templates + dict registration)
+- Edited: `backend/server.py` (router registration)
+- Edited: `frontend/src/pages/Admin.jsx` (Create-user dialog, Organizer-chat tab, deep-link)
+- Edited: `frontend/src/pages/CreateEvent.jsx` (admin "create on behalf of" picker)
+- Edited: `frontend/src/pages/Organizer.jsx` (mount AdminChatPanel)
+

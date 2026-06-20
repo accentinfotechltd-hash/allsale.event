@@ -315,6 +315,73 @@ class RoleIn(BaseModel):
     role: str  # attendee | organizer | admin
 
 
+class CreateUserIn(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: str  # attendee | organizer | admin
+    send_welcome_email: bool = True
+
+
+@router.post("/users")
+async def admin_create_user(payload: CreateUserIn, user: dict = Depends(get_current_user)):
+    """Admin-only: create a new user with a chosen role (attendee / organizer / admin).
+
+    Use case: onboarding an organizer who can't or won't self-register, or
+    seeding a co-admin account. Optionally fires a welcome email so the new
+    user gets their credentials and a one-click login link.
+    """
+    import uuid
+    from core import hash_password
+
+    _admin_only(user)
+    email = (payload.email or "").lower().strip()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Valid email is required")
+    if not (payload.password or "").strip() or len(payload.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if payload.role not in ("attendee", "organizer", "admin"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=409, detail="A user with that email already exists")
+
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    doc = {
+        "user_id": user_id,
+        "email": email,
+        "name": (payload.name or "").strip() or email.split("@")[0],
+        "role": payload.role,
+        "password_hash": hash_password(payload.password),
+        "picture": None,
+        "created_at": utc_now().isoformat(),
+        "created_by_admin": user["user_id"],
+        "auth_provider": "password",
+        "active": True,
+    }
+    await db.users.insert_one(doc)
+
+    if payload.send_welcome_email:
+        try:
+            from emails import send_template_fireforget
+            send_template_fireforget(
+                "admin_created_account",
+                email,
+                {
+                    "user_name": doc["name"],
+                    "user_email": email,
+                    "temp_password": payload.password,
+                    "role": payload.role,
+                    "admin_name": user.get("name") or "An admin",
+                },
+                db,
+            )
+        except Exception:
+            pass
+
+    # Strip the password_hash AND the BSON _id Mongo inserts on save before returning.
+    return {k: v for k, v in doc.items() if k not in ("password_hash", "_id")}
+
+
 @router.get("/users")
 async def admin_list_users(
     q: Optional[str] = None,

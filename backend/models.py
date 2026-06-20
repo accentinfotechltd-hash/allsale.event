@@ -83,6 +83,10 @@ class EventIn(BaseModel):
     # Group-booking auto-discount: when buyers purchase >= `min_qty` tickets in
     # one go they get `pct_off` % off automatically. Set min_qty=0 to disable.
     group_discount: Optional[Dict[str, Any]] = None  # {min_qty: int, pct_off: float}
+    # Admin-only: when set, the event is attributed to this organizer instead
+    # of the caller. Silently ignored when the caller isn't an admin. Enables
+    # admins to set up events on behalf of an organizer who can't or won't.
+    on_behalf_of_organizer_id: Optional[str] = None
 
 
 class HoldIn(BaseModel):

@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Trash2, Bookmark, BookmarkPlus, X } from "lucide-react";
+import { Plus, Trash2, Bookmark, BookmarkPlus, X, ShieldCheck } from "lucide-react";
 import ImageUploader from "@/components/ImageUploader";
 import SeatDesigner from "@/components/SeatDesigner";
 import DateTimePicker from "@/components/DateTimePicker";
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, currencySymbol } from "@/lib/currencies";
 import { COUNTRIES, DEFAULT_COUNTRY, currencyForCountry, timezoneForCountry } from "@/lib/countries";
+import { useAuth } from "@/lib/auth";
 
 const CATEGORIES = [
   { id: "movies", name: "Movies" },
@@ -25,6 +26,11 @@ export default function CreateEvent() {
   const nav = useNavigate();
   const { eventId } = useParams();
   const isEdit = !!eventId;
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
+  // Admin-only: create on behalf of any organizer. Defaults to "" = create as self.
+  const [onBehalfOf, setOnBehalfOf] = useState("");
+  const [organizerOptions, setOrganizerOptions] = useState([]);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -60,6 +66,17 @@ export default function CreateEvent() {
   const [tiers, setTiers] = useState([{ name: "General", price: 50.0, capacity: 200 }]);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(isEdit);
+
+  // Admin only & create mode: fetch list of organizers for the "create on behalf of" picker.
+  useEffect(() => {
+    if (!isAdmin || isEdit) return;
+    (async () => {
+      try {
+        const { data } = await api.get("/admin/users", { params: { role: "organizer" } });
+        setOrganizerOptions(data || []);
+      } catch { /* silent — picker just won't show options */ }
+    })();
+  }, [isAdmin, isEdit]);
 
   // Load existing event when in edit mode
   useEffect(() => {
@@ -215,6 +232,10 @@ export default function CreateEvent() {
       };
       delete payload.group_discount_min_qty;
       delete payload.group_discount_pct_off;
+      // Admin-only: attribute the event to the chosen organizer instead of admin.
+      if (isAdmin && !isEdit && onBehalfOf) {
+        payload.on_behalf_of_organizer_id = onBehalfOf;
+      }
       // Strip undefined values from category price map (cleared inputs)
       if (payload.seatmap_category_prices) {
         payload.seatmap_category_prices = Object.fromEntries(
@@ -260,6 +281,36 @@ export default function CreateEvent() {
         <div className="py-10 text-center" style={{ color: "var(--text-dim)" }}>Loading…</div>
       ) : (
       <form onSubmit={onSubmit} className="space-y-6" data-testid="create-event-form">
+        {isAdmin && !isEdit && (
+          <div
+            className="border rounded-2xl p-4 flex items-start gap-3"
+            style={{ borderColor: "var(--border)", background: "rgba(255,79,0,0.05)" }}
+            data-testid="admin-on-behalf-block"
+          >
+            <ShieldCheck className="w-5 h-5 mt-0.5" style={{ color: "var(--accent)" }} />
+            <div className="flex-1">
+              <div className="text-xs uppercase tracking-widest mb-1.5" style={{ color: "var(--text-dim)" }}>
+                Admin · Create on behalf of organizer
+              </div>
+              <select
+                value={onBehalfOf}
+                onChange={(e) => setOnBehalfOf(e.target.value)}
+                className="w-full"
+                data-testid="admin-on-behalf-select"
+              >
+                <option value="">Myself ({user?.name || "Admin"})</option>
+                {organizerOptions.map((o) => (
+                  <option key={o.user_id} value={o.user_id}>
+                    {o.name} — {o.email}
+                  </option>
+                ))}
+              </select>
+              <div className="text-xs mt-2" style={{ color: "var(--text-dim)" }}>
+                When set, the event is attributed to the chosen organizer and they receive an email notification.
+              </div>
+            </div>
+          </div>
+        )}
         <Field label="Cover photo">
           <ImageUploader
             value={form.image_url}

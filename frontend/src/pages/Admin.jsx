@@ -3,14 +3,21 @@ import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import MessageReactions from "@/components/MessageReactions";
 import { useAuth } from "@/lib/auth";
-import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send, Pencil } from "lucide-react";
+import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send, Pencil, UserPlus, MessagesSquare } from "lucide-react";
 import { toast } from "sonner";
 import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
 import StripeAdminDiagnostics from "@/components/StripeAdminDiagnostics";
 
 export default function Admin() {
   const { user } = useAuth();
-  const [tab, setTab] = useState("events");
+  // Tab can be deep-linked via ?tab=… (used by emails: `/admin?tab=org-chat&organizer=…`).
+  const initialTab = (() => {
+    if (typeof window === "undefined") return "events";
+    const t = new URLSearchParams(window.location.search).get("tab");
+    const valid = ["events", "users", "payouts", "stripe", "emails", "chats", "org-chat", "protection", "settings"];
+    return valid.includes(t) ? t : "events";
+  })();
+  const [tab, setTab] = useState(initialTab);
 
   if (!user || user.role !== "admin") {
     return <div className="text-center py-20" style={{ color: "var(--text-muted)" }}>Admin access required.</div>;
@@ -31,12 +38,13 @@ export default function Admin() {
           <TabBtn id="stripe" current={tab} onClick={setTab} icon={<ShieldCheck className="w-4 h-4" />} label="Stripe" />
           <TabBtn id="emails" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Emails" />
           <TabBtn id="chats" current={tab} onClick={setTab} icon={<MessageCircle className="w-4 h-4" />} label="Live chat" />
+          <TabBtn id="org-chat" current={tab} onClick={setTab} icon={<MessagesSquare className="w-4 h-4" />} label="Organizer chat" />
           <TabBtn id="protection" current={tab} onClick={setTab} icon={<ShieldAlert className="w-4 h-4" />} label="Protection claims" />
           <TabBtn id="settings" current={tab} onClick={setTab} icon={<SettingsIcon className="w-4 h-4" />} label="Settings" />
         </div>
       </div>
 
-      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : tab === "protection" ? <ProtectionClaimsTab /> : <SettingsTab />}
+      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : tab === "org-chat" ? <OrganizerChatTab /> : tab === "protection" ? <ProtectionClaimsTab /> : <SettingsTab />}
     </div>
   );
 }
@@ -257,6 +265,110 @@ function Section({ title, events, act, del, showApprove, showFeature }) {
 // ============================================================================
 // USERS TAB
 // ============================================================================
+// ============================================================================
+// CreateUserDialog — modal for admin to seed a new account
+// ============================================================================
+function CreateUserDialog({ onClose, onCreated }) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("organizer");
+  const [sendWelcome, setSendWelcome] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  const generatePassword = () => {
+    // 12-char base64-ish password — easy to read aloud yet uncommon.
+    const arr = new Uint8Array(9);
+    window.crypto.getRandomValues(arr);
+    setPassword(btoa(String.fromCharCode(...arr)).replace(/[+/=]/g, "").slice(0, 12));
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!name.trim() || !email.trim() || !password.trim()) {
+      toast.error("Name, email and password are required");
+      return;
+    }
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { data } = await api.post("/admin/users", {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+        role,
+        send_welcome_email: sendWelcome,
+      });
+      toast.success(sendWelcome
+        ? `Created ${data.email} — welcome email sent`
+        : `Created ${data.email}`);
+      onCreated();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Failed to create user");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)" }}
+      onClick={onClose}
+      data-testid="create-user-dialog"
+    >
+      <form
+        onSubmit={submit}
+        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md border rounded-2xl p-6"
+        style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="serif text-2xl">Create user</h3>
+          <button type="button" onClick={onClose} className="text-sm opacity-60 hover:opacity-100" data-testid="create-user-close">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <label className="block text-xs uppercase tracking-widest mb-1.5" style={{ color: "var(--text-dim)" }}>Name</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} className="w-full mb-4" required data-testid="create-user-name" />
+
+        <label className="block text-xs uppercase tracking-widest mb-1.5" style={{ color: "var(--text-dim)" }}>Email</label>
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full mb-4" required data-testid="create-user-email" />
+
+        <label className="block text-xs uppercase tracking-widest mb-1.5" style={{ color: "var(--text-dim)" }}>Password</label>
+        <div className="flex gap-2 mb-4">
+          <input value={password} onChange={(e) => setPassword(e.target.value)} className="flex-1" required minLength={6} data-testid="create-user-password" />
+          <button type="button" onClick={generatePassword} className="btn-ghost !py-2 !px-3 text-xs inline-flex items-center gap-1" data-testid="create-user-gen-pwd">
+            <RefreshCw className="w-3 h-3" /> Generate
+          </button>
+        </div>
+
+        <label className="block text-xs uppercase tracking-widest mb-1.5" style={{ color: "var(--text-dim)" }}>Role</label>
+        <select value={role} onChange={(e) => setRole(e.target.value)} className="w-full mb-4" data-testid="create-user-role">
+          <option value="attendee">Attendee</option>
+          <option value="organizer">Organizer</option>
+          <option value="admin">Admin</option>
+        </select>
+
+        <label className="flex items-center gap-2 mb-5 text-sm cursor-pointer" data-testid="create-user-welcome-toggle">
+          <input type="checkbox" checked={sendWelcome} onChange={(e) => setSendWelcome(e.target.checked)} />
+          Email login credentials to the user
+        </label>
+
+        <div className="flex gap-2 justify-end">
+          <button type="button" onClick={onClose} className="btn-ghost !py-2 !px-4 text-sm" data-testid="create-user-cancel">Cancel</button>
+          <button type="submit" disabled={busy} className="btn-primary !py-2 !px-4 text-sm" data-testid="create-user-submit">
+            {busy ? "Creating…" : "Create user"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+
 function UsersTab({ currentUser }) {
   const [users, setUsers] = useState([]);
   const [stats, setStats] = useState(null);
@@ -266,6 +378,7 @@ function UsersTab({ currentUser }) {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null); // user_id being role-edited
   const [viewingUserId, setViewingUserId] = useState(null); // drawer drill-down
+  const [showCreate, setShowCreate] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -345,7 +458,21 @@ function UsersTab({ currentUser }) {
           <option value="active">Active</option>
           <option value="suspended">Suspended</option>
         </select>
+        <button
+          onClick={() => setShowCreate(true)}
+          className="btn-primary !py-2 !px-4 text-sm inline-flex items-center gap-1.5"
+          data-testid="admin-create-user-btn"
+        >
+          <UserPlus className="w-4 h-4" /> Create user
+        </button>
       </div>
+
+      {showCreate && (
+        <CreateUserDialog
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { setShowCreate(false); load(); }}
+        />
+      )}
 
       <div className="border rounded-2xl overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
         <table className="w-full text-sm">
@@ -2162,6 +2289,196 @@ function AdminAttachment({ att }) {
  *       check the booking record before sending money back).
  *     • deny → claim flips to "denied" with an optional internal note.
  */
+// ============================================================================
+// OrganizerChatTab — admin sees every organizer thread + can chat with each
+// ============================================================================
+function OrganizerChatTab() {
+  const [threads, setThreads] = useState([]);
+  const [selected, setSelected] = useState(null); // organizer_id
+  const [messages, setMessages] = useState([]);
+  const [draft, setDraft] = useState("");
+  const [orgInfo, setOrgInfo] = useState(null);
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const endRef = useRef(null);
+
+  const loadThreads = async () => {
+    try {
+      const { data } = await api.get("/admin/organizer-threads");
+      setThreads(data);
+    } catch { /* noop */ }
+  };
+
+  // Deep-link from email: ?organizer=user_xxx preselects that thread.
+  useEffect(() => {
+    loadThreads();
+    const qs = new URLSearchParams(window.location.search);
+    const target = qs.get("organizer");
+    if (target) setSelected(target);
+  }, []);
+
+  const loadThread = async (uid) => {
+    try {
+      const { data } = await api.get(`/admin/organizer-threads/${uid}/messages`);
+      setMessages(data.messages || []);
+      setOrgInfo(data.organizer);
+      // refresh sidebar to clear unread badge
+      loadThreads();
+    } catch { /* noop */ }
+  };
+
+  useEffect(() => { if (selected) loadThread(selected); }, [selected]);
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length]);
+
+  const send = async () => {
+    const body = draft.trim();
+    if (!body || !selected) return;
+    setBusy(true);
+    try {
+      await api.post(`/admin/organizer-threads/${selected}/messages`, { body });
+      setDraft("");
+      loadThread(selected);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Failed to send");
+    } finally { setBusy(false); }
+  };
+
+  const filtered = threads.filter((t) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return (t.organizer_name || "").toLowerCase().includes(q)
+      || (t.organizer_email || "").toLowerCase().includes(q);
+  });
+
+  return (
+    <div className="grid lg:grid-cols-[320px_1fr] gap-4 min-h-[600px]" data-testid="organizer-chat-tab">
+      {/* Sidebar — thread list */}
+      <div className="border rounded-2xl overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
+        <div className="p-3 border-b" style={{ borderColor: "var(--border)" }}>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--text-dim)" }} />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search organizers"
+              className="w-full !pl-9 text-sm"
+              data-testid="org-chat-search"
+            />
+          </div>
+        </div>
+        <div className="max-h-[680px] overflow-y-auto">
+          {filtered.length === 0 && (
+            <div className="p-6 text-sm text-center" style={{ color: "var(--text-dim)" }}>No organizers match.</div>
+          )}
+          {filtered.map((t) => (
+            <button
+              key={t.organizer_id}
+              onClick={() => setSelected(t.organizer_id)}
+              className={`w-full text-left p-3 border-b transition ${selected === t.organizer_id ? "" : "hover:opacity-80"}`}
+              style={{
+                borderColor: "var(--border)",
+                background: selected === t.organizer_id ? "rgba(255,79,0,0.08)" : "transparent",
+              }}
+              data-testid={`org-chat-thread-${t.organizer_id}`}
+            >
+              <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate" style={{ color: "var(--text)" }}>{t.organizer_name}</div>
+                  <div className="text-xs truncate" style={{ color: "var(--text-dim)" }}>
+                    {t.last_message_preview || "No messages yet"}
+                  </div>
+                </div>
+                {t.unread_count > 0 && (
+                  <span
+                    className="px-1.5 py-0.5 rounded-full text-xs font-bold"
+                    style={{ background: "var(--accent)", color: "#0F0F0F", minWidth: 18, textAlign: "center" }}
+                    data-testid={`org-chat-unread-${t.organizer_id}`}
+                  >
+                    {t.unread_count}
+                  </span>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Right pane — selected thread */}
+      <div className="border rounded-2xl flex flex-col" style={{ borderColor: "var(--border)", background: "var(--bg-card)", minHeight: 600 }}>
+        {!selected ? (
+          <div className="flex-1 flex items-center justify-center text-sm" style={{ color: "var(--text-dim)" }}>
+            Select an organizer on the left to start chatting.
+          </div>
+        ) : (
+          <>
+            <div className="p-4 border-b" style={{ borderColor: "var(--border)" }}>
+              <div className="font-medium" style={{ color: "var(--text)" }} data-testid="org-chat-header-name">
+                {orgInfo?.name || "…"}
+              </div>
+              <div className="text-xs" style={{ color: "var(--text-dim)" }}>{orgInfo?.email}</div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3" data-testid="org-chat-messages">
+              {messages.length === 0 && (
+                <div className="text-sm text-center py-10" style={{ color: "var(--text-dim)" }}>
+                  No messages yet — say hi.
+                </div>
+              )}
+              {messages.map((m) => {
+                const mine = m.sender_role === "admin";
+                return (
+                  <div key={m.message_id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className="max-w-[75%] px-3 py-2 rounded-2xl text-sm"
+                      style={{
+                        background: mine ? "var(--accent)" : "var(--bg)",
+                        color: mine ? "#0F0F0F" : "var(--text)",
+                        whiteSpace: "pre-wrap",
+                      }}
+                      data-testid={`org-chat-msg-${m.message_id}`}
+                    >
+                      {m.body}
+                      <div className="text-[10px] opacity-70 mt-1">
+                        {new Date(m.created_at).toLocaleString()}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={endRef} />
+            </div>
+            <div className="p-3 border-t flex gap-2" style={{ borderColor: "var(--border)" }}>
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+                }}
+                placeholder="Type a message — Enter to send, Shift+Enter for newline"
+                className="flex-1 text-sm"
+                rows={2}
+                data-testid="org-chat-input"
+              />
+              <button
+                onClick={send}
+                disabled={busy || !draft.trim()}
+                className="btn-primary !py-2 !px-4 text-sm self-end inline-flex items-center gap-1"
+                data-testid="org-chat-send"
+              >
+                <Send className="w-4 h-4" /> Send
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+
 function ProtectionClaimsTab() {
   const [claims, setClaims] = useState([]);
   const [filter, setFilter] = useState("pending");

@@ -9,6 +9,7 @@ import { formatMoney } from "@/lib/currencies";
 import BoostStats from "@/components/BoostStats";
 import DoorCheckinPanel from "@/components/DoorCheckinPanel";
 import OrganizerInboxPanel from "@/components/OrganizerInboxPanel";
+import AdminChatPanel from "@/components/AdminChatPanel";
 import StripeConnectPanel from "@/components/StripeConnectPanel";
 import OrganizerPayoutsPanel from "@/components/OrganizerPayoutsPanel";
 import OrganizerEmbedPanel from "@/components/OrganizerEmbedPanel";
@@ -115,6 +116,8 @@ export default function Organizer() {
       <StripeConnectPanel />
 
       <ScannerInstallCard />
+
+      <AdminChatPanel />
 
       <OrganizerInboxPanel />
 

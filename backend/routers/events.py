@@ -271,10 +271,30 @@ async def get_event(event_id: str):
 async def create_event(payload: EventIn, user: dict = Depends(get_current_user)):
     await require_role(user, "organizer", "admin")
     event_id = f"evt_{uuid.uuid4().hex[:12]}"
+
+    # Admin-only: create on behalf of another organizer. The event gets
+    # attributed to that organizer (organizer_id + organizer_name) and lands
+    # on their dashboard. The organizer receives an email notification.
+    organizer_id = user["user_id"]
+    organizer_name = user["name"]
+    created_on_behalf = False
+    if user.get("role") == "admin" and (payload.on_behalf_of_organizer_id or "").strip():
+        target = await db.users.find_one(
+            {"user_id": payload.on_behalf_of_organizer_id.strip()},
+            {"_id": 0, "user_id": 1, "name": 1, "email": 1, "role": 1},
+        )
+        if not target:
+            raise HTTPException(status_code=404, detail="Target organizer not found")
+        if target.get("role") not in ("organizer", "admin"):
+            raise HTTPException(status_code=400, detail="Target user is not an organizer")
+        organizer_id = target["user_id"]
+        organizer_name = target.get("name") or "Organizer"
+        created_on_behalf = True
+
     doc = {
         "event_id": event_id,
-        "organizer_id": user["user_id"],
-        "organizer_name": user["name"],
+        "organizer_id": organizer_id,
+        "organizer_name": organizer_name,
         "title": payload.title,
         "description": payload.description,
         "category": payload.category,
@@ -313,7 +333,34 @@ async def create_event(payload: EventIn, user: dict = Depends(get_current_user))
         "featured": False,
         "created_at": utc_now().isoformat(),
     }
+    if created_on_behalf:
+        doc["created_by_admin_id"] = user["user_id"]
+        doc["created_by_admin_name"] = user.get("name") or "Admin"
     await db.events.insert_one(doc)
+    # Notify the target organizer when an admin created an event for them.
+    if created_on_behalf:
+        try:
+            from emails import send_template_fireforget
+            cms = await db.platform_settings.find_one({"key": "cms"}, {"_id": 0}) or {}
+            origin = (cms.get("public_origin") or "https://www.allsale.events").rstrip("/")
+            send_template_fireforget(
+                "admin_created_event_for_you",
+                target.get("email"),
+                {
+                    "organizer_name": organizer_name,
+                    "event_title": doc["title"],
+                    "event_id": event_id,
+                    "event_url": f"{origin}/events/{event_id}",
+                    "edit_url": f"{origin}/organizer/events/{event_id}/edit",
+                    "admin_name": user.get("name") or "An admin",
+                    "venue": f"{doc.get('venue','')}, {doc.get('city','')}",
+                    "event_date_iso": doc["date"],
+                },
+                db,
+            )
+        except Exception as exc:  # pragma: no cover
+            from core import logger as _log
+            _log.warning(f"[events] organizer on-behalf notify failed: {exc}")
     # Notify all admins when a new event lands in the moderation queue.
     if doc["status"] == "pending":
         try:

@@ -285,7 +285,106 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "gift_card_delivered": lambda ctx: _t_gift_card_delivered(ctx),
     "boost_recap": lambda ctx: _t_boost_recap(ctx),
     "event_recap": lambda ctx: _t_event_recap(ctx),
+    "admin_created_account": lambda ctx: _t_admin_created_account(ctx),
+    "admin_created_event_for_you": lambda ctx: _t_admin_created_event_for_you(ctx),
+    "admin_message_to_organizer": lambda ctx: _t_admin_message_to_organizer(ctx),
+    "organizer_message_to_admin": lambda ctx: _t_organizer_message_to_admin(ctx),
 }
+
+
+def _t_admin_created_account(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Sent when an admin manually creates a user account (organizer onboarding,
+    co-admin seeding, etc.). Includes the temp password so the user can log in
+    immediately — they'll change it from their profile."""
+    name = ctx.get("user_name", "there")
+    email = ctx.get("user_email", "")
+    pwd = ctx.get("temp_password", "")
+    role = ctx.get("role", "attendee")
+    admin = ctx.get("admin_name", "An admin")
+    body = f"""
+    <p style="color:{TEXT};">Hi {name}, {admin} created an Allsale Events account for you.</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+      style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;">
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};">EMAIL</td><td style="text-align:right;color:{TEXT};font-family:Menlo,monospace;font-size:13px;">{email}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">TEMPORARY PASSWORD</td><td style="text-align:right;color:{TEXT};font-family:Menlo,monospace;font-size:13px;padding-top:8px;">{pwd}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">ROLE</td><td style="text-align:right;color:{BRAND_COLOR};font-weight:700;padding-top:8px;">{role.upper()}</td></tr>
+    </table>
+    <p style="margin-top:16px;color:{TEXT_MUTED};">Log in with the credentials above, then change your password under Profile → Security.</p>
+    """
+    subject = "Your Allsale Events account is ready"
+    html = _layout("Welcome to Allsale Events", "An admin created your account", body, "Log in to Allsale", f"{APP_PUBLIC_URL}/login")
+    text = _text_fallback([
+        f"Hi {name}, {admin} created an Allsale Events account for you.",
+        f"Email: {email}",
+        f"Temporary password: {pwd}",
+        f"Role: {role}",
+        f"Log in: {APP_PUBLIC_URL}/login",
+        "Change your password under Profile → Security after first login.",
+    ])
+    return subject, html, text
+
+
+def _t_admin_created_event_for_you(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Sent to an organizer when an admin sets up an event on their behalf."""
+    name = ctx.get("organizer_name", "there")
+    title = ctx.get("event_title", "your event")
+    admin = ctx.get("admin_name", "An admin")
+    venue = ctx.get("venue", "")
+    body = f"""
+    <p style="color:{TEXT};">Hi {name}, {admin} set up an event on your behalf:</p>
+    <p style="color:{TEXT};font-size:18px;margin:4px 0;"><strong>{title}</strong></p>
+    {f'<p style="color:{TEXT_MUTED};margin:0 0 12px 0;">{venue}</p>' if venue else ''}
+    <p style="color:{TEXT_MUTED};">The event is live and selling. Review the details, ticket tiers and seat map — you can edit anything from your organizer dashboard.</p>
+    """
+    subject = f"An admin set up '{title}' for you"
+    html = _layout("An admin created an event for you", "Review and customize it", body, "Open event in dashboard", ctx.get("edit_url", f"{APP_PUBLIC_URL}/organizer"))
+    text = _text_fallback([
+        f"Hi {name}, {admin} set up '{title}' for you on Allsale Events.",
+        f"Venue: {venue}" if venue else "",
+        f"Manage: {ctx.get('edit_url', APP_PUBLIC_URL + '/organizer')}",
+        f"Public page: {ctx.get('event_url', '')}",
+    ])
+    return subject, html, text
+
+
+def _t_admin_message_to_organizer(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Sent when an admin posts a new message to an organizer's admin-chat thread."""
+    name = ctx.get("organizer_name", "there")
+    preview = (ctx.get("preview") or "")[:240]
+    admin = ctx.get("admin_name", "Allsale support")
+    body = f"""
+    <p style="color:{TEXT};">Hi {name}, you have a new message from {admin}:</p>
+    <div style="margin-top:10px;padding:14px 16px;border-left:3px solid {BRAND_COLOR};background:{BG};border-radius:8px;color:{TEXT};white-space:pre-wrap;">{preview}</div>
+    <p style="margin-top:16px;color:{TEXT_MUTED};">Reply directly from your organizer dashboard — your reply lands instantly in our admin inbox.</p>
+    """
+    subject = f"New message from {admin}"
+    html = _layout("You have a new message", "From Allsale support", body, "Reply on dashboard", f"{APP_PUBLIC_URL}/organizer/inbox")
+    text = _text_fallback([
+        f"New message from {admin}:",
+        preview,
+        f"Reply: {APP_PUBLIC_URL}/organizer/inbox",
+    ])
+    return subject, html, text
+
+
+def _t_organizer_message_to_admin(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Notifies admins when an organizer posts a new message to their thread."""
+    admin_name = ctx.get("admin_name", "Admin")
+    organizer = ctx.get("organizer_name", "An organizer")
+    organizer_id = ctx.get("organizer_id", "")
+    preview = (ctx.get("preview") or "")[:240]
+    body = f"""
+    <p style="color:{TEXT};">Hi {admin_name}, <strong>{organizer}</strong> sent a new message:</p>
+    <div style="margin-top:10px;padding:14px 16px;border-left:3px solid {BRAND_COLOR};background:{BG};border-radius:8px;color:{TEXT};white-space:pre-wrap;">{preview}</div>
+    """
+    subject = f"Organizer message: {organizer}"
+    html = _layout("New organizer message", "Open in admin chat", body, "Open in admin chat", f"{APP_PUBLIC_URL}/admin?tab=org-chat&organizer={organizer_id}")
+    text = _text_fallback([
+        f"{organizer} sent a new message:",
+        preview,
+        f"Open: {APP_PUBLIC_URL}/admin?tab=org-chat&organizer={organizer_id}",
+    ])
+    return subject, html, text
 
 
 def _t_event_recap(ctx: Dict[str, Any]) -> tuple[str, str, str]:
