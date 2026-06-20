@@ -221,11 +221,12 @@ export default function Layout({ children }) {
             <ul className="space-y-2 text-sm">
               <li><Link to="/about" style={{ color: "var(--text-muted)" }} data-testid="footer-about-link">About</Link></li>
               <li><Link to="/contact" style={{ color: "var(--text-muted)" }} data-testid="footer-contact-link">Contact</Link></li>
+              <li><Link to="/terms" style={{ color: "var(--text-muted)" }} data-testid="footer-terms-link">Terms</Link></li>
             </ul>
           </div>
         </div>
         <div className="border-t py-6 text-center text-xs" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}>
-          © 2026 Allsale Events. Live, loud, and limited.
+          © 2026 Allsale Events. All rights reserved. Unauthorized reproduction prohibited.
         </div>
       </footer>
     </div>

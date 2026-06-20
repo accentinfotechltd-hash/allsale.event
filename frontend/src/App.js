@@ -40,6 +40,7 @@ import InfluencerMarketplace from "@/pages/InfluencerMarketplace";
 import InfluencerProfile from "@/pages/InfluencerProfile";
 import Flyer from "@/pages/Flyer";
 import Features from "@/pages/Features";
+import Terms from "@/pages/Terms";
 import Feedback from "@/pages/Feedback";
 import GiftCards from "@/pages/GiftCards";
 import GiftCardSuccess from "@/pages/GiftCardSuccess";
@@ -97,6 +98,7 @@ function AppRouter() {
         <Route path="/become-organizer" element={<BecomeOrganizer />} />
         <Route path="/about" element={<About />} />
         <Route path="/contact" element={<Contact />} />
+        <Route path="/terms" element={<Terms />} />
         <Route path="/organizers/:id" element={<OrganizerProfile />} />
         <Route path="/transfer/:id" element={<TransferClaim />} />
         <Route path="/influencers" element={<InfluencerMarketplace />} />

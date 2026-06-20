@@ -1523,3 +1523,47 @@ admin onboards an organizer → creates their first event → talks to them in-a
 - When the platform reaches multi-pod deployment, swap `ChatHub` for a Redis pub/sub (~30 lines of code, no API change).
 
 
+
+
+## Iteration 48 (2026-02-19) — IP protection bundle (robots.txt + Terms + Cloudflare playbook)
+
+The user asked "have you locked the code so no one can copy?" Honest answer is shipped: frontend code can never be uncopyable (browser must download it), but we can make copying useless, AI-scraping illegal, and your operation resilient.
+
+### Shipped
+
+**1. robots.txt with explicit AI-scraper blocks** (`frontend/public/robots.txt`)
+- Existing crawler allow-list + path disallows preserved.
+- Added explicit `User-agent: X` / `Disallow: /` for **17 known AI-training scrapers**: GPTBot, ChatGPT-User, OAI-SearchBot, ClaudeBot, anthropic-ai, Claude-Web, Google-Extended (≠ Googlebot), Applebot-Extended (≠ Applebot), FacebookBot, Meta-ExternalAgent, PerplexityBot, CCBot, Bytespider, Amazonbot, DuckAssistBot, Diffbot, ImagesiftBot, Omgilibot, YouBot, cohere-ai.
+- Googlebot/Bingbot/Applebot remain ALLOWED (regular SEO traffic).
+
+**2. Terms of Service page** (`frontend/src/pages/Terms.jsx`, routed at `/terms`)
+- 10 sections covering accounts, ticketing, refunds, privacy, liability + ONE big IP section that's the real point.
+- IP section explicitly forbids: cloning, mirroring, scraping for AI training, brand-name misuse, reverse-engineering production JS bundles.
+- Calls out that the site's `robots.txt` is part of the terms — gives us legal grounds to send takedown notices.
+- Footer link added in `Layout.jsx` ("Terms" next to About/Contact).
+- Smoke-tested: page renders cleanly with IP section visible.
+
+**3. Copyright meta + HTML banner in `index.html`**
+- `<meta name="copyright">` and `<meta name="rights">`
+- Visible HTML comment in source view: `© 2026 Allsale Events. All rights reserved. Unauthorized reproduction prohibited.`
+- Footer text in `Layout.jsx` updated from "Live, loud, and limited" to "© 2026 Allsale Events. All rights reserved. Unauthorized reproduction prohibited."
+
+**4. Cloudflare setup playbook** (`memory/CLOUDFLARE_SETUP.md`)
+- Step-by-step (25-30 min) to put Cloudflare's free tier in front of Railway: sign-up → add domain → nameservers → Railway custom domain (`api.allsale.events`) → security toggles (Bot Fight Mode, login-rate-limit, Full strict SSL).
+- Common-pitfalls table covering 521/522 errors, WebSocket toggles, Vercel proxy interactions.
+- Verification curl command + expected `server: cloudflare` header.
+
+### What's deliberately NOT shipped
+- **Right-click / DevTools blockers**: trivially bypassable in 5 seconds (Ctrl+Shift+I, View Source, headless browsers all defeat this). Signals amateurism, harms UX for legitimate visitors copying their own ticket info. Skipped.
+- **JavaScript obfuscation beyond minification**: diminishing returns. The webpack-minified bundle already mangles all variable names. Heavy obfuscation breaks debugging in production and only buys 1-2 hours of reverse-engineering time.
+- **Watermarked API responses**: niche; only useful if you have evidence of a specific competitor scraping you.
+
+### Files
+- Edited: `frontend/public/robots.txt`, `frontend/public/index.html`, `frontend/src/components/Layout.jsx`, `frontend/src/App.js`
+- New: `frontend/src/pages/Terms.jsx`, `memory/CLOUDFLARE_SETUP.md`
+
+### Action item for user
+- Follow `memory/CLOUDFLARE_SETUP.md` when ready — adds free WAF, DDoS protection, rate limiting on `/api/auth/login`, and an `api.allsale.events` subdomain so Railway can be swapped later without frontend redeploy.
+- After Vercel redeploy, verify production `https://allsale.events/robots.txt` includes the new AI-scraper blocks.
+
+

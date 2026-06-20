@@ -1,3 +1,9 @@
+# Allsale Events — robots.txt
+# Allow legitimate search-engine crawlers, block AI training scrapers.
+# AI scrapers ingest your site to train their models — blocking them protects
+# your event copy, SEO content, and unique design language from being learned
+# and reproduced verbatim by ChatGPT/Claude/Perplexity/etc.
+
 User-agent: *
 Allow: /
 Disallow: /admin
@@ -5,5 +11,70 @@ Disallow: /organizer
 Disallow: /checkout
 Disallow: /profile
 Disallow: /api/
+
+# ----- Block AI training scrapers (as of Feb 2026) -----
+# OpenAI / ChatGPT
+User-agent: GPTBot
+Disallow: /
+User-agent: ChatGPT-User
+Disallow: /
+User-agent: OAI-SearchBot
+Disallow: /
+
+# Anthropic / Claude
+User-agent: ClaudeBot
+Disallow: /
+User-agent: anthropic-ai
+Disallow: /
+User-agent: Claude-Web
+Disallow: /
+
+# Google's AI training (separate from Googlebot which we DO want)
+User-agent: Google-Extended
+Disallow: /
+
+# Apple's AI training (separate from Applebot which we DO want for Spotlight/Siri)
+User-agent: Applebot-Extended
+Disallow: /
+
+# Meta / Facebook AI
+User-agent: FacebookBot
+Disallow: /
+User-agent: Meta-ExternalAgent
+Disallow: /
+
+# Perplexity
+User-agent: PerplexityBot
+Disallow: /
+
+# Common Crawl (used by many LLMs as a training corpus)
+User-agent: CCBot
+Disallow: /
+
+# ByteDance / TikTok
+User-agent: Bytespider
+Disallow: /
+
+# Amazon
+User-agent: Amazonbot
+Disallow: /
+
+# DuckDuckGo's AI (separate from their regular crawler)
+User-agent: DuckAssistBot
+Disallow: /
+
+# Misc aggregators
+User-agent: Diffbot
+Disallow: /
+User-agent: ImagesiftBot
+Disallow: /
+User-agent: Omgilibot
+Disallow: /
+User-agent: Omgili
+Disallow: /
+User-agent: YouBot
+Disallow: /
+User-agent: cohere-ai
+Disallow: /
 
 Sitemap: https://allsale.events/api/sitemap.xml
