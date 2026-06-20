@@ -1335,3 +1335,49 @@ User picked **"ALL THREE"**: bulk seat-block, paid Boost via Stripe, printable d
 - Edited: `backend/scheduler.py` (+ `_send_boost_recaps` + tick-loop wiring)
 
 
+
+
+## Iteration 44 (2026-02-19) — Per-event OG images + Google Search Console verification
+
+**Two P3 polish items shipped together.**
+
+### 1. Per-event Open Graph images for social shares
+
+**Problem:** Social-link previewers (Facebook, WhatsApp, iMessage, LinkedIn, Slack, Discord, Twitter, Telegram) don't execute JavaScript. The SPA's `usePageMeta` never runs for them, so they fell back to the static `<meta property="og:image">` defined in `index.html` — which points at the Allsale logo. Shared event links looked generic.
+
+**Solution:** Vercel serverless function + crawler-aware rewrite, with zero impact on real users or Googlebot.
+
+**`/app/frontend/api/og-event.js`** (new Vercel serverless function):
+- ✅ Accepts `?id=<event_id>`, fetches the event from the backend (`BACKEND_URL` env var on Vercel).
+- ✅ Returns a minimal HTML doc with proper `og:*` and `twitter:*` tags pointing at `event.banner_url || event.image_url`.
+- ✅ Includes title, description (truncated to 140 chars), venue + city, canonical URL — all HTML-escaped.
+- ✅ Edge-cached: `Cache-Control: public, max-age=300, s-maxage=600, stale-while-revalidate=86400`.
+- ✅ Backend timeout (4.5s) + multi-layer fallback so the function never errors back to crawlers.
+- ✅ `<meta http-equiv="refresh">` redirects any human who lands here straight to the SPA URL.
+
+**`/app/frontend/vercel.json`** (updated):
+- ✅ New `rewrites` block sends `/events/:id` → `/api/og-event?id=:id` ONLY when the User-Agent matches a known social crawler regex:
+  - `facebookexternalhit, Facebot, Twitterbot, LinkedInBot, WhatsApp, Slackbot, Slack-ImgProxy, Discordbot, TelegramBot, Pinterest, Applebot, SkypeUriPreview, vkShare, redditbot, Embedly, iframely, Bluesky`
+- ✅ Googlebot/Bingbot intentionally excluded — they execute JS and benefit from the full SPA's structured data.
+
+**Required Vercel env var:** `BACKEND_URL` (the Railway API base, e.g. `https://api.allsale.events`). Falls back to `REACT_APP_BACKEND_URL`. If neither is set, the function still serves the static-logo card so crawlers never see a broken response.
+
+**Verification:** Smoke-tested against the live preview backend with event `evt_656b89734cd7` ("Geeta Rabari Live Garba Night") — returns 200 with the correct title, description, venue ("Eventfinda Stadium, North Shore, Auckland"), and the Unsplash banner URL pre-baked into `og:image`/`twitter:image`.
+
+### 2. Google Search Console verification
+
+**`/app/frontend/public/index.html`** (line 27):
+- ✅ Added `<meta name="google-site-verification" content="doQDgW6MUdGnndRnAR2riV_4cppSIwrBIVSmb5s8gJA" />`.
+- ✅ User can now click "Verify" in Search Console and start receiving indexing/coverage reports for `allsale.events`.
+
+**Files changed/added:**
+- New: `frontend/api/og-event.js`
+- Edited: `frontend/vercel.json` (added rewrites block)
+- Edited: `frontend/public/index.html` (+ google-site-verification meta)
+
+**Action items for user post-deploy:**
+1. Set `BACKEND_URL` env var in Vercel → Project Settings → Environment Variables (production scope), point at the Railway API.
+2. Click **Verify** in Google Search Console once the next Vercel deploy goes live.
+3. Optionally submit the sitemap (`https://allsale.events/api/sitemap.xml`) in Search Console → Sitemaps tab.
+4. Test a real share via Facebook's debugger: https://developers.facebook.com/tools/debug/?q=https://allsale.events/events/<event_id> — first load may need a "Scrape Again" click.
+
