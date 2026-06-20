@@ -21,8 +21,19 @@
  *     https://api.allsale.events  (no trailing slash)
  */
 
-const SITE_URL = "https://allsale.events";
-const FALLBACK_IMAGE = `${SITE_URL}/allsale-logo.png`;
+const FALLBACK_HOST = "allsale.events";
+const FALLBACK_IMAGE = `https://${FALLBACK_HOST}/allsale-logo.png`;
+
+function siteUrlFromReq(req) {
+  // Build og:url from the actual request host so we never trigger a www↔apex
+  // 308 redirect loop on the crawler's side, regardless of which domain
+  // Vercel is currently treating as primary.
+  const host =
+    (req.headers && (req.headers["x-forwarded-host"] || req.headers.host)) ||
+    FALLBACK_HOST;
+  const proto = (req.headers && req.headers["x-forwarded-proto"]) || "https";
+  return `${proto}://${host}`;
+}
 
 function escapeHtml(input = "") {
   return String(input).replace(/[&<>"']/g, (c) => ({
@@ -34,14 +45,14 @@ function escapeHtml(input = "") {
   }[c]));
 }
 
-function buildHtml(event, id) {
+function buildHtml(event, id, siteUrl) {
   const title = event?.title || "Event";
   const venue = [event?.venue, event?.city].filter(Boolean).join(", ");
   const desc =
     `${title}${venue ? ` — ${venue}` : ""}. ` +
     (event?.description ? String(event.description).slice(0, 140) : "Book tickets on Allsale Events.");
   const image = event?.banner_url || event?.image_url || FALLBACK_IMAGE;
-  const url = `${SITE_URL}/events/${encodeURIComponent(id)}`;
+  const url = `${siteUrl}/events/${encodeURIComponent(id)}`;
 
   const t = escapeHtml(title);
   const d = escapeHtml(desc);
@@ -80,43 +91,41 @@ function buildHtml(event, id) {
 </html>`;
 }
 
-function fallbackHtml(id) {
-  const url = `${SITE_URL}/events/${encodeURIComponent(id || "")}`;
+function fallbackHtml(id, siteUrl) {
+  const url = `${siteUrl}/events/${encodeURIComponent(id || "")}`;
   return `<!doctype html><html><head><meta http-equiv="refresh" content="0;url=${escapeHtml(url)}"/></head><body><a href="${escapeHtml(url)}">View event on Allsale Events</a></body></html>`;
 }
 
 export default async function handler(req, res) {
   const id = (req.query && req.query.id) || "";
+  const siteUrl = siteUrlFromReq(req);
   if (!id) {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    return res.status(400).send(fallbackHtml(""));
+    return res.status(400).send(fallbackHtml("", siteUrl));
   }
 
   const backend = process.env.BACKEND_URL || process.env.REACT_APP_BACKEND_URL;
   if (!backend) {
-    // No backend configured — at least give crawlers the static logo card.
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    return res.status(200).send(buildHtml({}, id));
+    return res.status(200).send(buildHtml({}, id, siteUrl));
   }
 
   try {
     const r = await fetch(`${backend.replace(/\/$/, "")}/api/events/${encodeURIComponent(id)}`, {
-      // Crawlers tolerate slow responses, but cap to keep Vercel fn snappy.
       signal: AbortSignal.timeout(4500),
       headers: { Accept: "application/json" },
     });
     if (!r.ok) {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.status(200).send(buildHtml({}, id));
+      return res.status(200).send(buildHtml({}, id, siteUrl));
     }
     const event = await r.json();
-    const html = buildHtml(event, id);
+    const html = buildHtml(event, id, siteUrl);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    // Cache at Vercel's edge so repeated crawls don't hammer the backend.
     res.setHeader("Cache-Control", "public, max-age=300, s-maxage=600, stale-while-revalidate=86400");
     return res.status(200).send(html);
   } catch {
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    return res.status(200).send(buildHtml({}, id));
+    return res.status(200).send(buildHtml({}, id, siteUrl));
   }
 }
