@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef } from "react";
+import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import MessageReactions from "@/components/MessageReactions";
 import { useAuth } from "@/lib/auth";
-import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send } from "lucide-react";
+import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
 import StripeAdminDiagnostics from "@/components/StripeAdminDiagnostics";
@@ -225,6 +226,14 @@ function Section({ title, events, act, del, showApprove, showFeature }) {
                       <Star className="w-3 h-3" style={{ color: e.featured ? "var(--accent)" : "inherit" }} /> {e.featured ? "Unfeature" : "Feature"}
                     </button>
                   )}
+                  <Link
+                    to={`/organizer/events/${e.event_id}/edit`}
+                    className="btn-ghost !py-1.5 !px-3 text-xs"
+                    data-testid={`admin-edit-${e.event_id}`}
+                    title="Edit event details, tiers, seat map, etc."
+                  >
+                    <Pencil className="w-3 h-3" /> Edit
+                  </Link>
                   {del && (
                     <button
                       onClick={() => del(e)}
