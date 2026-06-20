@@ -1471,3 +1471,55 @@ admin onboards an organizer → creates their first event → talks to them in-a
 - Edited: `frontend/src/pages/CreateEvent.jsx` (admin "create on behalf of" picker)
 - Edited: `frontend/src/pages/Organizer.jsx` (mount AdminChatPanel)
 
+
+
+## Iteration 47 (2026-02-19) — Real-time WebSocket for admin↔organizer chat
+
+**Shipped**: upgraded the admin↔organizer thread from 30-second polling to true real-time delivery via WebSocket.
+
+### Backend (`backend/routers/admin_organizer_chat.py`)
+- New `ChatHub` (mirrors the `EventHub` pattern from `ws_seats.py`): in-memory pub/sub keyed by `organizer_id`. Single-process — adequate for the current single-pod deployment; Redis pubsub is the natural next step at multi-pod scale.
+- New WebSocket endpoint `GET /api/ws/admin-organizer-chat/{organizer_id}?token=<jwt>`:
+  - Auth via query-string JWT (browser `WebSocket` API can't set Authorization headers). Token decoded with the same `JWT_SECRET` + `JWT_ALGO` the HTTP API uses.
+  - Authorization: admins may subscribe to any thread; organizers may only subscribe to their own. Unauthorized closes with code `4401`; forbidden with `4403`.
+  - Sends a `{"type":"hello"}` greeting on connect so the client knows it's live.
+  - 25s `await ws.receive_text()` heartbeat → sends `{"type":"ping"}` to keep idle proxies from dropping the socket.
+- Three HTTP endpoints now broadcast to the hub after persisting:
+  - `POST /api/admin/organizer-threads/{id}/messages` → `{"type":"message", "message":{…}}`
+  - `POST /api/organizer/admin-thread` → same
+  - `POST /api/admin/organizer-threads/{id}/read` → `{"type":"read","by":"admin"}` (read-receipt plumbing in place; UI surfaces it later)
+  - `POST /api/organizer/admin-thread/read` → `{"type":"read","by":"organizer"}`
+
+### Frontend
+- New hook `frontend/src/lib/useChatLive.js` — copies the proven pattern from `useEventLiveUpdates.js`: exponential reconnect (1s → 30s cap), heartbeat filtering, no-op when WS unsupported, JWT pulled from `localStorage.aura_token`.
+- `AdminChatPanel.jsx` (organizer side):
+  - Subscribes via `useChatLive(user.user_id, { onMessage })`.
+  - `seenIds` Set de-dupes between optimistic local insert and the WS echo that returns to the sender.
+  - Unread badge increments live when an admin message arrives while the panel is collapsed.
+  - 30s poll dropped → replaced with 60s safety-net poll (only runs if WS ever drops).
+- `OrganizerChatTab` inside `Admin.jsx`:
+  - Subscribes via `useChatLive(selected)` keyed on the currently-open thread.
+  - Auto-refreshes the sidebar thread list on each incoming message so previews + unread counters stay accurate across threads.
+
+### Verification
+- **Pytest-equivalent integration test** (raw `websockets` lib):
+  - Bad token → server closes with HTTP 403. ✓
+  - Two sockets (admin + organizer) connected concurrently → both received `hello`. ✓
+  - HTTP `POST /admin/organizer-threads/.../messages` → both sockets received the broadcast within 1s with the new message body. ✓
+- **End-to-end Playwright smoke test**:
+  - Logged in as `orgtester@allsale.events`, opened the chat panel (3 messages visible).
+  - Out-of-band `curl` from admin posted a new "LIVE WS TEST" message.
+  - Within 2s the organizer's panel showed **4 messages** — the new admin message appeared without any page refresh. ✓
+
+### Files
+- Edited: `backend/routers/admin_organizer_chat.py` (ChatHub + WS endpoint + broadcasts in send/read handlers)
+- Edited: `frontend/src/components/AdminChatPanel.jsx` (useChatLive subscription, de-dupe, 60s safety-net poll)
+- Edited: `frontend/src/pages/Admin.jsx` (useChatLive in OrganizerChatTab, import)
+- New: `frontend/src/lib/useChatLive.js`
+
+### Performance notes
+- The hub is an in-memory `defaultdict(set)` — O(1) connect/disconnect/broadcast per thread.
+- At current scale (~94 organizers, low concurrent admin sessions) memory + CPU overhead is negligible.
+- When the platform reaches multi-pod deployment, swap `ChatHub` for a Redis pub/sub (~30 lines of code, no API change).
+
+

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import MessageReactions from "@/components/MessageReactions";
 import { useAuth } from "@/lib/auth";
+import useChatLive from "@/lib/useChatLive";
 import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send, Pencil, UserPlus, MessagesSquare } from "lucide-react";
 import { toast } from "sonner";
 import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
@@ -2301,6 +2302,18 @@ function OrganizerChatTab() {
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const endRef = useRef(null);
+  const seenIds = useRef(new Set());
+
+  // Live updates for the currently-selected thread.
+  useChatLive(selected, {
+    onMessage: (msg) => {
+      if (!msg?.message_id || seenIds.current.has(msg.message_id)) return;
+      seenIds.current.add(msg.message_id);
+      setMessages((prev) => [...prev, msg]);
+      // Refresh sidebar so previews + unread counters stay accurate across threads.
+      loadThreads();
+    },
+  });
 
   const loadThreads = async () => {
     try {
@@ -2320,7 +2333,9 @@ function OrganizerChatTab() {
   const loadThread = async (uid) => {
     try {
       const { data } = await api.get(`/admin/organizer-threads/${uid}/messages`);
-      setMessages(data.messages || []);
+      const msgs = data.messages || [];
+      setMessages(msgs);
+      seenIds.current = new Set(msgs.map((m) => m.message_id));
       setOrgInfo(data.organizer);
       // refresh sidebar to clear unread badge
       loadThreads();

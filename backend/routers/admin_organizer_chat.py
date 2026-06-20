@@ -14,19 +14,68 @@ Design choices:
   on both sides so we can compute unread badges in O(1) per side.
 - Outbound email is sent fire-and-forget on every new message so the other
   party gets notified even if they're offline.
+- Real-time delivery via the `chat_hub` WebSocket pub/sub (see below) so
+  active sessions see the other side's reply instantly without polling. The
+  existing email + unread badge stays as a fallback for offline parties.
 """
-from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException
+import asyncio
+import logging
+from collections import defaultdict
+from typing import Dict, List, Optional, Set
+
+import jwt as pyjwt
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from core import db, get_current_user, utc_now
+from core import JWT_ALGO, JWT_SECRET, db, get_current_user, utc_now
 from emails import send_template_fireforget
 
 router = APIRouter(tags=["admin_organizer_chat"])
+logger = logging.getLogger("aura.adminchat")
 
 
 class MessageIn(BaseModel):
     body: str = Field(..., min_length=1, max_length=4000)
+
+
+# ---------------------------------------------------------------------------
+# WebSocket hub — pub/sub keyed by organizer_id (= thread key).
+# Single-process; OK for our single-pod backend. Multi-pod would need Redis.
+# ---------------------------------------------------------------------------
+
+class ChatHub:
+    def __init__(self) -> None:
+        self.subs: Dict[str, Set[WebSocket]] = defaultdict(set)
+        self.lock = asyncio.Lock()
+
+    async def add(self, organizer_id: str, ws: WebSocket) -> None:
+        async with self.lock:
+            self.subs[organizer_id].add(ws)
+
+    async def remove(self, organizer_id: str, ws: WebSocket) -> None:
+        async with self.lock:
+            self.subs.get(organizer_id, set()).discard(ws)
+            if not self.subs.get(organizer_id):
+                self.subs.pop(organizer_id, None)
+
+    async def broadcast(self, organizer_id: str, message: dict) -> None:
+        async with self.lock:
+            targets = list(self.subs.get(organizer_id, set()))
+        if not targets:
+            return
+        dead: List[WebSocket] = []
+        for ws in targets:
+            try:
+                await ws.send_json(message)
+            except Exception:
+                dead.append(ws)
+        if dead:
+            async with self.lock:
+                for ws in dead:
+                    self.subs.get(organizer_id, set()).discard(ws)
+
+
+chat_hub = ChatHub()
 
 
 def _admin_only(user: dict) -> None:
@@ -126,6 +175,9 @@ async def admin_send_message(organizer_id: str, payload: MessageIn, user: dict =
         "read_by_organizer": False,
     }
     await db.admin_organizer_messages.insert_one(msg)
+    out_msg = {k: v for k, v in msg.items() if k != "_id"}
+    # Real-time broadcast to anyone subscribed to this thread (admin or organizer side).
+    await chat_hub.broadcast(organizer_id, {"type": "message", "message": out_msg})
     # Notify organizer by email (fire-and-forget).
     try:
         if org.get("email"):
@@ -141,7 +193,7 @@ async def admin_send_message(organizer_id: str, payload: MessageIn, user: dict =
             )
     except Exception:
         pass
-    return {k: v for k, v in msg.items() if k != "_id"}
+    return out_msg
 
 
 @router.post("/admin/organizer-threads/{organizer_id}/read")
@@ -152,6 +204,8 @@ async def admin_mark_read(organizer_id: str, user: dict = Depends(get_current_us
         {"organizer_id": organizer_id, "sender_role": "organizer", "read_by_admin": {"$ne": True}},
         {"$set": {"read_by_admin": True}},
     )
+    if res.modified_count:
+        await chat_hub.broadcast(organizer_id, {"type": "read", "by": "admin"})
     return {"marked_read": res.modified_count}
 
 
@@ -190,6 +244,9 @@ async def organizer_send_message(payload: MessageIn, user: dict = Depends(get_cu
         "read_by_organizer": True,
     }
     await db.admin_organizer_messages.insert_one(msg)
+    out_msg = {k: v for k, v in msg.items() if k != "_id"}
+    # Real-time broadcast to anyone subscribed to this thread.
+    await chat_hub.broadcast(user["user_id"], {"type": "message", "message": out_msg})
     # Notify all admins by email.
     try:
         async for admin in db.users.find({"role": "admin"}, {"_id": 0, "email": 1, "name": 1}):
@@ -208,7 +265,7 @@ async def organizer_send_message(payload: MessageIn, user: dict = Depends(get_cu
             )
     except Exception:
         pass
-    return {k: v for k, v in msg.items() if k != "_id"}
+    return out_msg
 
 
 @router.get("/organizer/admin-thread/unread")
@@ -230,4 +287,68 @@ async def organizer_mark_read(user: dict = Depends(get_current_user)):
         {"organizer_id": user["user_id"], "sender_role": "admin", "read_by_organizer": {"$ne": True}},
         {"$set": {"read_by_organizer": True}},
     )
+    if res.modified_count:
+        await chat_hub.broadcast(user["user_id"], {"type": "read", "by": "organizer"})
     return {"marked_read": res.modified_count}
+
+
+# ---------------------------------------------------------------------------
+# WebSocket — real-time live updates for the thread.
+# Path: /api/ws/admin-organizer-chat/{organizer_id}?token=<jwt>
+# Auth: same JWT the HTTP API uses. Passed via ?token= because browser
+# WebSocket can't set Authorization headers. Admins can subscribe to ANY
+# thread; organizers can only subscribe to their own.
+# ---------------------------------------------------------------------------
+
+async def _user_from_token(token: Optional[str]) -> Optional[dict]:
+    if not token:
+        return None
+    try:
+        payload = pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+    except pyjwt.PyJWTError:
+        return None
+    user = await db.users.find_one(
+        {"user_id": payload.get("sub")},
+        {"_id": 0, "password_hash": 0},
+    )
+    if not user or user.get("active") is False:
+        return None
+    return user
+
+
+@router.websocket("/ws/admin-organizer-chat/{organizer_id}")
+async def chat_socket(ws: WebSocket, organizer_id: str):
+    """Subscribe to a single thread. Emits message + read events live."""
+    # WebSocket query params are pre-parsed by Starlette; pull the token.
+    token = ws.query_params.get("token")
+    user = await _user_from_token(token)
+    if not user:
+        await ws.close(code=4401)  # custom code: unauthorized
+        return
+
+    role = user.get("role")
+    if role == "admin":
+        pass  # admin may listen to any thread
+    elif role in ("organizer",) and user.get("user_id") == organizer_id:
+        pass  # organizer may only listen to their own
+    else:
+        await ws.close(code=4403)  # forbidden
+        return
+
+    await ws.accept()
+    await chat_hub.add(organizer_id, ws)
+    try:
+        # Send a welcome ping so the client knows the subscription is live.
+        await ws.send_json({"type": "hello", "organizer_id": organizer_id})
+        # Heartbeat keeps idle connections alive through proxies.
+        while True:
+            try:
+                await asyncio.wait_for(ws.receive_text(), timeout=25.0)
+            except asyncio.TimeoutError:
+                await ws.send_json({"type": "ping"})
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:  # pragma: no cover
+        logger.warning(f"[ws-chat] {organizer_id} disconnected: {e}")
+    finally:
+        await chat_hub.remove(organizer_id, ws)

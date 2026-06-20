@@ -1,22 +1,32 @@
 /**
  * AdminChatPanel — organizer's side of the admin↔organizer thread.
  *
- * Renders an inline chat panel on the organizer dashboard. Polls the unread
- * endpoint every 30s so a red dot shows up when admin replies. Sending is
- * Enter-to-send / Shift+Enter newline, matching the admin side.
+ * Renders an inline chat panel on the organizer dashboard. Subscribes to the
+ * WebSocket hub (`useChatLive`) so admin replies appear instantly without a
+ * page refresh; a 60s safety-net poll keeps the unread badge accurate if the
+ * socket ever drops. Sending is Enter-to-send / Shift+Enter for newline,
+ * matching the admin side.
  */
 import { useEffect, useRef, useState } from "react";
 import { Send, Headphones } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import useChatLive from "@/lib/useChatLive";
 
 export default function AdminChatPanel() {
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
   const [unread, setUnread] = useState(0);
   const [busy, setBusy] = useState(false);
+  const openRef = useRef(false);
   const endRef = useRef(null);
+  // Track whether we've already seen a message (de-dupes between optimistic insert
+  // and WS broadcast that comes back to the sender).
+  const seenIds = useRef(new Set());
+  openRef.current = open;
 
   const loadUnread = async () => {
     try {
@@ -28,14 +38,28 @@ export default function AdminChatPanel() {
   const loadThread = async () => {
     try {
       const { data } = await api.get("/organizer/admin-thread");
-      setMessages(data?.messages || []);
+      const msgs = data?.messages || [];
+      setMessages(msgs);
+      seenIds.current = new Set(msgs.map((m) => m.message_id));
       setUnread(0); // backend auto-marked as read on fetch
     } catch { /* noop */ }
   };
 
+  // Real-time updates — append admin messages live, refresh unread badge.
+  useChatLive(user?.user_id, {
+    onMessage: (msg) => {
+      if (!msg?.message_id || seenIds.current.has(msg.message_id)) return;
+      seenIds.current.add(msg.message_id);
+      setMessages((prev) => [...prev, msg]);
+      if (msg.sender_role === "admin" && !openRef.current) {
+        setUnread((c) => c + 1);
+      }
+    },
+  });
+
   useEffect(() => {
     loadUnread();
-    const t = setInterval(loadUnread, 30000);
+    const t = setInterval(loadUnread, 60000);  // safety net poll (every 60s) in case WS drops
     return () => clearInterval(t);
   }, []);
 
