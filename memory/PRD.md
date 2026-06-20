@@ -1381,3 +1381,34 @@ User picked **"ALL THREE"**: bulk seat-block, paid Boost via Stripe, printable d
 3. Optionally submit the sitemap (`https://allsale.events/api/sitemap.xml`) in Search Console → Sitemaps tab.
 4. Test a real share via Facebook's debugger: https://developers.facebook.com/tools/debug/?q=https://allsale.events/events/<event_id> — first load may need a "Scrape Again" click.
 
+
+
+
+## Iteration 45 (2026-02-19) — Native share + GA4 share tracking
+
+**Found out**: Per-event share buttons already existed (`SocialShareButtons.jsx`) since an earlier iteration — WhatsApp / X / Facebook / Telegram / Copy with affiliate-tracking baked in. Three real gaps remained:
+
+1. **No GA4 tracking** when users actually share — no way to know which channel drives bookings.
+2. **No native Web Share API** support — mobile users couldn't share to Messages, Instagram DMs, AirDrop, or any installed app.
+3. **No primary CTA** for thumb-tap-able mobile UX.
+
+### Shipped
+
+**`/app/frontend/src/lib/analytics.js`** (+ `trackShare`):
+- ✅ Added `trackShare({ method, eventId, eventTitle })` that fires GA4's standard `share` event with `method` (channel) and `content_type: "event"`. Once shares accrue, Reports → Engagement → Events shows channel breakdown, and Explorations can chain `share → view_item → purchase` to attribute revenue per channel.
+
+**`/app/frontend/src/components/SocialShareButtons.jsx`** (rewritten):
+- ✅ Wired `trackShare()` into every channel click (whatsapp, twitter, facebook, telegram, copy, native).
+- ✅ Web Share API detection: `navigator.share` + mobile UA regex → renders a primary hot-coral **"Share…"** button that opens the native iOS/Android share sheet. Desktop is intentionally excluded.
+- ✅ Native share cancellation silently no-ops (no toast, no analytics noise).
+- ✅ Affiliate-link swapping kept intact for signed-in influencers.
+
+### Verification
+- ✅ Desktop screenshot (1920×800): all 5 channel buttons visible, native button correctly hidden (count = 0).
+- ✅ Mobile screenshot (iPhone-spoofed UA, 390×844): native "Share…" button visible in hot-coral as primary CTA above the channel row.
+- ✅ Lint clean (`SocialShareButtons.jsx`, `analytics.js`).
+
+### Files
+- Edited: `frontend/src/lib/analytics.js` (+ `trackShare`)
+- Rewrote: `frontend/src/components/SocialShareButtons.jsx`
+

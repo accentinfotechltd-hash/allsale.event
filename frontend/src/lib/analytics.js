@@ -130,3 +130,19 @@ export function trackSignup(method = "email", role = "attendee") {
 export function trackInfluencerJoin(eventId, code) {
   trackEvent("join_campaign", { event_id: eventId, affiliate_code: code });
 }
+
+/**
+ * GA4 standard `share` event — fires whenever a visitor uses a share button.
+ * Method is the channel ("whatsapp" | "facebook" | "twitter" | "telegram" | "copy" | "native").
+ * Once enough shares accrue, Reports → Engagement → Events shows which channel
+ * drives the most clicks back, and Explorations can chain share→view_item→purchase.
+ */
+export function trackShare({ method, eventId, eventTitle }) {
+  trackEvent("share", {
+    method,
+    content_type: "event",
+    item_id: eventId,
+    item_name: eventTitle,
+  });
+}
+
