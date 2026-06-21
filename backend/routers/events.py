@@ -305,6 +305,7 @@ async def create_event(payload: EventIn, user: dict = Depends(get_current_user))
         "date": payload.date,
         "image_url": payload.image_url,
         "banner_url": payload.banner_url or payload.image_url,
+        "promo_video_url": payload.promo_video_url,
         "currency": (payload.currency or "NZD").upper(),
         "tiers": payload.tiers,
         "has_seatmap": payload.has_seatmap,
@@ -407,7 +408,7 @@ async def update_event(event_id: str, payload: dict, user: dict = Depends(get_cu
 
     EDITABLE = {
         "title", "description", "category", "venue", "city", "country", "timezone", "date",
-        "image_url", "banner_url", "tiers",
+        "image_url", "banner_url", "promo_video_url", "tiers",
         "has_seatmap", "seat_rows", "seat_cols", "seat_price",
         "aisles", "seat_map_image_url",
         "seatmap_curved", "seatmap_numbering_rtl", "seatmap_sections", "seatmap_categories", "seatmap_category_prices", "seatmap_row_offsets", "seatmap_custom_labels",

@@ -12,6 +12,7 @@ import { usePageMeta } from "@/lib/usePageMeta";
 import { estimateBuyerFees, estimateTicketProtection } from "@/lib/fees";
 import SocialShareButtons from "@/components/SocialShareButtons";
 import SeoHead from "@/components/SeoHead";
+import EventMedia, { BannerExpandHint } from "@/components/EventMedia";
 import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi, Gift, Star, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/currencies";
@@ -23,6 +24,7 @@ export default function EventDetail() {
   const [event, setEvent] = useState(null);
   const [selectedSeats, setSelectedSeats] = useState([]);
   const [tier, setTier] = useState(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const [qty, setQty] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [codeInput, setCodeInput] = useState("");
@@ -351,8 +353,17 @@ export default function EventDetail() {
       />
       {/* Banner */}
       <div className="relative h-[260px] sm:h-[360px] lg:h-[420px] overflow-hidden">
-        <img src={event.banner_url || event.image_url} alt={event.title} className="w-full h-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-t from-[color:var(--bg)] via-black/60 to-transparent" />
+        <button
+          type="button"
+          onClick={() => setLightboxOpen(true)}
+          className="absolute inset-0 w-full h-full block cursor-zoom-in"
+          aria-label="View full poster"
+          data-testid="banner-expand-btn"
+        >
+          <img src={event.banner_url || event.image_url} alt={event.title} className="w-full h-full object-cover" />
+        </button>
+        <BannerExpandHint />
+        <div className="absolute inset-0 bg-gradient-to-t from-[color:var(--bg)] via-black/60 to-transparent pointer-events-none" />
         <div className="absolute inset-x-0 bottom-0 max-w-7xl mx-auto px-4 sm:px-6 pb-6 sm:pb-10">
           <div className="flex flex-wrap items-center gap-2 mb-3 sm:mb-4">
             <span className="chip chip-accent">{event.category}</span>
@@ -382,6 +393,8 @@ export default function EventDetail() {
           )}
         </div>
       </div>
+
+      <EventMedia event={event} lightboxOpen={lightboxOpen} onLightboxClose={() => setLightboxOpen(false)} />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12 grid lg:grid-cols-[1fr_400px] gap-8 lg:gap-12">
         {/* Main */}

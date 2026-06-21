@@ -42,6 +42,7 @@ export default function CreateEvent() {
     date: "",
     image_url: "",
     banner_url: "",
+    promo_video_url: "",
     currency: DEFAULT_CURRENCY,
     has_seatmap: false,
     seat_rows: 6,
@@ -96,6 +97,7 @@ export default function CreateEvent() {
           date: data.date ? data.date.slice(0, 16) : "",
           image_url: data.image_url || "",
           banner_url: data.banner_url || "",
+          promo_video_url: data.promo_video_url || "",
           currency: data.currency || DEFAULT_CURRENCY,
           has_seatmap: !!data.has_seatmap,
           seat_rows: data.seat_rows || 6,
@@ -318,6 +320,15 @@ export default function CreateEvent() {
             label="Drop cover photo or click to upload"
             aspect="16/9"
             testid="cover-uploader"
+          />
+        </Field>
+        <Field label="Promo video URL (optional)" hint="Paste a YouTube, Vimeo, Instagram, or direct .mp4 link. Plays embedded below the banner on the event page.">
+          <input
+            type="url"
+            value={form.promo_video_url || ""}
+            onChange={(e) => update("promo_video_url", e.target.value)}
+            placeholder="https://www.youtube.com/watch?v=… or https://vimeo.com/… or https://….mp4"
+            data-testid="promo-video-url-input"
           />
         </Field>
         <Field label="Title">

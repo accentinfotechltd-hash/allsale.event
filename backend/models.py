@@ -40,6 +40,9 @@ class EventIn(BaseModel):
     date: str
     image_url: str
     banner_url: Optional[str] = None
+    # Optional promo video URL — accepts YouTube / Vimeo / Instagram / direct
+    # mp4. Rendered as an embedded player below the cover banner.
+    promo_video_url: Optional[str] = None
     currency: str = "NZD"  # ISO 4217. Drives event pricing, checkout, payouts.
     tiers: List[Dict[str, Any]] = Field(default_factory=list)
     has_seatmap: bool = False
