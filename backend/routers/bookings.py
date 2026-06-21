@@ -182,7 +182,18 @@ async def create_hold(payload: HoldIn, request: Request, user: dict = Depends(ge
         "currency": (event.get("currency") or "NZD").upper(), "status": "pending",
         "hold_expires_at": expires.isoformat(), "created_at": utc_now().isoformat(),
     }
-    fee_breakdown = compute_fees(amount, booking_doc["currency"])
+    # Read admin's commission settings so the UI's "Platform commission (%)"
+    # field is the single source of truth for checkout fees. Falls back to env
+    # var defaults inside compute_fees() if the doc isn't there yet.
+    plat_settings = await db.platform_settings.find_one({"key": "commission"}, {"_id": 0}) or {}
+    admin_pct = plat_settings.get("commission_percent")
+    admin_flat = plat_settings.get("commission_flat_fee_per_ticket")
+    fee_breakdown = compute_fees(
+        amount,
+        booking_doc["currency"],
+        platform_pct=admin_pct,
+        stripe_flat=admin_flat,
+    )
     buyer_total = round(fee_breakdown.buyer_total, 2)
     # Apply optional gift card AFTER fees so the buyer sees the dollar
     # off their card-charged total. Stored as `gift_card_amount` for

@@ -235,6 +235,11 @@ async def finalize_bundle_purchase(purchase_id: str) -> bool:
     from fees import compute_fees  # local import to avoid circular
     from core import gen_qr_data_url
 
+    # Admin's commission settings are the single source of truth for fee math.
+    plat_settings = await db.platform_settings.find_one({"key": "commission"}, {"_id": 0}) or {}
+    admin_pct = plat_settings.get("commission_percent")
+    admin_flat = plat_settings.get("commission_flat_fee_per_ticket")
+
     for event_id in bundle["event_ids"]:
         event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
         if not event:
@@ -260,7 +265,7 @@ async def finalize_bundle_purchase(purchase_id: str) -> bool:
             "created_at": utc_now().isoformat(),
             "paid_at": utc_now().isoformat(),
         }
-        fees = compute_fees(per_event_share, p["currency"])
+        fees = compute_fees(per_event_share, p["currency"], platform_pct=admin_pct, stripe_flat=admin_flat)
         booking_doc.update({
             "face_value": round(fees.face_value, 2),
             "platform_fee": round(fees.platform_fee, 2),

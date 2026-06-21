@@ -66,22 +66,34 @@ class FeeBreakdown:
         }
 
 
-def compute_fees(face_value: float, currency: str = "NZD") -> FeeBreakdown:
+def compute_fees(
+    face_value: float,
+    currency: str = "NZD",
+    platform_pct: float | None = None,
+    stripe_flat: float | None = None,
+) -> FeeBreakdown:
     """Gross-up `face_value` into a buyer_total that covers all fees.
 
     `face_value` is the organizer's net revenue base — i.e. the displayed
     ticket price × quantity, after any discount codes have been applied.
     Returns 0s across the board if face_value <= 0 (e.g. comp tickets) so
     we never charge Stripe for a free transaction.
+
+    `platform_pct` and `stripe_flat` are runtime overrides. Callers reading
+    the admin's `platform_settings` from MongoDB should pass them in so the
+    admin UI is the single source of truth for fee math (see bookings.py).
+    Both fall back to env-var defaults when not provided.
     """
     if face_value <= 0:
         return FeeBreakdown(0, 0, 0, 0, 0, (currency or "NZD").upper())
 
-    platform = face_value * (PLATFORM_FEE_BPS / 10000.0)
+    plat_pct = (PLATFORM_FEE_BPS / 10000.0) if platform_pct is None else float(platform_pct) / 100.0
+    flat = STRIPE_FEE_FLAT if stripe_flat is None else float(stripe_flat)
+    platform = face_value * plat_pct
     stripe_pct = STRIPE_FEE_BPS / 10000.0
     # Avoid div-by-zero (would only happen if STRIPE_FEE_BPS=10000, i.e. 100%).
     denom = max(1e-6, 1 - stripe_pct)
-    buyer_total = (face_value + platform + STRIPE_FEE_FLAT) / denom
+    buyer_total = (face_value + platform + flat) / denom
     stripe_fee = buyer_total - (face_value + platform)
     service_fee = platform + stripe_fee
     return FeeBreakdown(

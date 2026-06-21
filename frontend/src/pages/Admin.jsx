@@ -966,7 +966,7 @@ function SettingsTab() {
       <div className="border rounded-2xl p-8" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
         <h2 className="serif text-2xl mb-1">Commission & fees</h2>
         <p className="text-sm mb-7" style={{ color: "var(--text-muted)" }}>
-          Applied to every organizer payout. Future bookings keep using the values current at request time (snapshotted).
+          Drives both checkout (buyer-pays-fees) and payouts. Changes take effect on the next booking — past bookings keep their snapshotted values.
         </p>
         <form onSubmit={save} className="space-y-6">
           <div>
@@ -981,7 +981,7 @@ function SettingsTab() {
           </div>
           <div>
             <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>
-              Processing fee per ticket (USD)
+              Processing fee per ticket (NZD)
             </label>
             <input
               type="number" min="0" max="20" step="0.01"
@@ -990,12 +990,12 @@ function SettingsTab() {
             />
           </div>
           <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
-            <div className="text-xs uppercase tracking-widest mb-3" style={{ color: "var(--text-dim)" }}>Preview · $1,000 gross / 50 tickets</div>
+            <div className="text-xs uppercase tracking-widest mb-3" style={{ color: "var(--text-dim)" }}>Preview · NZ$1,000 gross / 50 tickets</div>
             <div className="space-y-1 text-sm">
-              <Row label="Gross" value="$1,000.00" />
-              <Row label={`Commission (${percent}%)`} value={`− $${(1000 * parseFloat(percent || 0) / 100).toFixed(2)}`} accent="var(--danger)" />
-              <Row label={`Processing (50 × $${flat})`} value={`− $${(50 * parseFloat(flat || 0)).toFixed(2)}`} accent="var(--danger)" />
-              <Row label="Net to organizer" value={`$${(1000 - (1000 * parseFloat(percent || 0) / 100) - (50 * parseFloat(flat || 0))).toFixed(2)}`} accent="var(--success)" bold />
+              <Row label="Gross" value="NZ$1,000.00" />
+              <Row label={`Commission (${percent}%)`} value={`− NZ$${(1000 * parseFloat(percent || 0) / 100).toFixed(2)}`} accent="var(--danger)" />
+              <Row label={`Processing (50 × NZ$${flat})`} value={`− NZ$${(50 * parseFloat(flat || 0)).toFixed(2)}`} accent="var(--danger)" />
+              <Row label="Net to organizer" value={`NZ$${(1000 - (1000 * parseFloat(percent || 0) / 100) - (50 * parseFloat(flat || 0))).toFixed(2)}`} accent="var(--success)" bold />
             </div>
           </div>
           <button type="submit" disabled={saving} className="btn-primary" data-testid="save-settings-btn">
