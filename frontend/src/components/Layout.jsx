@@ -1,6 +1,6 @@
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
-import { Search, LogOut, ShieldCheck, LayoutDashboard, Ticket, Sparkles, Menu, X, ScanLine } from "lucide-react";
+import { Search, LogOut, ShieldCheck, LayoutDashboard, Ticket, Sparkles, Menu, X, ScanLine, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
 import PwaInstallBanner from "@/components/PwaInstallBanner";
@@ -92,6 +92,17 @@ export default function Layout({ children }) {
                     <LayoutDashboard className="w-4 h-4" /> <span className="hidden md:inline">Organizer</span>
                   </Link>
                 )}
+                {(user.role === "organizer" || user.role === "admin") && (
+                  <Link
+                    to="/organizer/new"
+                    className="px-2 md:px-3 py-2 text-sm inline-flex items-center gap-1.5 font-medium"
+                    style={{ color: "var(--accent)" }}
+                    data-testid="nav-create-event-link"
+                    title="Create a new event"
+                  >
+                    <Plus className="w-4 h-4" /> <span className="hidden md:inline">Create event</span>
+                  </Link>
+                )}
                 {user.role === "attendee" && (
                   <Link to="/become-organizer" className="px-2 md:px-3 py-2 text-sm hidden md:inline-flex items-center gap-1.5" style={{ color: "var(--text-muted)" }} data-testid="nav-host-link">
                     <Sparkles className="w-4 h-4" /> Host an event
@@ -167,6 +178,7 @@ export default function Layout({ children }) {
               {user ? (
                 <>
                   {user.role === "organizer" && <MobileLink to="/organizer" label="Organizer dashboard" icon={<LayoutDashboard className="w-4 h-4" />} testid="m-nav-organizer" />}
+                  {(user.role === "organizer" || user.role === "admin") && <MobileLink to="/organizer/new" label="Create event" icon={<Plus className="w-4 h-4" />} testid="m-nav-create-event" />}
                   {user.role === "attendee" && <MobileLink to="/become-organizer" label="Host an event" icon={<Sparkles className="w-4 h-4" />} testid="m-nav-host" />}
                   {user.role === "admin" && <MobileLink to="/admin" label="Admin" icon={<ShieldCheck className="w-4 h-4" />} testid="m-nav-admin" />}
                   {(user.role === "organizer" || user.role === "admin") && <MobileLink to="/scan" label="Door scanner" icon={<ScanLine className="w-4 h-4" />} testid="m-nav-scanner" />}
