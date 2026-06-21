@@ -288,9 +288,116 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "admin_created_account": lambda ctx: _t_admin_created_account(ctx),
     "admin_created_event_for_you": lambda ctx: _t_admin_created_event_for_you(ctx),
     "admin_new_user_signup": lambda ctx: _t_admin_new_user_signup(ctx),
+    "admin_new_booking": lambda ctx: _t_admin_new_booking(ctx),
+    "admin_new_enquiry": lambda ctx: _t_admin_new_enquiry(ctx),
+    "organizer_new_sale": lambda ctx: _t_organizer_new_sale(ctx),
     "admin_message_to_organizer": lambda ctx: _t_admin_message_to_organizer(ctx),
     "organizer_message_to_admin": lambda ctx: _t_organizer_message_to_admin(ctx),
 }
+
+
+def _t_organizer_new_sale(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Sent to the organizer on EVERY booking (not just the first).
+
+    Distinct from the welcome-funnel `organizer_welcome_3_first_sale` which
+    only fires once. This one is for ongoing sales notifications so organizers
+    feel the dopamine of every ticket sold.
+    """
+    name = ctx.get("organizer_name", "there")
+    title = ctx.get("event_title", "your event")
+    buyer = ctx.get("buyer_name", "Someone")
+    buyer_email = ctx.get("buyer_email", "")
+    qty = ctx.get("quantity", 1)
+    amount = ctx.get("amount", 0)
+    currency = ctx.get("currency", "NZD")
+    tier = ctx.get("tier_name", "")
+    body = f"""
+    <p style="color:{TEXT};">Hi {name}, you just sold <strong>{qty} ticket{'s' if qty != 1 else ''}</strong> to <strong>{title}</strong>.</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+      style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;">
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};">BUYER</td><td style="text-align:right;color:{TEXT};font-size:13px;">{buyer}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">EMAIL</td><td style="text-align:right;color:{TEXT};font-family:Menlo,monospace;font-size:12px;padding-top:8px;">{buyer_email}</td></tr>
+      {f'<tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">TIER</td><td style="text-align:right;color:{TEXT};font-size:13px;padding-top:8px;">{tier}</td></tr>' if tier else ''}
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">QUANTITY</td><td style="text-align:right;color:{TEXT};font-size:13px;padding-top:8px;">{qty}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">PAID</td><td style="text-align:right;color:{BRAND_COLOR};font-weight:700;padding-top:8px;">{currency} {float(amount):.2f}</td></tr>
+    </table>
+    """
+    subject = f"🎟️ {qty} ticket{'s' if qty != 1 else ''} sold for {title}"
+    html = _layout("Ticket sold", "View attendee list", body, "Open organizer dashboard", f"{APP_PUBLIC_URL}/organizer")
+    text = _text_fallback([
+        f"Hi {name}, you sold {qty} ticket(s) to {title}.",
+        f"Buyer: {buyer} ({buyer_email})",
+        f"Tier: {tier}" if tier else "",
+        f"Amount: {currency} {float(amount):.2f}",
+        f"Dashboard: {APP_PUBLIC_URL}/organizer",
+    ])
+    return subject, html, text
+
+
+def _t_admin_new_booking(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Heads-up to admins on every paid booking."""
+    admin_name = ctx.get("admin_name", "Admin")
+    title = ctx.get("event_title", "an event")
+    organizer = ctx.get("organizer_name", "an organizer")
+    buyer = ctx.get("buyer_name", "Someone")
+    buyer_email = ctx.get("buyer_email", "")
+    qty = ctx.get("quantity", 1)
+    amount = ctx.get("amount", 0)
+    currency = ctx.get("currency", "NZD")
+    body = f"""
+    <p style="color:{TEXT};">Hi {admin_name}, a new booking just landed.</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+      style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;">
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};">EVENT</td><td style="text-align:right;color:{TEXT};font-size:13px;">{title}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">ORGANIZER</td><td style="text-align:right;color:{TEXT};font-size:13px;padding-top:8px;">{organizer}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">BUYER</td><td style="text-align:right;color:{TEXT};font-size:13px;padding-top:8px;">{buyer}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">EMAIL</td><td style="text-align:right;color:{TEXT};font-family:Menlo,monospace;font-size:12px;padding-top:8px;">{buyer_email}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">QUANTITY</td><td style="text-align:right;color:{TEXT};font-size:13px;padding-top:8px;">{qty}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">AMOUNT</td><td style="text-align:right;color:{BRAND_COLOR};font-weight:700;padding-top:8px;">{currency} {float(amount):.2f}</td></tr>
+    </table>
+    """
+    subject = f"💰 Booking: {qty} × {title} — {currency} {float(amount):.2f}"
+    html = _layout("New booking", "Heads up — fresh sale", body, "Open admin dashboard", f"{APP_PUBLIC_URL}/admin")
+    text = _text_fallback([
+        f"New booking: {qty} × {title}",
+        f"Organizer: {organizer}",
+        f"Buyer: {buyer} ({buyer_email})",
+        f"Amount: {currency} {float(amount):.2f}",
+        f"Admin: {APP_PUBLIC_URL}/admin",
+    ])
+    return subject, html, text
+
+
+def _t_admin_new_enquiry(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Notifies admin whenever someone uses the contact-organizer form."""
+    admin_name = ctx.get("admin_name", "Admin")
+    from_name = ctx.get("from_name", "Someone")
+    from_email = ctx.get("from_email", "")
+    subject_line = ctx.get("subject", "(no subject)")
+    event_title = ctx.get("event_title") or "—"
+    organizer_name = ctx.get("organizer_name", "an organizer")
+    preview = (ctx.get("message_preview") or "")[:300]
+    body = f"""
+    <p style="color:{TEXT};">Hi {admin_name}, a new enquiry was sent to <strong>{organizer_name}</strong>.</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+      style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;">
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};">FROM</td><td style="text-align:right;color:{TEXT};font-size:13px;">{from_name}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">EMAIL</td><td style="text-align:right;color:{TEXT};font-family:Menlo,monospace;font-size:12px;padding-top:8px;">{from_email}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">EVENT</td><td style="text-align:right;color:{TEXT};font-size:13px;padding-top:8px;">{event_title}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">SUBJECT</td><td style="text-align:right;color:{TEXT};font-size:13px;padding-top:8px;">{subject_line}</td></tr>
+    </table>
+    <div style="margin-top:14px;padding:14px 16px;border-left:3px solid {BRAND_COLOR};background:{BG};border-radius:8px;color:{TEXT};white-space:pre-wrap;">{preview}</div>
+    """
+    subject = f"📨 Enquiry: {subject_line} ({event_title})"
+    html = _layout("New enquiry", "Customer reached out", body, "Open admin → Messages", f"{APP_PUBLIC_URL}/admin")
+    text = _text_fallback([
+        f"New enquiry to organizer {organizer_name}:",
+        f"From: {from_name} <{from_email}>",
+        f"Event: {event_title}",
+        f"Subject: {subject_line}",
+        f"Message: {preview}",
+    ])
+    return subject, html, text
 
 
 def _t_admin_new_user_signup(ctx: Dict[str, Any]) -> tuple[str, str, str]:

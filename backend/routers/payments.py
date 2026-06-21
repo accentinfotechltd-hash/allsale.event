@@ -181,6 +181,53 @@ async def _send_booking_confirmation_email(booking_id: str) -> None:
         "booking_confirmation", booking["user_email"], ctx, db, attachments=attachments
     )
 
+    # Fan-out: also notify the organizer (every sale) and all admins.
+    try:
+        event_doc = await db.events.find_one(
+            {"event_id": booking["event_id"]},
+            {"_id": 0, "organizer_id": 1, "title": 1, "currency": 1, "organizer_name": 1},
+        ) or {}
+        sale_ctx = {
+            "event_title": event_doc.get("title") or booking.get("event_id"),
+            "organizer_name": event_doc.get("organizer_name") or "Organizer",
+            "buyer_name": booking.get("user_name") or booking.get("user_email") or "Someone",
+            "buyer_email": booking.get("user_email"),
+            "quantity": booking.get("quantity", 1),
+            "amount": booking.get("amount", 0),
+            "currency": booking.get("currency") or event_doc.get("currency") or "NZD",
+            "tier_name": booking.get("tier_name", ""),
+        }
+        # → Organizer (every sale, not just first)
+        if event_doc.get("organizer_id"):
+            org = await db.users.find_one(
+                {"user_id": event_doc["organizer_id"]},
+                {"_id": 0, "email": 1, "notification_email": 1, "name": 1},
+            )
+            if org:
+                target = org.get("notification_email") or org.get("email")
+                if target:
+                    send_template_fireforget(
+                        "organizer_new_sale",
+                        target,
+                        {**sale_ctx, "organizer_name": org.get("name") or "there"},
+                        db,
+                    )
+        # → All admins
+        async for admin in db.users.find(
+            {"role": "admin", "active": {"$ne": False}},
+            {"_id": 0, "email": 1, "name": 1},
+        ):
+            if not admin.get("email"):
+                continue
+            send_template_fireforget(
+                "admin_new_booking",
+                admin["email"],
+                {**sale_ctx, "admin_name": admin.get("name") or "Admin"},
+                db,
+            )
+    except Exception:
+        logger.exception(f"[email] sale fan-out failed for booking {booking_id}")
+
 
 @router.post("/checkout/session")
 async def checkout_session(payload: CheckoutIn, request: Request, user: dict = Depends(get_current_user)):

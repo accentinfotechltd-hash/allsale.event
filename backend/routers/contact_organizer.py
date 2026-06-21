@@ -146,6 +146,31 @@ async def contact_organizer(
     except Exception:  # noqa: BLE001
         pass
 
+    # Also notify all admins so they can see what their organizers are receiving.
+    try:
+        async for admin in db.users.find(
+            {"role": "admin", "active": {"$ne": False}},
+            {"_id": 0, "email": 1, "name": 1},
+        ):
+            if not admin.get("email"):
+                continue
+            send_template_fireforget(
+                "admin_new_enquiry",
+                admin["email"],
+                {
+                    "admin_name": admin.get("name") or "Admin",
+                    "organizer_name": organizer.get("name") or "Organizer",
+                    "from_name": msg["from_name"],
+                    "from_email": msg["from_email"],
+                    "subject": msg["subject"],
+                    "message_preview": msg["message"][:500],
+                    "event_title": msg.get("event_title"),
+                },
+                db,
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
     return {
         "ok": True,
         "message_id": msg_id,
