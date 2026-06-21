@@ -13,6 +13,7 @@ import { estimateBuyerFees, estimateTicketProtection } from "@/lib/fees";
 import SocialShareButtons from "@/components/SocialShareButtons";
 import SeoHead from "@/components/SeoHead";
 import EventMedia, { BannerExpandHint } from "@/components/EventMedia";
+import { sanitizeRichHtml } from "@/components/RichTextEditor";
 import { Calendar, MapPin, User, ArrowRight, Plus, Minus, Tag, X, Bell, BellOff, Clock, ExternalLink, Wifi, Gift, Star, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { formatMoney } from "@/lib/currencies";
@@ -442,7 +443,21 @@ export default function EventDetail() {
             </div>
           </div>
 
-          <p className="text-base sm:text-lg leading-relaxed max-w-3xl mb-6 sm:mb-8" style={{ color: "var(--text-muted)" }}>{event.description}</p>
+          <p
+            className="text-base sm:text-lg leading-relaxed max-w-3xl mb-6 sm:mb-8 rich-rendered"
+            style={{ color: "var(--text-muted)", whiteSpace: "pre-wrap" }}
+            data-testid="event-description"
+            dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(event.description || "") }}
+          />
+          <style>{`
+            .rich-rendered h2 { font-size: 1.5rem; font-weight: 600; margin: 0.5em 0; color: var(--text); }
+            .rich-rendered h3 { font-size: 1.25rem; font-weight: 600; margin: 0.5em 0; color: var(--text); }
+            .rich-rendered ul, .rich-rendered ol { padding-left: 1.5rem; margin: 0.5em 0; }
+            .rich-rendered ul { list-style: disc; }
+            .rich-rendered ol { list-style: decimal; }
+            .rich-rendered a { color: var(--accent); text-decoration: underline; }
+            .rich-rendered strong, .rich-rendered b { color: var(--text); }
+          `}</style>
 
           <div className="max-w-3xl mb-10 sm:mb-12 flex flex-wrap items-center gap-3">
             <SocialShareButtons event={event} />

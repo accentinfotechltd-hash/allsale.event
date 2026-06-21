@@ -9,6 +9,7 @@ import DateTimePicker from "@/components/DateTimePicker";
 import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, currencySymbol } from "@/lib/currencies";
 import { COUNTRIES, DEFAULT_COUNTRY, currencyForCountry, timezoneForCountry } from "@/lib/countries";
 import { useAuth } from "@/lib/auth";
+import RichTextEditor from "@/components/RichTextEditor";
 
 const CATEGORIES = [
   { id: "movies", name: "Movies" },
@@ -335,7 +336,13 @@ export default function CreateEvent() {
           <input required value={form.title} onChange={(e) => update("title", e.target.value)} data-testid="event-title-input" />
         </Field>
         <Field label="Description">
-          <textarea required rows={4} value={form.description} onChange={(e) => update("description", e.target.value)} data-testid="event-desc-input" />
+          <textarea required rows={4} value={form.description} onChange={(e) => update("description", e.target.value)} data-testid="event-desc-input" style={{ display: "none" }} />
+          <RichTextEditor
+            value={form.description}
+            onChange={(html) => update("description", html)}
+            placeholder="Describe the event — drop times, lineup, dress code, anything attendees should know. Use the toolbar to bold key info or add bullet points."
+            testid="event-desc-rich"
+          />
         </Field>
         <div className="grid md:grid-cols-2 gap-4">
           <Field label="Category">
