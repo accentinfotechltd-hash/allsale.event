@@ -287,9 +287,39 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "event_recap": lambda ctx: _t_event_recap(ctx),
     "admin_created_account": lambda ctx: _t_admin_created_account(ctx),
     "admin_created_event_for_you": lambda ctx: _t_admin_created_event_for_you(ctx),
+    "admin_new_user_signup": lambda ctx: _t_admin_new_user_signup(ctx),
     "admin_message_to_organizer": lambda ctx: _t_admin_message_to_organizer(ctx),
     "organizer_message_to_admin": lambda ctx: _t_organizer_message_to_admin(ctx),
 }
+
+
+def _t_admin_new_user_signup(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Sent to every admin whenever a new user registers (password or Google OAuth)."""
+    admin_name = ctx.get("admin_name", "Admin")
+    user_name = ctx.get("user_name", "A user")
+    user_email = ctx.get("user_email", "")
+    role = ctx.get("role", "attendee")
+    provider = ctx.get("auth_provider", "password")
+    provider_label = "Google" if provider == "google" else "Email / password"
+    body = f"""
+    <p style="color:{TEXT};">Hi {admin_name}, a new user just registered on Allsale Events.</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+      style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;">
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};">NAME</td><td style="text-align:right;color:{TEXT};font-size:13px;">{user_name}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">EMAIL</td><td style="text-align:right;color:{TEXT};font-family:Menlo,monospace;font-size:13px;padding-top:8px;">{user_email}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">ROLE</td><td style="text-align:right;color:{BRAND_COLOR};font-weight:700;padding-top:8px;">{role.upper()}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">SIGNUP METHOD</td><td style="text-align:right;color:{TEXT};font-size:13px;padding-top:8px;">{provider_label}</td></tr>
+    </table>
+    """
+    subject = f"New {role} signup: {user_name}"
+    html = _layout("New user signup", "Heads up — fresh registration", body, "Open admin → Users", f"{APP_PUBLIC_URL}/admin?tab=users")
+    text = _text_fallback([
+        f"New user signed up: {user_name} ({user_email})",
+        f"Role: {role}",
+        f"Method: {provider_label}",
+        f"Manage: {APP_PUBLIC_URL}/admin?tab=users",
+    ])
+    return subject, html, text
 
 
 def _t_admin_created_account(ctx: Dict[str, Any]) -> tuple[str, str, str]:

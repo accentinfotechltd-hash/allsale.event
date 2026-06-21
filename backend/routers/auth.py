@@ -15,6 +15,42 @@ from models import RegisterIn, LoginIn, GoogleSessionIn
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+
+async def _notify_admins_of_signup(new_user: dict) -> None:
+    """Email every admin whenever a new user signs up.
+
+    Fire-and-forget — never blocks the signup response if email service is
+    down or no admins are configured. Looks up admins on every signup so it
+    picks up newly-created admins without a deploy. Honors each admin's
+    `notification_email` override (handled inside `send_template`).
+    """
+    try:
+        from emails import send_template_fireforget
+        async for admin in db.users.find(
+            {"role": "admin", "active": {"$ne": False}},
+            {"_id": 0, "email": 1, "name": 1},
+        ):
+            if not admin.get("email"):
+                continue
+            send_template_fireforget(
+                "admin_new_user_signup",
+                admin["email"],
+                {
+                    "admin_name": admin.get("name") or "Admin",
+                    "user_name": new_user.get("name") or new_user.get("email"),
+                    "user_email": new_user.get("email"),
+                    "role": new_user.get("role", "attendee"),
+                    "auth_provider": new_user.get("auth_provider", "password"),
+                },
+                db,
+            )
+    except Exception as e:
+        # Never block signup on a notification failure.
+        from core import logger as _log
+        _log.warning(f"[auth] _notify_admins_of_signup failed: {e}")
+
+
+
 @router.post("/register")
 async def register(payload: RegisterIn, response: Response):
     email = payload.email.lower().strip()
@@ -40,6 +76,8 @@ async def register(payload: RegisterIn, response: Response):
         await attach_pending_team_invites(doc)
     except Exception:
         pass
+    # Notify all admins about the new signup (fire-and-forget, never blocks).
+    await _notify_admins_of_signup(doc)
     # Fire welcome email #1 to organizers — fire-and-forget, never blocks signup.
     if payload.role == "organizer":
         try:
@@ -298,6 +336,8 @@ async def google_code(payload: GoogleCodeIn, response: Response):
             await attach_pending_team_invites(new_user_doc)
         except Exception:
             pass
+        # Notify all admins about the new Google signup
+        await _notify_admins_of_signup(new_user_doc)
 
     session_token = uuid.uuid4().hex + uuid.uuid4().hex
     await db.user_sessions.insert_one({
@@ -356,6 +396,8 @@ async def google_session(payload: GoogleSessionIn, response: Response):
             await attach_pending_team_invites(new_user_doc)
         except Exception:
             pass
+        # Notify all admins about the new Google signup (legacy Emergent path)
+        await _notify_admins_of_signup(new_user_doc)
 
     await db.user_sessions.insert_one({
         "user_id": user_id, "session_token": session_token,

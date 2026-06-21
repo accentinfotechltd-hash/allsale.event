@@ -1567,3 +1567,35 @@ The user asked "have you locked the code so no one can copy?" Honest answer is s
 - After Vercel redeploy, verify production `https://allsale.events/robots.txt` includes the new AI-scraper blocks.
 
 
+
+
+## Iteration 49 (2026-02-19) — Bug fix: admins now get notified of new signups
+
+**Reported by user**: "Admin can't get the email if some user registers. Please check."
+
+**Root cause**: The signup endpoint at `POST /api/auth/register` had a welcome email for organizers but **no notification path for admins**. Google OAuth signup (`/google` + `/google-session`) had the same gap. Admins were operating blind for new user registrations.
+
+### Shipped
+
+**New email template `admin_new_user_signup`** (`backend/emails.py`):
+- Shows name + email + role + signup method (Email/password vs Google) in a clean info card.
+- CTA: "Open admin → Users" (deep-link `/admin?tab=users`).
+
+**New helper `_notify_admins_of_signup(new_user)`** (`backend/routers/auth.py`):
+- Iterates every `role=admin` user with `active != False`, sends the template fire-and-forget to each.
+- Respects each admin's `notification_email` override (handled in `emails.send_template`).
+- Silent except — never blocks the signup response if email service is down.
+
+**Wired into all 3 signup paths**:
+1. `POST /api/auth/register` (password signup) — the most common path
+2. `POST /api/auth/google` (direct Google OAuth)
+3. `POST /api/auth/google-session` (legacy Emergent Google OAuth)
+
+### Debug story (worth remembering)
+First two `search_replace` attempts to add the call to `/register` appeared successful but actually didn't apply — the `await _notify_admins_of_signup(doc)` line was missing from the password path while present in both Google paths. Caught by temporarily replacing `except: pass` with logged errors + INFO message, noticing the log never fired, then grepping `_notify_admins_of_signup` to find only 2 call-sites instead of 3. Re-applied the patch and verified 2 successful `email_logs` entries with `status=sent` to the admin's notification_email (`allsaletickets+admin@gmail.com`).
+
+### Files
+- Edited: `backend/routers/auth.py` (+ `_notify_admins_of_signup` helper, + 3 call sites)
+- Edited: `backend/emails.py` (+ `_t_admin_new_user_signup` template, + TEMPLATES registration)
+
+
