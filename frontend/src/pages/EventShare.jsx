@@ -1,9 +1,38 @@
 import { useEffect, useRef, useState, forwardRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Download, ArrowLeft, Twitter, Facebook, Linkedin, MessageCircle, Send, Copy, Check, Sparkles } from "lucide-react";
+import { Download, ArrowLeft, Twitter, Facebook, Linkedin, MessageCircle, Send, Copy, Check, Sparkles, Package } from "lucide-react";
 import { toast } from "sonner";
 import { toPng } from "html-to-image";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
 import api from "@/lib/api";
+
+// Pick the best background image for a flyer. Posters (portrait) take precedence
+// because they're already designed for 9:16; otherwise we fall back to the
+// landscape banner / cover image.
+function flyerBgSrc(event) {
+  return event?.poster_url || event?.banner_url || event?.image_url || "";
+}
+
+// Wait for fonts + the proxied background images inside a node to finish loading
+// before we hand the DOM to html-to-image. Without this the snapshot can capture
+// the canvas while the image is still a 1x1 placeholder, which looks broken.
+async function waitForAssets(node) {
+  try { if (document.fonts?.ready) await document.fonts.ready; } catch (_e) { /* fonts API unavailable */ }
+  const imgs = node ? Array.from(node.querySelectorAll("img")) : [];
+  await Promise.all(
+    imgs.map(
+      (img) =>
+        new Promise((resolve) => {
+          if (img.complete && img.naturalWidth > 0) return resolve();
+          img.addEventListener("load", resolve, { once: true });
+          img.addEventListener("error", resolve, { once: true });
+          // Hard timeout so a single broken image can never block the export.
+          setTimeout(resolve, 4000);
+        }),
+    ),
+  );
+}
 
 /**
  * EventShare — per-event social media flyer with multi-aspect previews +
@@ -53,21 +82,24 @@ export default function EventShare() {
   const eventUrl = event ? `${window.location.origin}/events/${event.event_id}` : "";
   const shareText = event ? `🎟️ ${event.title} — ${formatDate(event.date)} at ${event.venue}, ${event.city}. Tickets:` : "";
 
-  const downloadFormat = async (fmt) => {
+  const renderToBlob = async (fmt) => {
     const node = refs.current[fmt.key];
-    if (!node) return;
+    if (!node) return null;
+    await waitForAssets(node);
+    const dataUrl = await toPng(node, {
+      pixelRatio: 2,
+      cacheBust: true,
+      backgroundColor: "#0F2A3A",
+    });
+    const res = await fetch(dataUrl);
+    return res.blob();
+  };
+
+  const downloadFormat = async (fmt) => {
     try {
-      // pixelRatio 2 so the export hits the 1080px / 1920px target even though
-      // the preview is scaled down via CSS for display.
-      const dataUrl = await toPng(node, {
-        pixelRatio: 2,
-        cacheBust: true,
-        backgroundColor: "#0F2A3A",
-      });
-      const link = document.createElement("a");
-      link.download = `${slugify(event.title)}-${fmt.key}.png`;
-      link.href = dataUrl;
-      link.click();
+      const blob = await renderToBlob(fmt);
+      if (!blob) return;
+      saveAs(blob, `${slugify(event.title)}-${fmt.key}.png`);
       toast.success(`${fmt.label} flyer downloaded`);
     } catch (err) {
       console.error("flyer export failed", err);
@@ -75,9 +107,20 @@ export default function EventShare() {
     }
   };
 
-  const downloadAll = async () => {
-    for (const fmt of FORMATS) {
-      await downloadFormat(fmt); // sequential so the browser doesn't choke
+  const downloadAllZip = async () => {
+    const t = toast.loading("Packing all 3 flyers...");
+    try {
+      const zip = new JSZip();
+      for (const fmt of FORMATS) {
+        const blob = await renderToBlob(fmt);
+        if (blob) zip.file(`${slugify(event.title)}-${fmt.key}.png`, blob);
+      }
+      const out = await zip.generateAsync({ type: "blob" });
+      saveAs(out, `${slugify(event.title)}-flyers.zip`);
+      toast.success("All 3 flyers downloaded as ZIP", { id: t });
+    } catch (err) {
+      console.error("ZIP export failed", err);
+      toast.error("Couldn't build ZIP — try again", { id: t });
     }
   };
 
@@ -146,21 +189,29 @@ export default function EventShare() {
             ))}
           </div>
 
-          {/* Active preview — what the user sees */}
-          <div
-            className="relative mx-auto"
-            style={{
-              maxWidth: active === "story" ? "300px" : (active === "wide" ? "100%" : "500px"),
-            }}
-          >
-            <FlyerCanvas
-              ref={(el) => { refs.current[active] = el; }}
-              event={event}
-              format={activeFmt}
-            />
-          </div>
+          {/* Active preview — what the user sees. The wrapper has its own
+              explicit visual height so the scaled FlyerCanvas inside doesn't
+              bleed onto the download buttons below (negative-margin trick was
+              swallowing pointer events for buttons that visually appeared
+              below the flyer). */}
+          {(() => {
+            const w = active === "story" ? 300 : (active === "wide" ? 600 : 500);
+            const ratio = activeFmt.height / activeFmt.width;
+            return (
+              <div
+                className="relative mx-auto overflow-hidden"
+                style={{ width: w, height: w * ratio }}
+              >
+                <FlyerCanvas
+                  ref={(el) => { refs.current[active] = el; }}
+                  event={event}
+                  format={activeFmt}
+                />
+              </div>
+            );
+          })()}
 
-          <div className="flex gap-2 mt-4 flex-wrap justify-center">
+          <div className="relative z-10 flex gap-2 mt-4 flex-wrap justify-center">
             <button
               onClick={() => downloadFormat(activeFmt)}
               className="btn-primary"
@@ -168,8 +219,8 @@ export default function EventShare() {
             >
               <Download size={14} /> Download {activeFmt.label}
             </button>
-            <button onClick={downloadAll} className="btn-ghost" data-testid="download-all-btn">
-              <Download size={14} /> Download all 3
+            <button onClick={downloadAllZip} className="btn-ghost" data-testid="download-all-btn">
+              <Package size={14} /> Download all 3 (ZIP)
             </button>
           </div>
 
@@ -264,32 +315,38 @@ const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format }, ref) {
     >
       {/* Background image — proxied through our backend so html-to-image can
           read the canvas pixels without tainting. The proxy adds proper CORS
-          headers regardless of what the original CDN sends. */}
-      {event.image_url && (
-        <img
-          src={`${process.env.REACT_APP_BACKEND_URL}/api/img-proxy?url=${encodeURIComponent(event.image_url)}`}
-          alt=""
-          crossOrigin="anonymous"
-          referrerPolicy="no-referrer"
-          onError={(e) => {
-            // Last-resort fallback: if the proxy itself fails, load direct
-            // so the flyer at least renders visually (download may taint).
-            if (e.currentTarget.dataset.fallback !== "1") {
-              e.currentTarget.dataset.fallback = "1";
-              e.currentTarget.removeAttribute("crossorigin");
-              e.currentTarget.src = event.image_url;
-            }
-          }}
-          className="absolute inset-0 w-full h-full object-cover"
-          style={{ filter: "brightness(0.55) saturate(1.1)" }}
-        />
-      )}
-      {/* Dark gradient + brand accent */}
+          headers regardless of what the original CDN sends. Prefers a
+          dedicated portrait poster for Story format, falling back to banner
+          / cover image. */}
+      {(() => {
+        const bg = flyerBgSrc(event);
+        if (!bg) return null;
+        return (
+          <img
+            src={`${process.env.REACT_APP_BACKEND_URL}/api/img-proxy?url=${encodeURIComponent(bg)}`}
+            alt=""
+            crossOrigin="anonymous"
+            referrerPolicy="no-referrer"
+            decoding="async"
+            onError={(e) => {
+              if (e.currentTarget.dataset.fallback !== "1") {
+                e.currentTarget.dataset.fallback = "1";
+                e.currentTarget.removeAttribute("crossorigin");
+                e.currentTarget.src = bg;
+              }
+            }}
+            className="absolute inset-0 w-full h-full object-cover"
+            style={{ objectPosition: "center", filter: "brightness(0.7) saturate(1.1) contrast(1.05)" }}
+          />
+        );
+      })()}
+      {/* Dark gradient + brand accent — top fade is light so the photo can breathe;
+          bottom fade is heavy so text is always readable. */}
       <div
         className="absolute inset-0"
         style={{
           background:
-            "linear-gradient(180deg, rgba(15,42,58,0.55) 0%, rgba(15,42,58,0.25) 35%, rgba(15,42,58,0.95) 100%)",
+            "linear-gradient(180deg, rgba(15,42,58,0.15) 0%, rgba(15,42,58,0.05) 30%, rgba(15,42,58,0.55) 65%, rgba(15,42,58,0.97) 100%)",
         }}
       />
       {/* Brand accent corner */}
@@ -370,7 +427,9 @@ const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format }, ref) {
               alt=""
               width={isStory ? 180 : isWide ? 100 : 130}
               height={isStory ? 180 : isWide ? 100 : 130}
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=0&color=0F2A3A&bgcolor=ffffff&data=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : ""}/events/${event.event_id}`)}`}
+              crossOrigin="anonymous"
+              decoding="async"
+              src={`${process.env.REACT_APP_BACKEND_URL}/api/img-proxy?url=${encodeURIComponent(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=0&color=0F2A3A&bgcolor=ffffff&data=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : ""}/events/${event.event_id}`)}`)}`}
               style={{ borderRadius: 8, background: "#FFFFFF", padding: 6 }}
             />
             <div style={{ fontSize: isStory ? 18 : 11, opacity: 0.7 }}>SCAN</div>

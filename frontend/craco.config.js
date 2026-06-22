@@ -51,6 +51,27 @@ let webpackConfig = {
         ],
       };
 
+      // Stop source-map-loader from chasing .mjs sourcemaps inside node_modules
+      // (e.g. pako, transitively pulled in by jszip, ships sourcemap refs that
+      // point at non-existent .mjs files and fails the CRA build).
+      try {
+        const isSML = (entry) => {
+          if (!entry) return false;
+          if (typeof entry === "string") return entry.includes("source-map-loader");
+          if (Array.isArray(entry)) return entry.some(isSML);
+          return (entry.loader || "").includes("source-map-loader");
+        };
+        const patchRule = (rule) => {
+          if (!rule) return;
+          if (isSML(rule.loader) || isSML(rule.use)) {
+            rule.exclude = [...(Array.isArray(rule.exclude) ? rule.exclude : (rule.exclude ? [rule.exclude] : [])), /node_modules/];
+          }
+          if (Array.isArray(rule.oneOf)) rule.oneOf.forEach(patchRule);
+          if (Array.isArray(rule.rules)) rule.rules.forEach(patchRule);
+        };
+        (webpackConfig.module?.rules || []).forEach(patchRule);
+      } catch (e) { /* best-effort patch */ }
+
       // Add health check plugin to webpack if enabled
       if (config.enableHealthCheck && healthPluginInstance) {
         webpackConfig.plugins.push(healthPluginInstance);
