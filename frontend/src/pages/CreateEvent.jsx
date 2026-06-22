@@ -316,15 +316,48 @@ export default function CreateEvent() {
             </div>
           </div>
         )}
-        <Field label="Cover photo">
-          <ImageUploader
-            value={form.image_url}
-            onUploaded={(url) => { update("image_url", url); if (!form.banner_url) update("banner_url", url); }}
-            label="Drop cover photo or click to upload"
-            aspect="16/9"
-            testid="cover-uploader"
-          />
-        </Field>
+        <div className="grid md:grid-cols-[2fr_1fr] gap-4">
+          <Field label="Cover photo · 16:9">
+            <ImageUploader
+              value={form.image_url}
+              onUploaded={(url) => { update("image_url", url); if (!form.banner_url) update("banner_url", url); }}
+              label="Drop cover photo or click to upload"
+              aspect="16/9"
+              testid="cover-uploader"
+            />
+          </Field>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <div className="text-xs uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>
+                Vertical poster · 9:16
+              </div>
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                style={{ background: "rgba(240,138,42,0.15)", color: "var(--accent)" }}
+              >
+                RECOMMENDED
+              </span>
+            </div>
+            <div
+              style={{
+                outline: form.poster_url ? "none" : "2px dashed rgba(240,138,42,0.35)",
+                outlineOffset: 4,
+                borderRadius: 12,
+              }}
+            >
+              <ImageUploader
+                value={form.poster_url}
+                onUploaded={(url) => update("poster_url", url)}
+                label="Drop poster or upload"
+                aspect="9/16"
+                testid="poster-uploader"
+              />
+            </div>
+            <div className="text-xs mt-2" style={{ color: "var(--text-dim)" }}>
+              Used on the event page sidebar, lightbox, and social flyer downloads — events with a poster see 2-3x better Instagram engagement.
+            </div>
+          </div>
+        </div>
         <Field label="Promo video URL (optional)" hint="Paste a YouTube, Vimeo, Instagram, or direct .mp4 link. Plays embedded below the banner on the event page.">
           <input
             type="url"
@@ -332,15 +365,6 @@ export default function CreateEvent() {
             onChange={(e) => update("promo_video_url", e.target.value)}
             placeholder="https://www.youtube.com/watch?v=… or https://vimeo.com/… or https://….mp4"
             data-testid="promo-video-url-input"
-          />
-        </Field>
-        <Field label="Vertical poster (optional)" hint="Tall poster (9:16 works best) shown as a thumbnail next to ticket info — like Eventfinda's sidebar poster.">
-          <ImageUploader
-            value={form.poster_url}
-            onUploaded={(url) => update("poster_url", url)}
-            label="Drop vertical poster or click to upload"
-            aspect="9/16"
-            testid="poster-uploader"
           />
         </Field>
         <Field label="Title">
