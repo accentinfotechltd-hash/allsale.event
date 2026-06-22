@@ -416,6 +416,7 @@ class GrantPortalIn(BaseModel):
     email: str
     password: str = Field(..., min_length=6)
     name: Optional[str] = None
+    send_invitation_email: bool = True
 
 
 @router.post("/admin/marketing-partners/{partner_id}/grant-portal-access")
@@ -427,8 +428,10 @@ async def grant_portal_access(
     """Create a `role=partner` user account for the lead partner.
 
     The partner can then log in at /login with the email + password the admin
-    sets here (the admin shares those credentials out-of-band — email/WA/etc).
-    Linked back to the partner record via `linked_partner_id` on the user.
+    sets here. Linked back to the partner record via `linked_partner_id` on
+    the user. If `send_invitation_email=True` (default), we also email the
+    partner their credentials + a welcome via Resend so the admin doesn't
+    have to share them out-of-band.
     """
     _admin_only(user)
     partner = await db.marketing_partners.find_one({"partner_id": partner_id}, {"_id": 0})
@@ -444,31 +447,67 @@ async def grant_portal_access(
     from core import hash_password
 
     existing = await db.users.find_one({"email": email})
+    is_new = existing is None
     if existing:
         # User exists — just attach them. Don't overwrite their password.
         await db.users.update_one(
             {"email": email},
             {"$set": {"role": "partner", "linked_partner_id": partner_id, "updated_at": utc_now()}},
         )
-        return {"ok": True, "user_id": existing["user_id"], "action": "linked-existing"}
+        user_id = existing["user_id"]
+        action = "linked-existing"
+    else:
+        user_id = f"user_{uuid.uuid4().hex[:12]}"
+        await db.users.insert_one(
+            {
+                "user_id": user_id,
+                "email": email,
+                "name": (payload.name or partner.get("name") or "").strip(),
+                "password_hash": hash_password(payload.password),
+                "role": "partner",
+                "linked_partner_id": partner_id,
+                "created_at": utc_now(),
+                "updated_at": utc_now(),
+            }
+        )
+        action = "created"
 
-    user_id = f"user_{uuid.uuid4().hex[:12]}"
-    await db.users.insert_one(
-        {
-            "user_id": user_id,
-            "email": email,
-            "name": (payload.name or partner.get("name") or "").strip(),
-            "password_hash": hash_password(payload.password),
-            "role": "partner",
-            "linked_partner_id": partner_id,
-            "created_at": utc_now(),
-            "updated_at": utc_now(),
-        }
-    )
-    # Also stamp the partner email if it wasn't set yet.
+    # Stamp the partner email if it wasn't set yet so future statements go there.
     if not partner.get("email"):
         await db.marketing_partners.update_one({"partner_id": partner_id}, {"$set": {"email": email}})
-    return {"ok": True, "user_id": user_id, "action": "created"}
+
+    email_sent = False
+    email_error = None
+    if payload.send_invitation_email:
+        # Hand the password to the partner directly. For existing-account links
+        # we still send the welcome (without exposing their password, which we
+        # don't have anyway after hashing) so they know they have access.
+        try:
+            from emails import send_template
+            await send_template(
+                "marketing_partner_invitation",
+                email,
+                {
+                    "partner_name": partner.get("name") or "",
+                    "login_email": email,
+                    "temp_password": payload.password if is_new else "(use your existing password)",
+                    "commission_pct": partner.get("commission_pct") or 0,
+                    "is_new_account": is_new,
+                },
+                db=db,
+            )
+            email_sent = True
+        except Exception as exc:  # pragma: no cover
+            email_error = str(exc)
+            logger.warning(f"[marketing-partner] invitation email failed for {partner_id}: {exc}")
+
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "action": action,
+        "invitation_email_sent": email_sent,
+        "invitation_email_error": email_error,
+    }
 
 
 # ---------- monthly statement fan-out ----------

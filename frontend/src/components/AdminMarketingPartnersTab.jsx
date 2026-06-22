@@ -250,14 +250,18 @@ function PartnerDetailDrawer({ partnerId, onClose }) {
   };
 
   const grantPortal = async () => {
-    const email = window.prompt("Partner login email:", partner?.email || "");
+    const email = window.prompt("Partner login email (we'll email the invite here):", partner?.email || "");
     if (!email) return;
-    const password = window.prompt("Set a temporary password (min 6 chars). The partner can change it later. You'll need to share these credentials out-of-band.", "");
+    const password = window.prompt("Set a temporary password (min 6 chars). The partner will be emailed this password and asked to change it on first login.", "");
     if (!password || password.length < 6) { toast.error("Password too short"); return; }
     try {
-      const { data } = await api.post(`/admin/marketing-partners/${partnerId}/grant-portal-access`, { email, password, name: partner?.name });
-      const action = data.action === "linked-existing" ? "linked existing user" : "created new login";
-      toast.success(`Portal access ${action}. Share: ${email} / ${password}`, { duration: 12000 });
+      const { data } = await api.post(`/admin/marketing-partners/${partnerId}/grant-portal-access`, { email, password, name: partner?.name, send_invitation_email: true });
+      const action = data.action === "linked-existing" ? "Linked existing user" : "Created new login";
+      if (data.invitation_email_sent) {
+        toast.success(`${action} · Welcome email sent to ${email}`, { duration: 8000 });
+      } else {
+        toast.error(`${action}, but email failed: ${data.invitation_email_error || "unknown error"}. Share credentials manually: ${email} / ${password}`, { duration: 14000 });
+      }
       reload();
     } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
   };

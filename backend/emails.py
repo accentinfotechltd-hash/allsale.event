@@ -295,7 +295,96 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "organizer_message_to_admin": lambda ctx: _t_organizer_message_to_admin(ctx),
     "blog_new_post": lambda ctx: _t_blog_new_post(ctx),
     "marketing_partner_statement": lambda ctx: _t_marketing_partner_statement(ctx),
+    "marketing_partner_invitation": lambda ctx: _t_marketing_partner_invitation(ctx),
 }
+
+
+def _t_marketing_partner_invitation(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Welcome email when admin grants partner portal access.
+
+    ctx fields:
+      - partner_name (required)
+      - login_email (required)
+      - temp_password (required) — admin-set; we tell the partner to change it
+      - commission_pct (required, float)
+      - is_new_account (bool) — controls copy ("we created an account" vs "we linked your existing account")
+    """
+    login_url = f"{APP_PUBLIC_URL}/login?next=/partner"
+    portal_url = f"{APP_PUBLIC_URL}/partner"
+    is_new = bool(ctx.get("is_new_account", True))
+    pct = ctx.get("commission_pct") or 0
+
+    intro = (
+        f"We've set up a partner account for you with the email <strong>{ctx['login_email']}</strong>."
+        if is_new
+        else f"We've linked your existing Allsale account (<strong>{ctx['login_email']}</strong>) to your partner profile."
+    )
+
+    creds_block = (
+        f"""
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:18px 0;">
+          <tr>
+            <td style="padding:16px;border:1px solid {BORDER};border-radius:10px;background:rgba(15,42,58,0.04);">
+              <div style="font-size:11px;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:0.18em;margin-bottom:4px;">Sign in</div>
+              <div style="font-size:14px;color:{TEXT};margin-bottom:8px;">
+                <strong>Email:</strong> {ctx['login_email']}<br />
+                <strong>Temporary password:</strong>
+                <code style="background:#fff;border:1px solid {BORDER};padding:2px 6px;border-radius:4px;font-size:13px;">{ctx['temp_password']}</code>
+              </div>
+              <div style="font-size:12px;color:{TEXT_MUTED};">
+                Please change your password the first time you log in — Settings → Account.
+              </div>
+            </td>
+          </tr>
+        </table>
+        """
+        if is_new
+        else ""
+    )
+
+    body = f"""
+    <p style="color:{TEXT_MUTED};font-size:12px;letter-spacing:0.18em;text-transform:uppercase;margin:0 0 6px;">
+      Allsale Events · Partner program
+    </p>
+    <h2 style="color:{TEXT};font-family:Georgia,serif;font-size:24px;margin:0 0 14px;line-height:1.2;">
+      Welcome to the program, {ctx['partner_name']}.
+    </h2>
+    <p style="color:{TEXT_MUTED};font-size:15px;line-height:1.6;margin:0 0 14px;">
+      {intro}
+      You'll earn <strong style="color:{TEXT};">{pct}%</strong> of platform commission on every paid booking
+      from the organizers we attach to you — recurring forever, paid out in batches.
+    </p>
+    {creds_block}
+    <p style="color:{TEXT_MUTED};font-size:14px;line-height:1.6;margin:0 0 14px;">
+      Your partner portal lives at
+      <a href="{portal_url}" style="color:#F08A2A;text-decoration:underline;">{portal_url}</a>.
+      You'll see your lifetime earnings, unpaid balance, attached organizers, and an
+      auto-updating ledger of every commissionable booking.
+    </p>
+    <p style="color:{TEXT_MUTED};font-size:14px;line-height:1.6;margin:0;">
+      Any questions? Just reply to this email — we read every message.
+    </p>
+    """
+    subject = f"Welcome to the Allsale partner program — sign-in details inside"
+    html = _layout(
+        f"Welcome, {ctx['partner_name']}",
+        f"You earn {pct}% on every paid booking.",
+        body,
+        "Open your partner portal",
+        login_url,
+    )
+    text_lines = [
+        f"Welcome to the Allsale partner program, {ctx['partner_name']}.",
+        f"You earn {pct}% of platform commission on every paid booking from attached organizers.",
+        "",
+        f"Sign in: {login_url}",
+        f"Email: {ctx['login_email']}",
+    ]
+    if is_new:
+        text_lines.append(f"Temporary password: {ctx['temp_password']} (please change it on first login)")
+    text_lines += ["", f"Your portal: {portal_url}", "", "Reply to this email with any questions."]
+    text = _text_fallback(text_lines)
+    return subject, html, text
 
 
 def _t_marketing_partner_statement(ctx: Dict[str, Any]) -> tuple[str, str, str]:
