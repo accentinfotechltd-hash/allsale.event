@@ -506,6 +506,23 @@ export default function EventDetail() {
 
         {/* Booking sidebar */}
         <aside className="lg:sticky lg:top-24 lg:self-start">
+          {event.poster_url && (
+            <button
+              type="button"
+              onClick={() => setLightboxOpen(true)}
+              className="block w-full mb-4 rounded-2xl overflow-hidden border cursor-zoom-in"
+              style={{ borderColor: "var(--border)", aspectRatio: "9/16" }}
+              data-testid="sidebar-poster"
+              aria-label="View full poster"
+            >
+              <img
+                src={event.poster_url}
+                alt={`${event.title} poster`}
+                className="w-full h-full object-cover hover:scale-105 transition-transform"
+                loading="lazy"
+              />
+            </button>
+          )}
           <div className="border rounded-2xl p-6" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
             <div className="flex items-center justify-between mb-3">
               <div className="text-xs uppercase tracking-[0.3em]" style={{ color: "var(--accent)" }}>Book your tickets</div>

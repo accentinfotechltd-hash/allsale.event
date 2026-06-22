@@ -43,6 +43,9 @@ class EventIn(BaseModel):
     # Optional promo video URL — accepts YouTube / Vimeo / Instagram / direct
     # mp4. Rendered as an embedded player below the cover banner.
     promo_video_url: Optional[str] = None
+    # Optional vertical poster (9:16 ratio works best) — shown as a thumbnail
+    # in the sidebar next to ticket info. Mirrors Eventfinda's layout.
+    poster_url: Optional[str] = None
     currency: str = "NZD"  # ISO 4217. Drives event pricing, checkout, payouts.
     tiers: List[Dict[str, Any]] = Field(default_factory=list)
     has_seatmap: bool = False

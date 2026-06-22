@@ -136,7 +136,7 @@ export default function EventMedia({ event, lightboxOpen, onLightboxClose }) {
     <>
       <PromoVideoEmbed url={event.promo_video_url} />
       <BannerLightbox
-        src={event.banner_url || event.image_url}
+        src={event.poster_url || event.banner_url || event.image_url}
         alt={event.title}
         open={lightboxOpen}
         onClose={onLightboxClose}
