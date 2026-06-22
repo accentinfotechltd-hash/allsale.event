@@ -3,6 +3,7 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { Calendar, ArrowLeft, Tag as TagIcon } from "lucide-react";
 import api from "@/lib/api";
 import { sanitizeRichHtml } from "@/components/RichTextEditor";
+import BlogSubscribeForm from "@/components/BlogSubscribeForm";
 
 /**
  * BlogPost — a single published article.
@@ -134,6 +135,10 @@ export default function BlogPost() {
         dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(post.body_html || "") }}
         data-testid="blog-body"
       />
+
+      <div className="mt-12">
+        <BlogSubscribeForm source={`blog_post:${post.slug}`} />
+      </div>
 
       {related.length > 0 && (
         <section className="mt-16 pt-10 border-t" style={{ borderColor: "var(--border)" }}>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Calendar, ArrowRight, Tag as TagIcon } from "lucide-react";
 import api from "@/lib/api";
+import BlogSubscribeForm from "@/components/BlogSubscribeForm";
 
 /**
  * Blog index — public-facing list of published posts.
@@ -71,6 +72,10 @@ export default function Blog() {
           {posts.map((p) => <PostCard key={p.slug} post={p} />)}
         </div>
       )}
+
+      <div className="mt-16">
+        <BlogSubscribeForm source="blog_index" />
+      </div>
     </div>
   );
 }

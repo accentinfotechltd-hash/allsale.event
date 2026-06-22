@@ -206,3 +206,89 @@ async def admin_delete(slug: str, user: dict = Depends(get_current_user)):
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Post not found")
     return {"deleted": slug}
+
+
+# ---------- email subscribers ----------
+
+class SubscribeIn(BaseModel):
+    email: str
+    source: Optional[str] = None  # "blog_index", "blog_post:<slug>", etc.
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+@router.post("/blog/subscribers")
+async def subscribe(payload: SubscribeIn):
+    """Public newsletter signup — idempotent.
+
+    Repeat submissions of the same address are coalesced (we just bump the
+    `last_seen_at`) so spam-clicking the button doesn't pollute the list.
+    """
+    email = (payload.email or "").strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Please enter a valid email")
+    now = utc_now()
+    existing = await db.blog_subscribers.find_one({"email": email})
+    if existing:
+        if existing.get("status") == "unsubscribed":
+            # User opted back in — flip the flag.
+            await db.blog_subscribers.update_one(
+                {"email": email},
+                {"$set": {"status": "active", "resubscribed_at": now, "last_seen_at": now}},
+            )
+            return {"ok": True, "status": "resubscribed"}
+        await db.blog_subscribers.update_one(
+            {"email": email}, {"$set": {"last_seen_at": now}}
+        )
+        return {"ok": True, "status": "already_subscribed"}
+    await db.blog_subscribers.insert_one(
+        {
+            "email": email,
+            "source": payload.source or "blog",
+            "status": "active",
+            "created_at": now,
+            "last_seen_at": now,
+        }
+    )
+    return {"ok": True, "status": "subscribed"}
+
+
+@router.post("/blog/unsubscribe")
+async def unsubscribe(payload: SubscribeIn):
+    """Public one-click unsubscribe (used in email footers)."""
+    email = (payload.email or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email required")
+    await db.blog_subscribers.update_one(
+        {"email": email},
+        {"$set": {"status": "unsubscribed", "unsubscribed_at": utc_now()}},
+    )
+    return {"ok": True}
+
+
+@router.get("/admin/newsletter/subscribers")
+async def admin_list_subscribers(
+    user: dict = Depends(get_current_user),
+    status: Optional[str] = None,
+    limit: int = Query(200, ge=1, le=1000),
+    skip: int = Query(0, ge=0),
+):
+    _admin_only(user)
+    q: dict = {}
+    if status:
+        q["status"] = status
+    total = await db.blog_subscribers.count_documents(q)
+    active = await db.blog_subscribers.count_documents({"status": "active"})
+    cur = db.blog_subscribers.find(q, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit)
+    items = [doc async for doc in cur]
+    return {"total": total, "active": active, "items": items}
+
+
+@router.delete("/admin/newsletter/subscribers/{email}")
+async def admin_remove_subscriber(email: str, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    res = await db.blog_subscribers.delete_one({"email": email.lower()})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
+    return {"deleted": email}

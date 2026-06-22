@@ -15,6 +15,7 @@ import ImageUploader from "@/components/ImageUploader";
 export default function AdminBlogTab() {
   const [posts, setPosts] = useState([]);
   const [editing, setEditing] = useState(null); // null | {slug?:string, ...payload}
+  const [subs, setSubs] = useState(null); // {total, active, items}
 
   const load = async () => {
     try {
@@ -24,7 +25,36 @@ export default function AdminBlogTab() {
       toast.error("Couldn't load posts");
     }
   };
-  useEffect(() => { load(); }, []);
+  const loadSubs = async () => {
+    try {
+      const { data } = await api.get("/admin/newsletter/subscribers?limit=200");
+      setSubs(data);
+    } catch { /* hide section if it fails */ }
+  };
+  useEffect(() => { load(); loadSubs(); }, []);
+
+  const removeSub = async (email) => {
+    if (!window.confirm(`Remove ${email}?`)) return;
+    try {
+      await api.delete(`/admin/newsletter/subscribers/${encodeURIComponent(email)}`);
+      toast.success("Removed");
+      loadSubs();
+    } catch { toast.error("Couldn't remove"); }
+  };
+
+  const exportCsv = () => {
+    if (!subs?.items?.length) { toast.error("No subscribers yet"); return; }
+    const rows = [["email", "source", "status", "created_at"]];
+    subs.items.forEach((s) => rows.push([s.email, s.source || "", s.status || "", s.created_at || ""]));
+    const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `allsale-blog-subscribers-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   const startNew = () => {
     setEditing({
@@ -143,6 +173,62 @@ export default function AdminBlogTab() {
       )}
 
       {editing && <PostEditor draft={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+
+      {subs && (
+        <div className="mt-8 rounded-xl border" style={{ borderColor: "var(--border)" }} data-testid="admin-blog-subscribers">
+          <div className="flex items-center justify-between p-4 border-b" style={{ borderColor: "var(--border)" }}>
+            <div>
+              <div className="text-xs uppercase tracking-widest" style={{ color: "var(--accent)" }}>Newsletter</div>
+              <div className="font-serif text-lg" style={{ color: "var(--text)" }}>
+                {subs.active} active <span style={{ color: "var(--text-dim)", fontWeight: 400 }}>· {subs.total} total</span>
+              </div>
+            </div>
+            <button onClick={exportCsv} className="btn-ghost text-xs" data-testid="admin-blog-subs-export">
+              Export CSV
+            </button>
+          </div>
+          {subs.items.length === 0 ? (
+            <div className="p-4 text-sm" style={{ color: "var(--text-dim)" }}>No subscribers yet — the form is live on /blog.</div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead style={{ color: "var(--text-dim)" }}>
+                <tr className="text-left">
+                  <th className="px-4 py-2 font-medium">Email</th>
+                  <th className="px-4 py-2 font-medium">Source</th>
+                  <th className="px-4 py-2 font-medium">Status</th>
+                  <th className="px-4 py-2 font-medium">Joined</th>
+                  <th className="px-4 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {subs.items.slice(0, 100).map((s) => (
+                  <tr key={s.email} className="border-t" style={{ borderColor: "var(--border)" }} data-testid={`subscriber-${s.email}`}>
+                    <td className="px-4 py-2" style={{ color: "var(--text)" }}>{s.email}</td>
+                    <td className="px-4 py-2" style={{ color: "var(--text-dim)" }}>{s.source || "—"}</td>
+                    <td className="px-4 py-2">
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full"
+                        style={{
+                          background: s.status === "active" ? "rgba(34,197,94,0.12)" : "rgba(231,76,60,0.12)",
+                          color: s.status === "active" ? "#22c55e" : "#E74C3C",
+                        }}
+                      >
+                        {s.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2" style={{ color: "var(--text-dim)" }}>{fmtDate(s.created_at)}</td>
+                    <td className="px-4 py-2 text-right">
+                      <button onClick={() => removeSub(s.email)} className="text-xs" style={{ color: "#ef4444" }} data-testid={`subscriber-remove-${s.email}`}>
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
     </div>
   );
 }
