@@ -34,12 +34,14 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
 - **In-app Change Password for partners**: Backend `PUT /api/auth/change-password` (verifies current pwd, blocks Google-only accounts, ≥6 chars, must differ from current). Frontend collapsible section in `PartnerPortal.jsx` with current/new/confirm fields + show/hide eye toggles, validated end-to-end via curl + screenshot.
 - **E2E backend test suite**: 26 pytest tests at `/app/backend/tests/test_marketing_partners_blog.py` covering Marketing Partner CRUD/attach/earnings/mark-paid/grant-portal/self-serve/change-password roundtrip + Blog subscribe/unsubscribe/resubscribe/admin notify fan-out idempotency. 100% pass rate.
 - **Hardened 3 minor issues from testing-agent code review**:
-  1. **Cascade cleanup**: `DELETE /api/admin/marketing-partners/{id}` now also unsets `linked_partner_id` on linked portal users and flips their role to `attendee` (with `partner_revoked_at` stamp). No more orphan `/partner/me` 404s. Verified via updated `test_99_cleanup_partner` test.
-  2. **Bounded concurrent fan-out**: `notify-subscribers` now uses `asyncio.Semaphore(10)` + `asyncio.gather` so large subscriber lists send in parallel (max 10 concurrent) without hitting Resend rate limits or blocking the request thread.
-  3. **DB-level idempotency**: Added unique compound index `partner_booking_unique` on `marketing_partner_earnings(partner_id, booking_id)`. Helper now also catches `DuplicateKeyError` for true race-safety under concurrent webhook replays. Also added supporting indexes on `marketing_partners.partner_id`, `blog_posts.slug`, `blog_subscribers.email`.
+  1. **Cascade cleanup**: `DELETE /api/admin/marketing-partners/{id}` now unsets `linked_partner_id` and flips role to `attendee` on linked portal users.
+  2. **Bounded concurrent fan-out**: `notify-subscribers` now uses `asyncio.Semaphore(10)` + `asyncio.gather`.
+  3. **DB-level idempotency**: Added unique compound index `partner_booking_unique` on `marketing_partner_earnings(partner_id, booking_id)` + `DuplicateKeyError` catch.
+- **Opt-out survey on `/blog/unsubscribe` (NEW)**: After successful unsubscribe, show optional 5-option radio survey (Too many emails / Not relevant / Never signed up / Found better / Other) with comment textarea for "Other". POST `/api/blog/unsubscribe/reason` stamps `unsubscribe_reason`, `unsubscribe_comment`, `unsubscribe_feedback_at` on subscriber doc. Admin aggregate at GET `/api/admin/newsletter/unsubscribe-reasons` returns counts + recent comments. Fixed cramped layout by overriding global `input { width:100% }` for the radio buttons.
 
 ## Backlog
-- P3: Opt-out survey on `/blog/unsubscribe` page
+- All current P0/P1/P2/P3 items shipped.
+- Possible future: surface aggregate unsub reasons on the admin newsletter tab UI; add gift cards self-service portal; partner application intake form.
 
 ## Critical Notes
 - Partner login uses standard `/api/auth/login`; partner role is just `user.role="partner"` + `user.linked_partner_id`

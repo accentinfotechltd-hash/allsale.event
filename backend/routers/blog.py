@@ -267,6 +267,45 @@ async def unsubscribe(payload: SubscribeIn):
     return {"ok": True}
 
 
+class UnsubscribeReasonIn(BaseModel):
+    email: str
+    reason: str  # one of the standard buckets below
+    comment: Optional[str] = None
+
+
+# Standard reason buckets — keep finite so we can chart them on the admin
+# dashboard. Free-form text goes in `comment`.
+_UNSUB_REASONS = {
+    "too_many_emails",
+    "not_relevant",
+    "never_signed_up",
+    "found_better",
+    "other",
+}
+
+
+@router.post("/blog/unsubscribe/reason")
+async def unsubscribe_reason(payload: UnsubscribeReasonIn):
+    """Optional opt-out survey — captures why a subscriber left so we can
+    improve content cadence / relevance. Always returns ok:true to avoid
+    leaking which addresses are on the list.
+    """
+    email = (payload.email or "").strip().lower()
+    if not email:
+        return {"ok": True}
+    reason = payload.reason if payload.reason in _UNSUB_REASONS else "other"
+    comment = (payload.comment or "").strip()[:500] or None
+    await db.blog_subscribers.update_one(
+        {"email": email},
+        {"$set": {
+            "unsubscribe_reason": reason,
+            "unsubscribe_comment": comment,
+            "unsubscribe_feedback_at": utc_now(),
+        }},
+    )
+    return {"ok": True}
+
+
 @router.get("/admin/newsletter/subscribers")
 async def admin_list_subscribers(
     user: dict = Depends(get_current_user),
@@ -283,6 +322,30 @@ async def admin_list_subscribers(
     cur = db.blog_subscribers.find(q, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit)
     items = [doc async for doc in cur]
     return {"total": total, "active": active, "items": items}
+
+
+@router.get("/admin/newsletter/unsubscribe-reasons")
+async def admin_unsubscribe_reasons(user: dict = Depends(get_current_user)):
+    """Aggregated counts of unsubscribe reasons + recent free-form comments.
+
+    Powers a small "Why are people leaving?" widget on the admin newsletter
+    tab. Returns `{counts: {reason: n}, comments: [{email, comment, at}]}`.
+    """
+    _admin_only(user)
+    pipeline = [
+        {"$match": {"status": "unsubscribed", "unsubscribe_reason": {"$exists": True}}},
+        {"$group": {"_id": "$unsubscribe_reason", "count": {"$sum": 1}}},
+    ]
+    counts: dict = {}
+    async for row in db.blog_subscribers.aggregate(pipeline):
+        counts[row["_id"]] = row["count"]
+    # Recent free-form comments
+    cur = db.blog_subscribers.find(
+        {"unsubscribe_comment": {"$nin": [None, ""]}},
+        {"_id": 0, "email": 1, "unsubscribe_comment": 1, "unsubscribe_feedback_at": 1, "unsubscribe_reason": 1},
+    ).sort("unsubscribe_feedback_at", -1).limit(50)
+    comments = [c async for c in cur]
+    return {"counts": counts, "comments": comments}
 
 
 @router.delete("/admin/newsletter/subscribers/{email}")
