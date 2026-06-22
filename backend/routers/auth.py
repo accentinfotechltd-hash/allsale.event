@@ -266,6 +266,46 @@ async def update_me(payload: ProfileUpdateIn, user: dict = Depends(get_current_u
     return {"updated": True, **refreshed}
 
 
+class ChangePasswordIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.put("/change-password")
+async def change_password(payload: ChangePasswordIn, user: dict = Depends(get_current_user)):
+    """Allow a logged-in user (partner, organizer, attendee, admin) to rotate
+    their password.
+
+    Verifies the current password hash, then sets the new one. Used primarily
+    by marketing-lead partners who were issued a temporary password via the
+    invitation email and want to replace it. Google-only accounts (no
+    `password_hash`) cannot use this — they must keep using Google sign-in.
+    """
+    # `get_current_user` strips `password_hash` for safety — refetch it.
+    full = await db.users.find_one({"user_id": user["user_id"]})
+    if not full or not full.get("password_hash"):
+        raise HTTPException(
+            status_code=400,
+            detail="This account signs in with Google — no password to change.",
+        )
+    if not payload.current_password or not payload.new_password:
+        raise HTTPException(status_code=400, detail="Both passwords are required")
+    if len(payload.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    if payload.current_password == payload.new_password:
+        raise HTTPException(status_code=400, detail="New password must be different from current password")
+    if not verify_password(payload.current_password, full["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect")
+    await db.users.update_one(
+        {"user_id": user["user_id"]},
+        {"$set": {
+            "password_hash": hash_password(payload.new_password),
+            "password_reset_at": utc_now().isoformat(),
+        }},
+    )
+    return {"ok": True, "message": "Password updated successfully"}
+
+
 class GoogleCodeIn(BaseModel):
     code: str
     redirect_uri: str  # client-built via window.location.origin + "/auth/callback"

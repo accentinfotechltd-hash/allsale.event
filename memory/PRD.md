@@ -30,11 +30,12 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Backend `GET /api/partner/me` + `GET /api/partner/me/earnings` require `linked_partner_id` on the calling user
   - Read-only on purpose: admin still controls payouts
 
+## Recently Completed (Feb 2026 — current session)
+- **In-app Change Password for partners (NEW)**: Backend `PUT /api/auth/change-password` (verifies current pwd, blocks Google-only accounts, ≥6 chars, must differ from current). Frontend collapsible section in `PartnerPortal.jsx` with current/new/confirm fields + show/hide eye toggles, validated end-to-end via curl + screenshot.
+
 ## Backlog
-- P3: Cron the `send-statements` endpoint to run on the 1st of each month automatically
-- P3: Flyer template picker (Minimal / Neon / Bold)
-- P3: Make `poster_url` field more prominent in CreateEvent
-- P3: Add a "Send invitation email" to grant-portal-access so partners get credentials directly instead of out-of-band
+- P2: E2E testing of Marketing Partner commissions and blog subscriber fan-outs
+- P3: Opt-out survey on `/blog/unsubscribe` page
 
 ## Critical Notes
 - Partner login uses standard `/api/auth/login`; partner role is just `user.role="partner"` + `user.linked_partner_id`

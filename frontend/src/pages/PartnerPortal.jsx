@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Users, DollarSign, Receipt, ArrowLeft } from "lucide-react";
+import { Users, DollarSign, Receipt, ArrowLeft, KeyRound, Eye, EyeOff } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { toast } from "sonner";
 
 /**
  * PartnerPortal — read-only dashboard for a `role=partner` user.
@@ -133,6 +134,162 @@ export default function PartnerPortal() {
         <a href="mailto:partners@allsale.events" style={{ color: "var(--accent)" }} className="underline">
           Email Allsale
         </a>
+      </div>
+
+      <ChangePasswordSection />
+    </div>
+  );
+}
+
+function ChangePasswordSection() {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [showCurrent, setShowCurrent] = useState(false);
+  const [showNext, setShowNext] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const reset = () => {
+    setCurrent(""); setNext(""); setConfirm("");
+    setShowCurrent(false); setShowNext(false);
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!current || !next) {
+      toast.error("Please fill in both passwords");
+      return;
+    }
+    if (next.length < 6) {
+      toast.error("New password must be at least 6 characters");
+      return;
+    }
+    if (next !== confirm) {
+      toast.error("New password and confirmation don't match");
+      return;
+    }
+    if (next === current) {
+      toast.error("New password must be different from current password");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api.put("/auth/change-password", { current_password: current, new_password: next });
+      toast.success("Password updated successfully");
+      reset();
+      setOpen(false);
+    } catch (ex) {
+      toast.error(ex?.response?.data?.detail || "Couldn't change password");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <section className="mt-12 pt-8 border-t" style={{ borderColor: "var(--border)" }} data-testid="partner-change-password-section">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <div className="text-xs uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>Account security</div>
+          <h2 className="font-serif text-lg mt-1" style={{ color: "var(--text)" }}>Change password</h2>
+          <p className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
+            Replace the temporary password from your invitation email with one only you know.
+          </p>
+        </div>
+        {!open && (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="btn-ghost text-sm inline-flex items-center gap-1.5"
+            data-testid="partner-change-password-open-btn"
+          >
+            <KeyRound size={14} /> Change password
+          </button>
+        )}
+      </div>
+
+      {open && (
+        <form onSubmit={submit} className="rounded-xl border p-4 sm:p-5 mt-3 max-w-md" style={{ borderColor: "var(--border)" }} data-testid="partner-change-password-form">
+          <div className="space-y-3">
+            <PwdField
+              label="Current password"
+              value={current}
+              onChange={setCurrent}
+              show={showCurrent}
+              onToggle={() => setShowCurrent((s) => !s)}
+              testid="partner-current-password-input"
+              autoComplete="current-password"
+            />
+            <PwdField
+              label="New password"
+              value={next}
+              onChange={setNext}
+              show={showNext}
+              onToggle={() => setShowNext((s) => !s)}
+              testid="partner-new-password-input"
+              autoComplete="new-password"
+            />
+            <PwdField
+              label="Confirm new password"
+              value={confirm}
+              onChange={setConfirm}
+              show={showNext}
+              onToggle={() => setShowNext((s) => !s)}
+              testid="partner-confirm-password-input"
+              autoComplete="new-password"
+              hideToggle
+            />
+          </div>
+          <div className="flex items-center gap-2 mt-4">
+            <button
+              type="submit"
+              disabled={submitting}
+              className="btn-primary text-sm"
+              data-testid="partner-change-password-submit-btn"
+            >
+              {submitting ? "Updating…" : "Update password"}
+            </button>
+            <button
+              type="button"
+              onClick={() => { reset(); setOpen(false); }}
+              disabled={submitting}
+              className="btn-ghost text-sm"
+              data-testid="partner-change-password-cancel-btn"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+    </section>
+  );
+}
+
+function PwdField({ label, value, onChange, show, onToggle, testid, autoComplete, hideToggle }) {
+  return (
+    <div>
+      <label className="block text-xs mb-1" style={{ color: "var(--text-dim)" }}>{label}</label>
+      <div className="relative">
+        <input
+          type={show ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          autoComplete={autoComplete}
+          className="w-full px-3 py-2 rounded-md border text-sm"
+          style={{ borderColor: "var(--border)", background: "transparent", color: "var(--text)" }}
+          data-testid={testid}
+        />
+        {!hideToggle && (
+          <button
+            type="button"
+            onClick={onToggle}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1"
+            style={{ color: "var(--text-dim)" }}
+            aria-label={show ? "Hide password" : "Show password"}
+          >
+            {show ? <EyeOff size={14} /> : <Eye size={14} />}
+          </button>
+        )}
       </div>
     </div>
   );
