@@ -128,24 +128,32 @@ async def record_partner_earning_for_booking(booking: dict) -> Optional[str]:
         return None
 
     earning_id = f"erng_{uuid.uuid4().hex[:12]}"
-    await db.marketing_partner_earnings.insert_one(
-        {
-            "earning_id": earning_id,
-            "partner_id": partner_id,
-            "partner_name": partner.get("name"),
-            "organizer_id": organizer_id,
-            "booking_id": booking["booking_id"],
-            "event_id": event_id,
-            "event_title": event.get("title"),
-            "booking_amount": float(booking.get("amount") or 0),
-            "platform_fee": platform_fee,
-            "commission_pct": pct,
-            "earning_amount": earning_amt,
-            "currency": booking.get("currency") or "NZD",
-            "status": "unpaid",
-            "created_at": utc_now(),
-        }
-    )
+    try:
+        await db.marketing_partner_earnings.insert_one(
+            {
+                "earning_id": earning_id,
+                "partner_id": partner_id,
+                "partner_name": partner.get("name"),
+                "organizer_id": organizer_id,
+                "booking_id": booking["booking_id"],
+                "event_id": event_id,
+                "event_title": event.get("title"),
+                "booking_amount": float(booking.get("amount") or 0),
+                "platform_fee": platform_fee,
+                "commission_pct": pct,
+                "earning_amount": earning_amt,
+                "currency": booking.get("currency") or "NZD",
+                "status": "unpaid",
+                "created_at": utc_now(),
+            }
+        )
+    except Exception as exc:
+        # DuplicateKeyError from the (partner_id, booking_id) unique index —
+        # concurrent webhook replays. Already credited; safe to skip.
+        from pymongo.errors import DuplicateKeyError
+        if isinstance(exc, DuplicateKeyError):
+            return None
+        raise
     logger.info(
         f"[marketing-partner] credited {earning_amt} to {partner_id} for booking {booking['booking_id']}"
     )
@@ -255,6 +263,15 @@ async def delete_partner(partner_id: str, user: dict = Depends(get_current_user)
     await db.users.update_many(
         {"marketing_partner_id": partner_id},
         {"$unset": {"marketing_partner_id": ""}},
+    )
+    # Cascade-clean the linked portal-access user(s): drop their partner role
+    # and unset linked_partner_id so they don't 404 on /partner/me. Their
+    # account survives (admin can re-attach later or change their role) but
+    # they lose partner access immediately.
+    await db.users.update_many(
+        {"linked_partner_id": partner_id},
+        {"$unset": {"linked_partner_id": ""},
+         "$set": {"role": "attendee", "partner_revoked_at": utc_now()}},
     )
     res = await db.marketing_partners.delete_one({"partner_id": partner_id})
     if res.deleted_count == 0:

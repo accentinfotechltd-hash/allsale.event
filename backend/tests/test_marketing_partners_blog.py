@@ -286,10 +286,23 @@ class TestMarketingPartner:
         pid = STATE.get("partner_id")
         if not pid:
             return
-        # Delete granted portal user
-        # No direct user DELETE endpoint surfaced; partner DELETE detaches but doesn't delete user.
+        portal_user_id = STATE.get("portal_user_id")
+        # Delete the partner — should cascade-clean the linked portal user:
+        # role flips to "attendee" and linked_partner_id is unset, so the user
+        # account survives but loses partner access immediately.
         r = requests.delete(f"{API}/admin/marketing-partners/{pid}", headers=_h(admin_token), timeout=15)
         assert r.status_code == 200
+
+        # Verify cascade: the granted portal user should no longer have
+        # role=partner. Login still works (account survives) but /partner/me 403s.
+        if portal_user_id:
+            token = _login(STATE["portal_email"], STATE["portal_pass"])
+            r_me = requests.get(f"{API}/auth/me", headers=_h(token), timeout=15)
+            assert r_me.status_code == 200
+            assert r_me.json().get("role") == "attendee", "Portal user role should cascade to attendee"
+            # /partner/me should now 403 (no linked_partner_id)
+            r_pm = requests.get(f"{API}/partner/me", headers=_h(token), timeout=15)
+            assert r_pm.status_code == 403, f"Expected 403 after cascade, got {r_pm.status_code}: {r_pm.text}"
 
 
 # ============= BLOG =============

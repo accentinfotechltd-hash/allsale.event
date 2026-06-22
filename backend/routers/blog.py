@@ -334,20 +334,30 @@ async def admin_notify_subscribers(slug: str, user: dict = Depends(get_current_u
         "cover_url": post.get("cover_url") or "",
     }
 
-    sent = 0
-    failed = 0
-    for email in targets:
-        try:
-            await send_template(
-                "blog_new_post",
-                email,
-                {**ctx_base, "subscriber_email": email},
-                db=db,
-            )
-            sent += 1
-        except Exception as exc:  # pragma: no cover
-            failed += 1
-            logger.warning(f"[blog-notify] {slug} → {email} failed: {exc}")
+    # Bounded-concurrency fan-out: send up to 10 emails in parallel. Keeps
+    # large subscriber lists from blocking the request thread sequentially
+    # while still respecting Resend's rate limits.
+    import asyncio as _asyncio
+    sem = _asyncio.Semaphore(10)
+    results = {"sent": 0, "failed": 0}
+
+    async def _send_one(email: str) -> None:
+        async with sem:
+            try:
+                await send_template(
+                    "blog_new_post",
+                    email,
+                    {**ctx_base, "subscriber_email": email},
+                    db=db,
+                )
+                results["sent"] += 1
+            except Exception as exc:  # pragma: no cover
+                results["failed"] += 1
+                logger.warning(f"[blog-notify] {slug} → {email} failed: {exc}")
+
+    await _asyncio.gather(*(_send_one(e) for e in targets))
+    sent = results["sent"]
+    failed = results["failed"]
 
     # Stamp the post so a re-run only hits new subscribers.
     new_notified = list(already.union(targets))

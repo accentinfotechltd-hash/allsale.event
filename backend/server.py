@@ -185,6 +185,16 @@ async def on_startup():
                 (db.recommendation_cache, "user_id", {"unique": True}),
                 (db.recommendation_cache, [("expires_at", 1)], {}),
                 (db.event_views, [("event_id", 1), ("at", -1)], {}),
+                # Partner earnings idempotency at the DB layer — prevents a
+                # webhook replay race from double-crediting the same booking.
+                (db.marketing_partner_earnings,
+                 [("partner_id", 1), ("booking_id", 1)],
+                 {"unique": True, "name": "partner_booking_unique"}),
+                (db.marketing_partner_earnings, "partner_id", {}),
+                (db.marketing_partner_earnings, "status", {}),
+                (db.marketing_partners, "partner_id", {"unique": True}),
+                (db.blog_posts, "slug", {"unique": True}),
+                (db.blog_subscribers, "email", {"unique": True}),
             ]
             for col, key, opts in index_specs:
                 try:
