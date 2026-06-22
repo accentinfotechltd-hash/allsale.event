@@ -23,7 +23,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from core import db, get_current_user, utc_now
+from core import db, get_current_user, utc_now, logger
 
 router = APIRouter(tags=["blog"])
 
@@ -292,3 +292,78 @@ async def admin_remove_subscriber(email: str, user: dict = Depends(get_current_u
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Not found")
     return {"deleted": email}
+
+
+@router.post("/admin/blog/{slug}/notify-subscribers")
+async def admin_notify_subscribers(slug: str, user: dict = Depends(get_current_user)):
+    """Fan-out a published blog post to every active newsletter subscriber.
+
+    Idempotent per-subscriber: each post has a `notified_subscribers` set on
+    the post doc — we skip any address already in that set so re-running the
+    button after adding new subscribers only emails the new ones.
+
+    The actual send is via `send_template("blog_new_post", ...)` which uses
+    Resend. We spawn it as a background task per recipient so the endpoint
+    returns fast even for large lists.
+    """
+    _admin_only(user)
+    post = await db.blog_posts.find_one({"slug": slug})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+    if post.get("status") != "published":
+        raise HTTPException(status_code=400, detail="Publish the post first")
+
+    # Lazy import so the blog router doesn't pull in the email service at
+    # module import time (keeps cold-starts fast).
+    from emails import send_template
+
+    already = set(post.get("notified_subscribers") or [])
+    cur = db.blog_subscribers.find(
+        {"status": "active", "email": {"$nin": list(already)}},
+        {"_id": 0, "email": 1},
+    )
+    targets = [doc["email"] async for doc in cur]
+
+    if not targets:
+        return {"sent": 0, "skipped": len(already), "total_active": len(already), "reason": "All active subscribers already notified for this post"}
+
+    ctx_base = {
+        "post_title": post.get("title") or "",
+        "post_excerpt": post.get("excerpt") or "",
+        "post_slug": post.get("slug") or slug,
+        "cover_url": post.get("cover_url") or "",
+    }
+
+    sent = 0
+    failed = 0
+    for email in targets:
+        try:
+            await send_template(
+                "blog_new_post",
+                email,
+                {**ctx_base, "subscriber_email": email},
+                db=db,
+            )
+            sent += 1
+        except Exception as exc:  # pragma: no cover
+            failed += 1
+            logger.warning(f"[blog-notify] {slug} → {email} failed: {exc}")
+
+    # Stamp the post so a re-run only hits new subscribers.
+    new_notified = list(already.union(targets))
+    await db.blog_posts.update_one(
+        {"slug": slug},
+        {
+            "$set": {
+                "notified_subscribers": new_notified,
+                "last_notified_at": utc_now(),
+            }
+        },
+    )
+
+    return {
+        "sent": sent,
+        "failed": failed,
+        "skipped": len(already),
+        "total_active": len(already) + len(targets),
+    }

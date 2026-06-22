@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Eye, FileText, ExternalLink } from "lucide-react";
+import { Plus, Pencil, Trash2, Eye, FileText, ExternalLink, Send } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import RichTextEditor from "@/components/RichTextEditor";
@@ -95,6 +95,27 @@ export default function AdminBlogTab() {
     } catch (_e) { toast.error("Status update failed"); }
   };
 
+  const notifySubscribers = async (post) => {
+    const activeCount = subs?.active || 0;
+    if (activeCount === 0) {
+      toast.error("No active subscribers yet — share /blog to get the first ones.");
+      return;
+    }
+    if (!window.confirm(`Send "${post.title}" to ${activeCount} subscriber${activeCount === 1 ? "" : "s"}? Anyone already notified for this post will be skipped.`)) return;
+    const t = toast.loading("Fanning out the post...");
+    try {
+      const { data } = await api.post(`/admin/blog/${post.slug}/notify-subscribers`);
+      if (data.sent === 0 && data.skipped > 0) {
+        toast.success(`Already sent to all ${data.skipped} subscriber${data.skipped === 1 ? "" : "s"}.`, { id: t });
+      } else {
+        toast.success(`Sent to ${data.sent}${data.failed ? ` (${data.failed} failed)` : ""}${data.skipped ? `, skipped ${data.skipped} already notified` : ""}.`, { id: t });
+      }
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Couldn't send", { id: t });
+    }
+  };
+
   return (
     <div className="space-y-4" data-testid="admin-blog-tab">
       <div className="flex items-center justify-between">
@@ -153,9 +174,20 @@ export default function AdminBlogTab() {
                   <td className="px-4 py-3 text-right">
                     <div className="inline-flex items-center gap-1">
                       {p.status === "published" && (
-                        <a href={`/blog/${p.slug}`} target="_blank" rel="noreferrer" className="p-2 rounded hover:bg-black/5" title="View live" data-testid={`admin-blog-view-${p.slug}`}>
-                          <ExternalLink size={14} />
-                        </a>
+                        <>
+                          <button
+                            onClick={() => notifySubscribers(p)}
+                            className="p-2 rounded hover:bg-black/5"
+                            title="Email this post to newsletter subscribers"
+                            style={{ color: "var(--accent)" }}
+                            data-testid={`admin-blog-notify-${p.slug}`}
+                          >
+                            <Send size={14} />
+                          </button>
+                          <a href={`/blog/${p.slug}`} target="_blank" rel="noreferrer" className="p-2 rounded hover:bg-black/5" title="View live" data-testid={`admin-blog-view-${p.slug}`}>
+                            <ExternalLink size={14} />
+                          </a>
+                        </>
                       )}
                       <button onClick={() => startEdit(p.slug)} className="p-2 rounded hover:bg-black/5" title="Edit" data-testid={`admin-blog-edit-${p.slug}`}>
                         <Pencil size={14} />

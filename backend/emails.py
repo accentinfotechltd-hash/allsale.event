@@ -293,7 +293,63 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "organizer_new_sale": lambda ctx: _t_organizer_new_sale(ctx),
     "admin_message_to_organizer": lambda ctx: _t_admin_message_to_organizer(ctx),
     "organizer_message_to_admin": lambda ctx: _t_organizer_message_to_admin(ctx),
+    "blog_new_post": lambda ctx: _t_blog_new_post(ctx),
 }
+
+
+def _t_blog_new_post(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Newsletter fan-out: announce a freshly-published blog post to subscribers.
+
+    ctx fields:
+      - subscriber_email (required) — for the unsubscribe link
+      - post_title, post_excerpt, post_slug (required)
+      - cover_url (optional)
+      - reading_time_minutes (optional int)
+    """
+    post_url = f"{APP_PUBLIC_URL}/blog/{ctx['post_slug']}"
+    unsub_url = f"{APP_PUBLIC_URL}/blog/unsubscribe?email={ctx.get('subscriber_email', '')}"
+    cover_html = ""
+    if ctx.get("cover_url"):
+        cover_html = (
+            f'<img src="{ctx["cover_url"]}" alt="" '
+            f'style="width:100%;max-width:520px;border-radius:12px;display:block;'
+            f'margin:0 0 20px;border:1px solid {BORDER};" />'
+        )
+    body = f"""
+    {cover_html}
+    <p style="color:{TEXT_MUTED};font-size:12px;letter-spacing:0.18em;text-transform:uppercase;margin:0 0 8px;">
+      The Allsale Journal · New story
+    </p>
+    <h2 style="color:{TEXT};font-family:Georgia,serif;font-size:26px;line-height:1.2;margin:0 0 12px;">
+      {ctx['post_title']}
+    </h2>
+    <p style="color:{TEXT_MUTED};font-size:15px;line-height:1.6;margin:0 0 20px;">
+      {ctx.get('post_excerpt') or 'Click through to read the full story.'}
+    </p>
+    """
+    subject = f"New on the Journal — {ctx['post_title']}"
+    html = _layout(
+        ctx["post_title"],
+        (ctx.get("post_excerpt") or "")[:140],
+        body,
+        "Read the full story",
+        post_url,
+    )
+    # Append a clear unsubscribe link below the CTA (Gmail one-click requires it).
+    unsub_block = (
+        f'<div style="text-align:center;padding:16px 0 0;">'
+        f'<a href="{unsub_url}" style="color:{TEXT_MUTED};font-size:11px;text-decoration:underline;">'
+        f'Unsubscribe from the Journal</a></div>'
+    )
+    html = html.replace("</body>", f"{unsub_block}</body>")
+    text = _text_fallback([
+        f"New story on the Allsale Journal: {ctx['post_title']}",
+        ctx.get('post_excerpt') or '',
+        f"Read it here: {post_url}",
+        "",
+        f"Unsubscribe: {unsub_url}",
+    ])
+    return subject, html, text
 
 
 def _t_organizer_new_sale(ctx: Dict[str, Any]) -> tuple[str, str, str]:
