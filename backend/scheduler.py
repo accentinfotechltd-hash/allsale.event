@@ -716,6 +716,109 @@ async def _send_event_recaps(db: Any) -> int:
     return sent
 
 
+async def _send_monthly_partner_statements(db: Any) -> int:
+    """On the 1st of every month, email each active partner their P&L statement.
+
+    Idempotent via the `cron_runs` collection — we stamp a row keyed by
+    `(job=marketing_partner_statements, period=YYYY-MM)` once the run
+    completes, so a server restart on day 1 doesn't trigger a second blast.
+
+    Only runs between 03:00 and 09:00 UTC on the 1st so partners get the
+    statement during their morning, not at midnight UTC = afternoon NZ.
+    """
+    now = datetime.now(timezone.utc)
+    if now.day != 1:
+        return 0
+    if not (3 <= now.hour < 9):
+        return 0
+
+    period_key = now.strftime("%Y-%m")
+    job_key = {"job": "marketing_partner_statements", "period": period_key}
+    existing = await db.cron_runs.find_one(job_key)
+    if existing:
+        return 0
+
+    # Reserve the slot first — prevents two workers from both running it.
+    try:
+        await db.cron_runs.insert_one(
+            {**job_key, "started_at": now.isoformat(), "status": "running"}
+        )
+    except Exception:
+        # Race lost to another worker; bail.
+        return 0
+
+    # Build the per-partner ctx and send. Mirrors the admin endpoint logic
+    # in `routers/marketing_partners.py::send_statements` so the email looks
+    # identical whether it's auto-sent or admin-triggered.
+    from routers.marketing_partners import _aggregate  # safe — no FastAPI deps
+
+    period_label = now.strftime("%B %Y")
+    period_start = now - timedelta(days=30)
+
+    sent = 0
+    cur = db.marketing_partners.find({"status": "active"}, {"_id": 0})
+    async for p in cur:
+        email = (p.get("email") or "").strip()
+        if not email:
+            continue
+        agg = await _aggregate(p["partner_id"])
+        period_pipeline = [
+            {"$match": {"partner_id": p["partner_id"], "created_at": {"$gte": period_start}}},
+            {"$group": {"_id": None, "total": {"$sum": "$earning_amount"}}},
+        ]
+        period_doc = await db.marketing_partner_earnings.aggregate(period_pipeline).to_list(1)
+        period_earnings = round(period_doc[0]["total"], 2) if period_doc else 0.0
+
+        ledger_cur = (
+            db.marketing_partner_earnings.find(
+                {"partner_id": p["partner_id"]},
+                {"_id": 0, "created_at": 1, "event_title": 1, "earning_amount": 1, "status": 1, "currency": 1},
+            )
+            .sort("created_at", -1)
+            .limit(20)
+        )
+        earnings = []
+        currency = "NZD"
+        async for row in ledger_cur:
+            ca = row.get("created_at")
+            date_str = ca.strftime("%b %d") if isinstance(ca, datetime) else str(ca)[:10]
+            earnings.append({
+                "date": date_str,
+                "event_title": row.get("event_title") or "",
+                "earning_amount": row.get("earning_amount") or 0,
+                "status": row.get("status") or "",
+            })
+            currency = row.get("currency") or currency
+
+        ctx = {
+            "partner_name": p.get("name") or "",
+            "period_label": period_label,
+            "currency": currency,
+            "lifetime_earnings": agg["lifetime_earnings"],
+            "period_earnings": period_earnings,
+            "unpaid_balance": agg["unpaid_balance"],
+            "organizer_count": agg["organizer_count"],
+            "earnings": earnings,
+        }
+        try:
+            # fire-and-forget so a single slow Resend call can't stall the tick.
+            await send_template_fireforget("marketing_partner_statement", email, ctx, db=db)
+            sent += 1
+            await db.marketing_partners.update_one(
+                {"partner_id": p["partner_id"]},
+                {"$set": {"last_statement_sent_at": datetime.now(timezone.utc).isoformat()}},
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.warning(f"[cron-monthly-statements] failed for {p['partner_id']}: {exc}")
+
+    await db.cron_runs.update_one(
+        job_key,
+        {"$set": {"finished_at": datetime.now(timezone.utc).isoformat(), "status": "done", "sent_count": sent}},
+    )
+    logger.info(f"[cron-monthly-statements] sent {sent} statement emails for {period_key}")
+    return sent
+
+
 async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
     """Top-level loop — sleeps 30s on startup, then ticks every `interval_seconds`."""
     await asyncio.sleep(30)
@@ -729,12 +832,13 @@ async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
             n_welcome = await _send_organizer_welcome_followups(db)
             n_boost = await _send_boost_recaps(db)
             n_recap = await _send_event_recaps(db)
+            n_statements = await _send_monthly_partner_statements(db)
             webhook_alert = await _check_webhook_silent_failure(db)
             payout_summary = await run_due_event_payouts(db)
-            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or n_boost or n_recap or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
+            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or n_boost or n_recap or n_statements or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
                 logger.info(
-                    "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s boost_recaps=%s event_recaps=%s webhook_alert=%s payouts=%s",
-                    n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, n_boost, n_recap, webhook_alert, payout_summary,
+                    "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s boost_recaps=%s event_recaps=%s monthly_statements=%s webhook_alert=%s payouts=%s",
+                    n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, n_boost, n_recap, n_statements, webhook_alert, payout_summary,
                 )
         except Exception as exc:  # pragma: no cover
             logger.exception("[scheduler] tick failed: %s", exc)
