@@ -506,7 +506,7 @@ export default function EventDetail() {
 
         {/* Booking sidebar */}
         <aside className="lg:sticky lg:top-24 lg:self-start">
-          {event.poster_url && (
+          {(event.poster_url || event.banner_url || event.image_url) && (
             <button
               type="button"
               onClick={() => setLightboxOpen(true)}
@@ -516,7 +516,7 @@ export default function EventDetail() {
               aria-label="View full poster"
             >
               <img
-                src={event.poster_url}
+                src={event.poster_url || event.banner_url || event.image_url}
                 alt={`${event.title} poster`}
                 className="w-full h-full object-cover hover:scale-105 transition-transform"
                 loading="lazy"
