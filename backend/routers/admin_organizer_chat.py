@@ -340,12 +340,41 @@ async def chat_socket(ws: WebSocket, organizer_id: str):
     try:
         # Send a welcome ping so the client knows the subscription is live.
         await ws.send_json({"type": "hello", "organizer_id": organizer_id})
-        # Heartbeat keeps idle connections alive through proxies.
+        # Heartbeat keeps idle connections alive through proxies. Also handles
+        # inbound `typing` events from this socket and re-broadcasts to all
+        # OTHER subscribers of the same thread so the other side sees an
+        # "X is typing…" indicator without polling.
+        sender_name = user.get("name") or user.get("email") or "Someone"
+        sender_role = user.get("role") or "organizer"
         while True:
             try:
-                await asyncio.wait_for(ws.receive_text(), timeout=25.0)
+                raw = await asyncio.wait_for(ws.receive_text(), timeout=25.0)
             except asyncio.TimeoutError:
                 await ws.send_json({"type": "ping"})
+                continue
+            # Parse inbound JSON; ignore non-JSON noise (older clients send empty pings).
+            try:
+                import json
+                evt = json.loads(raw)
+            except Exception:
+                continue
+            if evt.get("type") == "typing":
+                # Broadcast typing to other subscribers only; we don't echo back
+                # to the sender. The hub helper doesn't know about exclusion so
+                # we replicate the iteration here.
+                async with chat_hub.lock:
+                    targets = [t for t in chat_hub.subs.get(organizer_id, set()) if t is not ws]
+                payload = {
+                    "type": "typing",
+                    "by": sender_role,
+                    "name": sender_name,
+                    "is_typing": bool(evt.get("is_typing", True)),
+                }
+                for t in targets:
+                    try:
+                        await t.send_json(payload)
+                    except Exception:
+                        pass
     except WebSocketDisconnect:
         pass
     except Exception as e:  # pragma: no cover

@@ -2303,17 +2303,29 @@ function OrganizerChatTab() {
   const [orgInfo, setOrgInfo] = useState(null);
   const [search, setSearch] = useState("");
   const [busy, setBusy] = useState(false);
+  // Organizer-is-typing indicator. Cleared on inbound real message or timeout.
+  const [orgTyping, setOrgTyping] = useState(false);
+  const typingTimerRef = useRef(null);
   const endRef = useRef(null);
   const seenIds = useRef(new Set());
 
   // Live updates for the currently-selected thread.
-  useChatLive(selected, {
+  const { sendTyping } = useChatLive(selected, {
     onMessage: (msg) => {
       if (!msg?.message_id || seenIds.current.has(msg.message_id)) return;
       seenIds.current.add(msg.message_id);
       setMessages((prev) => [...prev, msg]);
       // Refresh sidebar so previews + unread counters stay accurate across threads.
       loadThreads();
+      setOrgTyping(false);
+    },
+    onTyping: (evt) => {
+      if (evt?.by !== "organizer") return;
+      setOrgTyping(!!evt.is_typing);
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      if (evt.is_typing) {
+        typingTimerRef.current = setTimeout(() => setOrgTyping(false), 3000);
+      }
     },
   });
 
@@ -2350,6 +2362,10 @@ function OrganizerChatTab() {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
+  // Reset the typing indicator whenever we switch threads (it belonged to the
+  // previous organizer).
+  useEffect(() => { setOrgTyping(false); }, [selected]);
+
   const send = async () => {
     const body = draft.trim();
     if (!body || !selected) return;
@@ -2357,6 +2373,7 @@ function OrganizerChatTab() {
     try {
       await api.post(`/admin/organizer-threads/${selected}/messages`, { body });
       setDraft("");
+      try { sendTyping(false); } catch { /* ignore */ }
       loadThread(selected);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed to send");
@@ -2466,10 +2483,23 @@ function OrganizerChatTab() {
               })}
               <div ref={endRef} />
             </div>
+            {orgTyping && (
+              <div
+                className="px-4 pb-1 text-xs inline-flex items-center gap-1"
+                style={{ color: "var(--text-dim)" }}
+                data-testid="org-chat-typing"
+              >
+                {orgInfo?.name || "Organizer"} is typing<span className="dots-pulse">…</span>
+              </div>
+            )}
             <div className="p-3 border-t flex gap-2" style={{ borderColor: "var(--border)" }}>
               <textarea
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  try { sendTyping(e.target.value.trim().length > 0); } catch { /* ignore */ }
+                }}
+                onBlur={() => { try { sendTyping(false); } catch { /* ignore */ } }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
                 }}
@@ -2500,6 +2530,7 @@ function ProtectionClaimsTab() {
   const [claims, setClaims] = useState([]);
   const [filter, setFilter] = useState("pending");
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -2516,7 +2547,15 @@ function ProtectionClaimsTab() {
     }
   };
 
+  const loadStats = async () => {
+    try {
+      const { data } = await api.get("/admin/ticket-protection/stats");
+      setStats(data);
+    } catch { /* widget will just hide */ }
+  };
+
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
+  useEffect(() => { loadStats(); }, []);
 
   const decide = async (claim, decision) => {
     const note = window.prompt(`Optional internal note for this ${decision}:`, "") || "";
@@ -2527,6 +2566,7 @@ function ProtectionClaimsTab() {
       );
       toast.success(`Claim ${decision === "approve" ? "approved" : "denied"}`);
       load();
+      loadStats();
     } catch (e) {
       toast.error(e?.response?.data?.detail || `Couldn't ${decision} claim`);
     }
@@ -2540,6 +2580,7 @@ function ProtectionClaimsTab() {
 
   return (
     <div className="space-y-4" data-testid="admin-protection-tab">
+      {stats && <ProtectionPLWidget stats={stats} />}
       <div className="flex items-center gap-2 flex-wrap">
         {["pending", "approved", "denied", "all"].map((f) => (
           <button
@@ -2640,3 +2681,65 @@ function ProtectionClaimsTab() {
     </div>
   );
 }
+
+/**
+ * ProtectionPLWidget — at-a-glance P&L for the DIY insurance pool.
+ *
+ * Premiums collected vs claims paid out, with 30-day and lifetime views plus
+ * the running net pool balance. Industry insurers target a 30-50% loss ratio;
+ * we surface that so the admin can spot trouble (e.g. claim_ratio creeping
+ * above 70% means we're losing money on the line).
+ */
+function ProtectionPLWidget({ stats }) {
+  const fmt = (n) => `${stats.currency || "NZD"} ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const netPositive = (stats.net_pool_lifetime || 0) >= 0;
+  return (
+    <div
+      className="rounded-2xl border p-5"
+      style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+      data-testid="protection-pl-widget"
+    >
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div>
+          <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--accent)" }}>Ticket Protection · Pool P&amp;L</div>
+          <div className="serif text-2xl" style={{ color: "var(--text)" }}>
+            Net pool: <span style={{ color: netPositive ? "#2ECC71" : "#E74C3C" }} data-testid="pl-net-lifetime">{fmt(stats.net_pool_lifetime)}</span>
+          </div>
+          <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
+            Charged at {(stats.protection_pct_bps / 100).toFixed(2)}% per ticket · 30-day net <strong style={{ color: stats.net_pool_30d >= 0 ? "#2ECC71" : "#E74C3C" }} data-testid="pl-net-30d">{fmt(stats.net_pool_30d)}</strong>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-xs" style={{ color: "var(--text-dim)" }}>Loss ratio</div>
+          <div className="text-3xl serif" style={{ color: stats.claim_ratio_pct > 70 ? "#E74C3C" : stats.claim_ratio_pct > 50 ? "#ff9100" : "#2ECC71" }} data-testid="pl-claim-ratio">
+            {stats.claim_ratio_pct}%
+          </div>
+          <div className="text-[10px]" style={{ color: "var(--text-dim)" }}>Industry healthy: &lt;50%</div>
+        </div>
+      </div>
+
+      <div className="grid sm:grid-cols-2 md:grid-cols-4 gap-3">
+        <PLCard label="Premiums (lifetime)" value={fmt(stats.premiums_lifetime)} sub={`+ ${fmt(stats.premiums_30d)} last 30d`} positive testid="pl-premiums" />
+        <PLCard label="Claims paid (lifetime)" value={fmt(stats.claims_paid_lifetime)} sub={`+ ${fmt(stats.claims_paid_30d)} last 30d`} negative testid="pl-claims" />
+        <PLCard label="Pending claims" value={String(stats.pending_count)} sub={`${stats.approved_count} approved · ${stats.denied_count} denied`} testid="pl-pending" />
+        <PLCard label="Opt-in rate (30d)" value={`${stats.opt_in_rate_30d_pct}%`} sub="of paid bookings" testid="pl-optin" />
+      </div>
+    </div>
+  );
+}
+
+function PLCard({ label, value, sub, positive, negative, testid }) {
+  const valueColor = positive ? "#2ECC71" : negative ? "#E74C3C" : "var(--text)";
+  return (
+    <div
+      className="rounded-xl border p-3"
+      style={{ borderColor: "var(--border)", background: "var(--bg)" }}
+      data-testid={testid}
+    >
+      <div className="text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--text-dim)" }}>{label}</div>
+      <div className="text-lg font-medium" style={{ color: valueColor }}>{value}</div>
+      {sub && <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>{sub}</div>}
+    </div>
+  );
+}
+

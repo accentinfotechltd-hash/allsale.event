@@ -33,6 +33,9 @@ export default function useChatLive(organizerId, handlers = {}) {
   const stoppedRef = useRef(false);
   const handlersRef = useRef(handlers);
   handlersRef.current = handlers;
+  // Throttle outbound typing events — sending one per keystroke would flood
+  // the socket. We send at most one every 1.5s while the user is still typing.
+  const lastTypingSentRef = useRef(0);
 
   useEffect(() => {
     if (!organizerId) return;
@@ -60,6 +63,7 @@ export default function useChatLive(organizerId, handlers = {}) {
         const h = handlersRef.current;
         if (msg.type === "message" && h.onMessage) h.onMessage(msg.message);
         else if (msg.type === "read" && h.onRead) h.onRead(msg.by);
+        else if (msg.type === "typing" && h.onTyping) h.onTyping(msg);
       };
       ws.onerror = () => { /* close fires next */ };
       ws.onclose = () => {
@@ -88,5 +92,18 @@ export default function useChatLive(organizerId, handlers = {}) {
     };
   }, [organizerId]);
 
-  return { connected, lastEvent };
+  // Send a typing event to the server. Throttled to one per 1.5s so the
+  // socket isn't flooded on every keystroke. `is_typing=false` is sent
+  // immediately (no throttle) so the indicator on the other side
+  // disappears as soon as the user stops typing or sends.
+  const sendTyping = (isTyping = true) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== 1) return;
+    const now = Date.now();
+    if (isTyping && now - lastTypingSentRef.current < 1500) return;
+    lastTypingSentRef.current = isTyping ? now : 0;
+    try { ws.send(JSON.stringify({ type: "typing", is_typing: isTyping })); } catch { /* ignore */ }
+  };
+
+  return { connected, lastEvent, sendTyping };
 }

@@ -21,6 +21,11 @@ export default function AdminChatPanel() {
   const [draft, setDraft] = useState("");
   const [unread, setUnread] = useState(0);
   const [busy, setBusy] = useState(false);
+  // "Admin is typing…" indicator — set by an inbound `typing` WS event, cleared
+  // either by a follow-up `is_typing:false` event OR a 3s safety timeout in case
+  // the other side disconnects mid-type.
+  const [adminTyping, setAdminTyping] = useState(false);
+  const typingTimerRef = useRef(null);
   const openRef = useRef(false);
   const endRef = useRef(null);
   // Track whether we've already seen a message (de-dupes between optimistic insert
@@ -46,13 +51,25 @@ export default function AdminChatPanel() {
   };
 
   // Real-time updates — append admin messages live, refresh unread badge.
-  useChatLive(user?.user_id, {
+  const { sendTyping } = useChatLive(user?.user_id, {
     onMessage: (msg) => {
       if (!msg?.message_id || seenIds.current.has(msg.message_id)) return;
       seenIds.current.add(msg.message_id);
       setMessages((prev) => [...prev, msg]);
       if (msg.sender_role === "admin" && !openRef.current) {
         setUnread((c) => c + 1);
+      }
+      // A real message arriving means the other side is no longer "typing".
+      setAdminTyping(false);
+    },
+    onTyping: (evt) => {
+      if (evt?.by !== "admin") return;
+      setAdminTyping(!!evt.is_typing);
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      if (evt.is_typing) {
+        // Auto-clear after 3s in case the admin closes the tab without sending
+        // an explicit `is_typing:false`.
+        typingTimerRef.current = setTimeout(() => setAdminTyping(false), 3000);
       }
     },
   });
@@ -78,6 +95,8 @@ export default function AdminChatPanel() {
     try {
       await api.post("/organizer/admin-thread", { body });
       setDraft("");
+      // We stopped typing the moment we send — tell the other side.
+      try { sendTyping(false); } catch { /* ignore */ }
       loadThread();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed to send");
@@ -154,10 +173,25 @@ export default function AdminChatPanel() {
             <div ref={endRef} />
           </div>
 
+          {adminTyping && (
+            <div
+              className="text-xs mt-2 inline-flex items-center gap-1"
+              style={{ color: "var(--text-dim)" }}
+              data-testid="organizer-admin-chat-typing"
+            >
+              Allsale support is typing<span className="dots-pulse">…</span>
+            </div>
+          )}
+
           <div className="flex gap-2 mt-3">
             <textarea
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => {
+                setDraft(e.target.value);
+                // Only signal typing while there's actual content to send.
+                try { sendTyping(e.target.value.trim().length > 0); } catch { /* ignore */ }
+              }}
+              onBlur={() => { try { sendTyping(false); } catch { /* ignore */ } }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
               }}

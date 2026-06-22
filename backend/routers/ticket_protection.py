@@ -116,6 +116,102 @@ async def my_claims(user: dict = Depends(get_current_user)) -> List[Dict[str, An
 
 
 # ---------------------------------------------------------------------------
+# Admin P&L stats — read-only dashboard widget
+# ---------------------------------------------------------------------------
+@router.get("/admin/ticket-protection/stats")
+async def admin_protection_stats(user: dict = Depends(get_current_user)) -> Dict[str, Any]:
+    """Aggregate stats for the Admin dashboard P&L widget.
+
+    Premiums = sum of `protection_amount` from confirmed/paid bookings that
+    opted in. Claims = sum of refunded `amount` from approved claims. Pool
+    balance is the running difference — the platform keeps the surplus as
+    revenue once volume stabilizes.
+    """
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+    cutoff = (utc_now() - __import__("datetime").timedelta(days=30)).isoformat()
+
+    # Premiums collected — only bookings actually paid count toward the pool.
+    async def _sum(cursor, field):
+        total = 0.0
+        async for d in cursor:
+            total += float(d.get(field) or 0)
+        return round(total, 2)
+
+    prem_lifetime = await _sum(
+        db.bookings.find(
+            {"protection_opted": True, "status": {"$in": ["paid", "confirmed"]}},
+            {"_id": 0, "protection_amount": 1},
+        ),
+        "protection_amount",
+    )
+    prem_30d = await _sum(
+        db.bookings.find(
+            {
+                "protection_opted": True,
+                "status": {"$in": ["paid", "confirmed"]},
+                "created_at": {"$gte": cutoff},
+            },
+            {"_id": 0, "protection_amount": 1},
+        ),
+        "protection_amount",
+    )
+
+    # Claims approved — full booking amount refunded back to attendee.
+    claims_lifetime = await _sum(
+        db.protection_claims.find({"status": "approved"}, {"_id": 0, "amount": 1}),
+        "amount",
+    )
+    claims_30d = await _sum(
+        db.protection_claims.find(
+            {"status": "approved", "decided_at": {"$gte": cutoff}},
+            {"_id": 0, "amount": 1},
+        ),
+        "amount",
+    )
+
+    # Claim counts by status.
+    pending_count = await db.protection_claims.count_documents({"status": "pending"})
+    approved_count = await db.protection_claims.count_documents({"status": "approved"})
+    denied_count = await db.protection_claims.count_documents({"status": "denied"})
+
+    # Opt-in rate — what % of recent paid bookings included protection?
+    paid_30d = await db.bookings.count_documents(
+        {"status": {"$in": ["paid", "confirmed"]}, "created_at": {"$gte": cutoff}}
+    )
+    opted_30d = await db.bookings.count_documents(
+        {
+            "status": {"$in": ["paid", "confirmed"]},
+            "protection_opted": True,
+            "created_at": {"$gte": cutoff},
+        }
+    )
+    opt_in_rate_30d = round((opted_30d / paid_30d * 100), 1) if paid_30d > 0 else 0.0
+
+    net_lifetime = round(prem_lifetime - claims_lifetime, 2)
+    net_30d = round(prem_30d - claims_30d, 2)
+    # Claim ratio — % of premiums paid back as claims. Industry benchmark ~30-50%.
+    claim_ratio_lifetime = round((claims_lifetime / prem_lifetime * 100), 1) if prem_lifetime > 0 else 0.0
+
+    return {
+        "currency": "NZD",
+        "premiums_lifetime": prem_lifetime,
+        "premiums_30d": prem_30d,
+        "claims_paid_lifetime": claims_lifetime,
+        "claims_paid_30d": claims_30d,
+        "net_pool_lifetime": net_lifetime,
+        "net_pool_30d": net_30d,
+        "claim_ratio_pct": claim_ratio_lifetime,
+        "opt_in_rate_30d_pct": opt_in_rate_30d,
+        "pending_count": pending_count,
+        "approved_count": approved_count,
+        "denied_count": denied_count,
+        "protection_pct_bps": TICKET_PROTECTION_PCT_BPS,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Admin endpoints — list / approve / deny
 # ---------------------------------------------------------------------------
 async def _require_admin(user: dict = Depends(get_current_user)) -> dict:

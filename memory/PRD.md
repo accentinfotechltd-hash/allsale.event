@@ -22,26 +22,26 @@ Build an Eventbrite / BookMyShow-style ticketing platform. MVP covers event brow
 - IP protection: `robots.txt`, `/terms`, copyright meta
 - Sidebar event poster always visible — falls back through `poster_url → banner_url → image_url`
 - Social flyer "Download all 3 as ZIP" (jszip) — packs square/story/wide PNGs
-- **Poster-First flyer redesign**: full poster shown via `object-contain` (no bleed, no overlay text), thin brand strip at bottom with QR + ticket URL, system-font fallback for reliable PNG export
-- **Blog / SEO setup (NEW)**:
-  - Backend router `routers/blog.py` (public list/get + admin CRUD)
-  - Public pages `/blog` (index) & `/blog/:slug` (post)
-  - Full SEO meta: `<title>`, description, canonical, OG, Twitter cards, JSON-LD Article schema
-  - Admin tab "Blog" with full WYSIWYG editor (reuses RichTextEditor), draft/publish toggle, tags, cover upload, SEO meta overrides
-  - Sitemap now includes `/blog` + every published post (`routers/seo.py` is canonical sitemap; removed duplicate from `events.py`)
-  - Footer link to `/blog` under Company column
-  - Long-form prose styling `.prose-allsale` in `index.css`
+- Poster-First flyer redesign — full poster via `object-contain`, brand strip with QR
+- Blog / SEO setup — backend CRUD, public pages, JSON-LD, sitemap, admin CMS tab
+- **Protection P&L widget (NEW)** on Admin → Protection claims tab:
+  - Backend endpoint `GET /api/admin/ticket-protection/stats` aggregates premiums, claims, opt-in rate, loss ratio
+  - Widget shows Net pool, Loss ratio (color-coded red/orange/green vs 50%/70% benchmarks), Premiums lifetime + 30d, Claims paid lifetime + 30d, Pending count, Opt-in rate
+- **Typing indicators in Admin↔Organizer chat (NEW)**:
+  - WebSocket protocol extended: client sends `{type:"typing", is_typing:bool}` events; server rebroadcasts to OTHER subscribers on the same thread (exclusion to avoid echo)
+  - `useChatLive` hook exports throttled `sendTyping(bool)` (1.5s throttle) + `onTyping` callback
+  - Both AdminChatPanel (organizer side) and OrganizerChatTab (admin side) render `"X is typing…"` with pulsing dots, auto-clear after 3s safety timeout, on send, on blur, or on inbound real message
 
 ## Backlog
-- P3: Dedicated 9:16 `poster_url` upload field already exists in CreateEvent (was misreported)
-- P3: Protection P&L widget on Admin dashboard — premiums collected vs. claims paid, net pool balance, claim ratio %
-- P3: Typing indicators in Admin↔Organizer chat
 - P3: AI auto-generate flyer text overlay (Emergent LLM key)
+- P3: Subscribe-to-blog email capture (feed `db.email_subscribers`)
+- P3: Existing dedicated 9:16 `poster_url` field already in CreateEvent — could be made more prominent
 
 ## Critical Notes
 - `/api/img-proxy` must stay — required for `html-to-image` flyer downloads (background + QR)
 - Commission math reads from MongoDB `platform_settings`, not env var
-- Flyer preview wrapper uses explicit `width × height` + `overflow:hidden` so the 1080px DOM doesn't intercept clicks on download buttons below
-- `routers/seo.py` is the canonical `/api/sitemap.xml` endpoint; `events.py` previously had a duplicate that shadowed it (now removed)
-- Blog posts live in MongoDB `blog_posts` collection, keyed by `slug` (unique, auto-generated from title)
+- `routers/seo.py` is the canonical `/api/sitemap.xml` endpoint
+- Blog posts live in MongoDB `blog_posts` collection, keyed by `slug`
+- Protection pool currency hard-coded NZD in the widget; switch to `platform_settings.currency` if multi-currency ever ships
+- Typing WebSocket events use the existing `/api/ws/admin-organizer-chat/{organizer_id}` socket — no new endpoint
 - Google OAuth `redirect_uri_mismatch` & Stripe USD/NZD display are dashboard-side configs (not code bugs)
