@@ -4,10 +4,11 @@ import api from "@/lib/api";
 import MessageReactions from "@/components/MessageReactions";
 import { useAuth } from "@/lib/auth";
 import useChatLive from "@/lib/useChatLive";
-import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send, Pencil, UserPlus, MessagesSquare } from "lucide-react";
+import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send, Pencil, UserPlus, MessagesSquare, FileText } from "lucide-react";
 import { toast } from "sonner";
 import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
 import StripeAdminDiagnostics from "@/components/StripeAdminDiagnostics";
+import AdminBlogTab from "@/components/AdminBlogTab";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -15,7 +16,7 @@ export default function Admin() {
   const initialTab = (() => {
     if (typeof window === "undefined") return "events";
     const t = new URLSearchParams(window.location.search).get("tab");
-    const valid = ["events", "users", "payouts", "stripe", "emails", "chats", "org-chat", "protection", "settings"];
+    const valid = ["events", "users", "payouts", "stripe", "emails", "chats", "org-chat", "protection", "blog", "settings"];
     return valid.includes(t) ? t : "events";
   })();
   const [tab, setTab] = useState(initialTab);
@@ -41,11 +42,12 @@ export default function Admin() {
           <TabBtn id="chats" current={tab} onClick={setTab} icon={<MessageCircle className="w-4 h-4" />} label="Live chat" />
           <TabBtn id="org-chat" current={tab} onClick={setTab} icon={<MessagesSquare className="w-4 h-4" />} label="Organizer chat" />
           <TabBtn id="protection" current={tab} onClick={setTab} icon={<ShieldAlert className="w-4 h-4" />} label="Protection claims" />
+          <TabBtn id="blog" current={tab} onClick={setTab} icon={<FileText className="w-4 h-4" />} label="Blog" />
           <TabBtn id="settings" current={tab} onClick={setTab} icon={<SettingsIcon className="w-4 h-4" />} label="Settings" />
         </div>
       </div>
 
-      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : tab === "org-chat" ? <OrganizerChatTab /> : tab === "protection" ? <ProtectionClaimsTab /> : <SettingsTab />}
+      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : tab === "org-chat" ? <OrganizerChatTab /> : tab === "protection" ? <ProtectionClaimsTab /> : tab === "blog" ? <AdminBlogTab /> : <SettingsTab />}
     </div>
   );
 }

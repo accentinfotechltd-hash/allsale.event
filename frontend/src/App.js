@@ -49,6 +49,8 @@ import BundleSuccess from "@/pages/BundleSuccess";
 import BundleManager from "@/pages/BundleManager";
 import OrganizerReferral from "@/pages/OrganizerReferral";
 import EventShare from "@/pages/EventShare";
+import Blog from "@/pages/Blog";
+import BlogPost from "@/pages/BlogPost";
 import RequireOrganizer from "@/components/RequireOrganizer";
 
 function AppRouter() {
@@ -115,6 +117,8 @@ function AppRouter() {
         <Route path="/bundles/:bundleId" element={<BundleDetail />} />
         <Route path="/bundles/:bundleId/success" element={<BundleSuccess />} />
         <Route path="/events/:id/share" element={<EventShare />} />
+        <Route path="/blog" element={<Blog />} />
+        <Route path="/blog/:slug" element={<BlogPost />} />
         <Route path="/organizer" element={<RequireOrganizer><Organizer /></RequireOrganizer>} />
         <Route path="/organizer/new" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId/edit" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />

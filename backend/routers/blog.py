@@ -1,0 +1,208 @@
+"""Blog endpoints for SEO compound growth.
+
+Public:
+  - GET  /api/blog                  list published posts (paginated)
+  - GET  /api/blog/{slug}           get a single published post by slug
+  - GET  /api/blog/{slug}/related   3 most recent published posts (excluding self)
+
+Admin (auth required, role=admin):
+  - GET    /api/admin/blog          list ALL posts (incl. drafts)
+  - POST   /api/admin/blog          create a post (draft or published)
+  - PUT    /api/admin/blog/{slug}   update post content
+  - DELETE /api/admin/blog/{slug}   delete a post
+
+Posts live in MongoDB collection `blog_posts`. Slug is the unique primary key
+so the public URL never breaks — title can be edited freely without changing
+the link organizers/socials share.
+"""
+from __future__ import annotations
+
+import re
+from typing import List, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
+
+from core import db, get_current_user, utc_now
+
+router = APIRouter(tags=["blog"])
+
+
+# ---------- helpers ----------
+
+def _slugify(s: str) -> str:
+    """URL-safe slug: lowercase, dashes, no leading/trailing punctuation."""
+    s = (s or "").strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s)
+    s = re.sub(r"-+", "-", s).strip("-")
+    return s[:80] or "post"
+
+
+def _admin_only(user: dict):
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+
+
+def _strip_id(doc: dict) -> dict:
+    """Remove internal _id field before returning to the API."""
+    if not doc:
+        return doc
+    doc.pop("_id", None)
+    return doc
+
+
+# ---------- pydantic schemas ----------
+
+class BlogPostIn(BaseModel):
+    title: str = Field(..., min_length=2, max_length=200)
+    slug: Optional[str] = None  # auto-generated from title if omitted
+    excerpt: Optional[str] = Field(default="", max_length=400)
+    cover_url: Optional[str] = ""
+    body_html: str = Field(..., min_length=1)
+    tags: List[str] = []
+    status: str = Field(default="draft", pattern="^(draft|published)$")
+    meta_title: Optional[str] = ""
+    meta_description: Optional[str] = ""
+
+
+class BlogPostPatch(BaseModel):
+    title: Optional[str] = None
+    excerpt: Optional[str] = None
+    cover_url: Optional[str] = None
+    body_html: Optional[str] = None
+    tags: Optional[List[str]] = None
+    status: Optional[str] = Field(default=None, pattern="^(draft|published)$")
+    meta_title: Optional[str] = None
+    meta_description: Optional[str] = None
+
+
+# ---------- public endpoints ----------
+
+@router.get("/blog")
+async def list_published(
+    limit: int = Query(20, ge=1, le=50),
+    skip: int = Query(0, ge=0),
+    tag: Optional[str] = None,
+):
+    """Public blog index — only published posts, sorted newest first."""
+    q: dict = {"status": "published"}
+    if tag:
+        q["tags"] = tag
+    total = await db.blog_posts.count_documents(q)
+    cur = (
+        db.blog_posts.find(
+            q,
+            {
+                "_id": 0,
+                "body_html": 0,  # exclude heavy body from the list
+            },
+        )
+        .sort("published_at", -1)
+        .skip(skip)
+        .limit(limit)
+    )
+    items = [doc async for doc in cur]
+    return {"total": total, "items": items}
+
+
+@router.get("/blog/{slug}")
+async def get_post(slug: str):
+    doc = await db.blog_posts.find_one({"slug": slug, "status": "published"})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return _strip_id(doc)
+
+
+@router.get("/blog/{slug}/related")
+async def related_posts(slug: str):
+    cur = (
+        db.blog_posts.find(
+            {"status": "published", "slug": {"$ne": slug}},
+            {"_id": 0, "body_html": 0},
+        )
+        .sort("published_at", -1)
+        .limit(3)
+    )
+    return [doc async for doc in cur]
+
+
+# ---------- admin endpoints ----------
+
+@router.get("/admin/blog")
+async def admin_list_all(user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    cur = db.blog_posts.find({}, {"_id": 0}).sort("updated_at", -1)
+    return [doc async for doc in cur]
+
+
+@router.get("/admin/blog/{slug}")
+async def admin_get(slug: str, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    doc = await db.blog_posts.find_one({"slug": slug})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return _strip_id(doc)
+
+
+@router.post("/admin/blog")
+async def admin_create(payload: BlogPostIn, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    slug = _slugify(payload.slug or payload.title)
+    # If a post with this slug already exists, suffix a short counter so the
+    # admin still gets a unique URL without manual intervention.
+    if await db.blog_posts.find_one({"slug": slug}):
+        suffix = 2
+        while await db.blog_posts.find_one({"slug": f"{slug}-{suffix}"}):
+            suffix += 1
+        slug = f"{slug}-{suffix}"
+    now = utc_now()
+    doc = {
+        "slug": slug,
+        "title": payload.title.strip(),
+        "excerpt": (payload.excerpt or "").strip(),
+        "cover_url": payload.cover_url or "",
+        "body_html": payload.body_html,
+        "tags": [t.strip() for t in (payload.tags or []) if t.strip()],
+        "status": payload.status,
+        "meta_title": (payload.meta_title or payload.title).strip(),
+        "meta_description": (payload.meta_description or payload.excerpt or "").strip(),
+        "author_id": user.get("user_id"),
+        "author_name": user.get("name") or user.get("email"),
+        "created_at": now,
+        "updated_at": now,
+        "published_at": now if payload.status == "published" else None,
+    }
+    await db.blog_posts.insert_one(doc)
+    return _strip_id(doc)
+
+
+@router.put("/admin/blog/{slug}")
+async def admin_update(
+    slug: str,
+    payload: BlogPostPatch,
+    user: dict = Depends(get_current_user),
+):
+    _admin_only(user)
+    existing = await db.blog_posts.find_one({"slug": slug})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Post not found")
+    updates: dict = {"updated_at": utc_now()}
+    fields = payload.model_dump(exclude_unset=True)
+    for k, v in fields.items():
+        if v is not None:
+            updates[k] = v
+    # Promote to published — stamp published_at the first time it flips.
+    if updates.get("status") == "published" and not existing.get("published_at"):
+        updates["published_at"] = utc_now()
+    await db.blog_posts.update_one({"slug": slug}, {"$set": updates})
+    doc = await db.blog_posts.find_one({"slug": slug})
+    return _strip_id(doc)
+
+
+@router.delete("/admin/blog/{slug}")
+async def admin_delete(slug: str, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    res = await db.blog_posts.delete_one({"slug": slug})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Post not found")
+    return {"deleted": slug}

@@ -31,6 +31,7 @@ async def sitemap():
         ("/about", "0.4", "monthly"),
         ("/contact", "0.4", "monthly"),
         ("/become-organizer", "0.7", "weekly"),
+        ("/blog", "0.8", "daily"),
     ]
     parts = ['<?xml version="1.0" encoding="UTF-8"?>',
              '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
@@ -47,6 +48,17 @@ async def sitemap():
         parts.append(
             f"<url><loc>{origin}/events/{ev['event_id']}</loc>"
             f"<lastmod>{lastmod}</lastmod><changefreq>daily</changefreq><priority>0.8</priority></url>"
+        )
+    # Blog posts — only published posts. Critical for SEO compounding over time.
+    async for post in db.blog_posts.find(
+        {"status": "published"},
+        {"_id": 0, "slug": 1, "updated_at": 1, "published_at": 1},
+    ).limit(2000):
+        raw_lm = post.get("updated_at") or post.get("published_at") or now_iso
+        lastmod = raw_lm.isoformat()[:10] if hasattr(raw_lm, "isoformat") else str(raw_lm)[:10]
+        parts.append(
+            f"<url><loc>{origin}/blog/{post['slug']}</loc>"
+            f"<lastmod>{lastmod}</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>"
         )
     parts.append("</urlset>")
     return Response(content="".join(parts), media_type="application/xml")
