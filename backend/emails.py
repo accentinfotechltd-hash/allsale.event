@@ -294,7 +294,102 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "admin_message_to_organizer": lambda ctx: _t_admin_message_to_organizer(ctx),
     "organizer_message_to_admin": lambda ctx: _t_organizer_message_to_admin(ctx),
     "blog_new_post": lambda ctx: _t_blog_new_post(ctx),
+    "marketing_partner_statement": lambda ctx: _t_marketing_partner_statement(ctx),
 }
+
+
+def _t_marketing_partner_statement(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Monthly P&L statement for a marketing lead partner.
+
+    ctx fields:
+      - partner_name (required)
+      - period_label (e.g. "June 2026")
+      - currency (default "NZD")
+      - lifetime_earnings, period_earnings, unpaid_balance, organizer_count
+      - earnings (list of {date, event_title, earning_amount, status})
+    """
+    currency = ctx.get("currency") or "NZD"
+
+    def _fmt(n):
+        try:
+            return f"{currency} {float(n):,.2f}"
+        except Exception:
+            return f"{currency} 0.00"
+
+    rows_html = "".join(
+        f"<tr>"
+        f'<td style="padding:8px 6px;border-bottom:1px solid {BORDER};font-size:13px;color:{TEXT_MUTED};">{e.get("date","")}</td>'
+        f'<td style="padding:8px 6px;border-bottom:1px solid {BORDER};font-size:13px;color:{TEXT};">{e.get("event_title","")}</td>'
+        f'<td style="padding:8px 6px;border-bottom:1px solid {BORDER};font-size:13px;color:{TEXT};text-align:right;">{_fmt(e.get("earning_amount"))}</td>'
+        f'<td style="padding:8px 6px;border-bottom:1px solid {BORDER};font-size:11px;color:{TEXT_MUTED};text-transform:capitalize;">{e.get("status","")}</td>'
+        f"</tr>"
+        for e in (ctx.get("earnings") or [])[:20]
+    ) or (
+        f'<tr><td colspan="4" style="padding:16px;text-align:center;color:{TEXT_MUTED};">'
+        f"No commissionable bookings in this period.</td></tr>"
+    )
+
+    body = f"""
+    <p style="color:{TEXT_MUTED};font-size:12px;letter-spacing:0.18em;text-transform:uppercase;margin:0 0 6px;">
+      Allsale Events · Partner statement · {ctx.get('period_label', '')}
+    </p>
+    <h2 style="color:{TEXT};font-family:Georgia,serif;font-size:24px;margin:0 0 18px;line-height:1.2;">
+      Hi {ctx['partner_name']}, here's your latest statement.
+    </h2>
+
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0 0 22px;">
+      <tr>
+        <td style="padding:14px;border:1px solid {BORDER};border-radius:8px;width:33%;vertical-align:top;">
+          <div style="font-size:10px;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:0.16em;margin-bottom:4px;">This period</div>
+          <div style="font-size:18px;color:{TEXT};font-weight:600;">{_fmt(ctx.get('period_earnings'))}</div>
+        </td>
+        <td style="width:8px;"></td>
+        <td style="padding:14px;border:1px solid {BORDER};border-radius:8px;width:33%;vertical-align:top;">
+          <div style="font-size:10px;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:0.16em;margin-bottom:4px;">Unpaid balance</div>
+          <div style="font-size:18px;color:#F08A2A;font-weight:600;">{_fmt(ctx.get('unpaid_balance'))}</div>
+        </td>
+        <td style="width:8px;"></td>
+        <td style="padding:14px;border:1px solid {BORDER};border-radius:8px;width:33%;vertical-align:top;">
+          <div style="font-size:10px;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:0.16em;margin-bottom:4px;">Lifetime</div>
+          <div style="font-size:18px;color:{TEXT};font-weight:600;">{_fmt(ctx.get('lifetime_earnings'))}</div>
+        </td>
+      </tr>
+    </table>
+
+    <h3 style="color:{TEXT};font-family:Georgia,serif;font-size:16px;margin:0 0 8px;">Recent earnings</h3>
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0 0 16px;">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:6px;font-size:11px;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:0.12em;">Date</th>
+          <th style="text-align:left;padding:6px;font-size:11px;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:0.12em;">Event</th>
+          <th style="text-align:right;padding:6px;font-size:11px;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:0.12em;">Earning</th>
+          <th style="text-align:left;padding:6px;font-size:11px;color:{TEXT_MUTED};text-transform:uppercase;letter-spacing:0.12em;">Status</th>
+        </tr>
+      </thead>
+      <tbody>{rows_html}</tbody>
+    </table>
+
+    <p style="color:{TEXT_MUTED};font-size:13px;margin:18px 0 0;">
+      You have <strong>{ctx.get('organizer_count', 0)}</strong> attached organizer{'s' if (ctx.get('organizer_count') or 0) != 1 else ''}.
+      Reply to this email if anything looks off and we'll sort it.
+    </p>
+    """
+    subject = f"Your Allsale partner statement — {ctx.get('period_label', '')}"
+    html = _layout(
+        f"Statement {ctx.get('period_label','')}",
+        f"Unpaid balance: {_fmt(ctx.get('unpaid_balance'))}",
+        body,
+        "Talk to Allsale",
+        f"mailto:partners@allsale.events?subject=Partner%20statement%20{ctx.get('partner_name','')}",
+    )
+    text = _text_fallback([
+        f"Partner statement — {ctx.get('period_label', '')}",
+        f"This period: {_fmt(ctx.get('period_earnings'))}",
+        f"Unpaid balance: {_fmt(ctx.get('unpaid_balance'))}",
+        f"Lifetime: {_fmt(ctx.get('lifetime_earnings'))}",
+        f"Attached organizers: {ctx.get('organizer_count', 0)}",
+    ])
+    return subject, html, text
 
 
 def _t_blog_new_post(ctx: Dict[str, Any]) -> tuple[str, str, str]:

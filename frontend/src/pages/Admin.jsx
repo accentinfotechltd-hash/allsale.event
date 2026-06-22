@@ -33,6 +33,8 @@ export default function Admin() {
         <h1 className="serif text-5xl">Control center</h1>
       </div>
 
+      <AdminHeroStrip onClickProtection={() => setTab("protection")} onClickPartners={() => setTab("partners")} />
+
       <div className="border-b mb-8" style={{ borderColor: "var(--border)" }}>
         <div className="flex gap-1">
           <TabBtn id="events" current={tab} onClick={setTab} icon={<Calendar className="w-4 h-4" />} label="Events" />
@@ -2745,3 +2747,95 @@ function PLCard({ label, value, sub, positive, negative, testid }) {
   );
 }
 
+
+
+/**
+ * AdminHeroStrip — at-a-glance row above the tabs.
+ *
+ * Currently surfaces Protection pool health + Lead-partner exposure so the
+ * admin sees both lines every time they open `/admin`, not just when they
+ * remember to click the right tab. Stays compact (one row of 4 cards) so it
+ * doesn't push the tabs below the fold.
+ */
+function AdminHeroStrip({ onClickProtection, onClickPartners }) {
+  const [pStats, setPStats] = useState(null);
+  const [partners, setPartners] = useState([]);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await api.get("/admin/ticket-protection/stats");
+        setPStats(data);
+      } catch { /* hide if endpoint fails */ }
+      try {
+        const { data } = await api.get("/admin/marketing-partners");
+        setPartners(data || []);
+      } catch { /* hide */ }
+    })();
+  }, []);
+  if (!pStats && partners.length === 0) return null;
+
+  const fmt = (n, c = "NZD") => `${c} ${Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const partnerUnpaid = partners.reduce((sum, p) => sum + (p.unpaid_balance || 0), 0);
+  const partnerLifetime = partners.reduce((sum, p) => sum + (p.lifetime_earnings || 0), 0);
+  const netPositive = pStats ? (pStats.net_pool_lifetime || 0) >= 0 : true;
+
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6" data-testid="admin-hero-strip">
+      {pStats && (
+        <>
+          <HeroCard
+            onClick={onClickProtection}
+            label="Protection · Net pool"
+            value={fmt(pStats.net_pool_lifetime, pStats.currency || "NZD")}
+            accentColor={netPositive ? "#2ECC71" : "#E74C3C"}
+            sub={`${pStats.claim_ratio_pct}% loss ratio · ${pStats.pending_count} pending`}
+            testid="hero-protection-net"
+          />
+          <HeroCard
+            onClick={onClickProtection}
+            label="Protection · Pending claims"
+            value={String(pStats.pending_count)}
+            accentColor={pStats.pending_count > 0 ? "#F08A2A" : "var(--text)"}
+            sub={`${pStats.opt_in_rate_30d_pct}% opt-in (30d)`}
+            testid="hero-protection-pending"
+          />
+        </>
+      )}
+      {partners.length > 0 && (
+        <>
+          <HeroCard
+            onClick={onClickPartners}
+            label="Lead partners · Unpaid"
+            value={fmt(partnerUnpaid)}
+            accentColor={partnerUnpaid > 0 ? "#F08A2A" : "#2ECC71"}
+            sub={`${partners.length} active · ${fmt(partnerLifetime)} lifetime`}
+            testid="hero-partners-unpaid"
+          />
+          <HeroCard
+            onClick={onClickPartners}
+            label="Lead partners · Active"
+            value={String(partners.filter((p) => p.status === "active").length)}
+            accentColor="var(--text)"
+            sub={`${partners.reduce((s, p) => s + (p.organizer_count || 0), 0)} organizers attached`}
+            testid="hero-partners-count"
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function HeroCard({ onClick, label, value, sub, accentColor, testid }) {
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-xl border p-4 text-left transition hover:translate-y-[-1px]"
+      style={{ borderColor: "var(--border)", background: "var(--bg)" }}
+      data-testid={testid}
+    >
+      <div className="text-[10px] uppercase tracking-widest mb-1" style={{ color: "var(--text-dim)" }}>{label}</div>
+      <div className="text-xl font-medium" style={{ color: accentColor }}>{value}</div>
+      {sub && <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>{sub}</div>}
+    </button>
+  );
+}

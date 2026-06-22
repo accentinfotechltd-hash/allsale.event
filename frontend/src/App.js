@@ -52,6 +52,7 @@ import EventShare from "@/pages/EventShare";
 import Blog from "@/pages/Blog";
 import BlogPost from "@/pages/BlogPost";
 import BlogUnsubscribe from "@/pages/BlogUnsubscribe";
+import PartnerPortal from "@/pages/PartnerPortal";
 import RequireOrganizer from "@/components/RequireOrganizer";
 
 function AppRouter() {
@@ -121,6 +122,7 @@ function AppRouter() {
         <Route path="/blog" element={<Blog />} />
         <Route path="/blog/unsubscribe" element={<BlogUnsubscribe />} />
         <Route path="/blog/:slug" element={<BlogPost />} />
+        <Route path="/partner" element={<PartnerPortal />} />
         <Route path="/organizer" element={<RequireOrganizer><Organizer /></RequireOrganizer>} />
         <Route path="/organizer/new" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId/edit" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />

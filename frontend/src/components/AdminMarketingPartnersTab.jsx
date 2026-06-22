@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Search, X as XIcon, Users, DollarSign, Receipt, CheckCircle2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, X as XIcon, Users, DollarSign, Receipt, CheckCircle2, KeyRound, Mail } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 
@@ -15,8 +15,9 @@ import api from "@/lib/api";
  */
 export default function AdminMarketingPartnersTab() {
   const [partners, setPartners] = useState([]);
-  const [editing, setEditing] = useState(null);   // null | partner object (for edit/create)
-  const [detail, setDetail] = useState(null);     // partner_id currently open in drawer
+  const [editing, setEditing] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [sending, setSending] = useState(false);
 
   const load = async () => {
     try {
@@ -35,6 +36,19 @@ export default function AdminMarketingPartnersTab() {
     } catch { toast.error("Delete failed"); }
   };
 
+  const sendStatements = async () => {
+    if (!window.confirm(`Send a monthly statement email to every active partner with an email on file? (${partners.filter(p => p.status === "active" && p.email).length} partner${partners.filter(p => p.status === "active" && p.email).length === 1 ? "" : "s"})`)) return;
+    setSending(true);
+    const t = toast.loading("Sending statements...");
+    try {
+      const { data } = await api.post("/admin/marketing-partners/send-statements", {});
+      toast.success(`Statements sent: ${data.sent} delivered${data.skipped ? `, ${data.skipped} skipped (no email)` : ""}${data.failed ? `, ${data.failed} failed` : ""}`, { id: t });
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Send failed", { id: t });
+    } finally { setSending(false); }
+  };
+
   return (
     <div className="space-y-4" data-testid="admin-marketing-partners-tab">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -48,6 +62,14 @@ export default function AdminMarketingPartnersTab() {
           <Plus size={14} /> Add partner
         </button>
       </div>
+
+      {partners.length > 0 && (
+        <div className="flex items-center justify-end -mt-2 mb-2">
+          <button onClick={sendStatements} disabled={sending} className="btn-ghost text-xs" data-testid="send-statements-btn">
+            <Mail size={12} /> {sending ? "Sending..." : "Email monthly statements"}
+          </button>
+        </div>
+      )}
 
       {partners.length === 0 ? (
         <div className="rounded-xl border py-10 text-center text-sm" style={{ borderColor: "var(--border)", color: "var(--text-dim)" }} data-testid="partners-empty">
@@ -227,6 +249,19 @@ function PartnerDetailDrawer({ partnerId, onClose }) {
     } catch { toast.error("Failed"); }
   };
 
+  const grantPortal = async () => {
+    const email = window.prompt("Partner login email:", partner?.email || "");
+    if (!email) return;
+    const password = window.prompt("Set a temporary password (min 6 chars). The partner can change it later. You'll need to share these credentials out-of-band.", "");
+    if (!password || password.length < 6) { toast.error("Password too short"); return; }
+    try {
+      const { data } = await api.post(`/admin/marketing-partners/${partnerId}/grant-portal-access`, { email, password, name: partner?.name });
+      const action = data.action === "linked-existing" ? "linked existing user" : "created new login";
+      toast.success(`Portal access ${action}. Share: ${email} / ${password}`, { duration: 12000 });
+      reload();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex justify-end" style={{ background: "rgba(15,42,58,0.55)" }} onClick={onClose}>
       <div className="h-full w-full max-w-2xl overflow-y-auto p-6" style={{ background: "var(--bg, #ffffff)", borderLeft: "1px solid var(--border)" }} onClick={(e) => e.stopPropagation()} data-testid="partner-detail-drawer">
@@ -245,6 +280,12 @@ function PartnerDetailDrawer({ partnerId, onClose }) {
               <Stat icon={<Users size={14} />} label="Organizers" value={partner.organizer_count} />
               <Stat icon={<DollarSign size={14} />} label="Lifetime earnings" value={`NZD ${partner.lifetime_earnings.toFixed(2)}`} />
               <Stat icon={<Receipt size={14} />} label="Unpaid balance" value={`NZD ${partner.unpaid_balance.toFixed(2)}`} accent={partner.unpaid_balance > 0} />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 mb-4">
+              <button onClick={grantPortal} className="btn-ghost text-xs" data-testid="grant-portal-btn">
+                <KeyRound size={12} /> Grant /partner login
+              </button>
             </div>
 
             {/* Organizers */}

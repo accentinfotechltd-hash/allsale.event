@@ -355,3 +355,219 @@ async def search_organizers(
         {"_id": 0, "user_id": 1, "name": 1, "email": 1, "marketing_partner_id": 1},
     ).limit(25)
     return [doc async for doc in cur]
+
+
+# ---------- partner self-serve endpoints (role=partner) ----------
+
+@router.get("/partner/me")
+async def partner_me(user: dict = Depends(get_current_user)):
+    """The partner's own dashboard data — stats, attached organizers, ledger.
+
+    Auth: requires `linked_partner_id` on the calling user. That field is set
+    by the admin via `POST /admin/marketing-partners/{id}/grant-portal-access`.
+    """
+    partner_id = user.get("linked_partner_id")
+    if not partner_id:
+        raise HTTPException(status_code=403, detail="No partner account linked to this user")
+    partner = await db.marketing_partners.find_one({"partner_id": partner_id}, {"_id": 0})
+    if not partner:
+        raise HTTPException(status_code=404, detail="Partner record not found")
+    stats = await _aggregate(partner_id)
+    # Light organizer list — no PII beyond name + how long ago they attached.
+    organizers = []
+    async for u in db.users.find(
+        {"marketing_partner_id": partner_id},
+        {"_id": 0, "name": 1, "marketing_partner_attached_at": 1},
+    ):
+        organizers.append({
+            "name": u.get("name") or "(no name)",
+            "attached_at": u.get("marketing_partner_attached_at"),
+        })
+    return {
+        "partner_id": partner["partner_id"],
+        "name": partner.get("name"),
+        "commission_pct": partner.get("commission_pct"),
+        "status": partner.get("status"),
+        **stats,
+        "organizers": organizers,
+    }
+
+
+@router.get("/partner/me/earnings")
+async def partner_me_earnings(
+    user: dict = Depends(get_current_user),
+    limit: int = Query(100, ge=1, le=500),
+):
+    partner_id = user.get("linked_partner_id")
+    if not partner_id:
+        raise HTTPException(status_code=403, detail="No partner account linked to this user")
+    cur = (
+        db.marketing_partner_earnings.find(
+            {"partner_id": partner_id},
+            {"_id": 0, "earning_id": 1, "event_title": 1, "earning_amount": 1, "status": 1, "currency": 1, "created_at": 1, "paid_at": 1},
+        )
+        .sort("created_at", -1)
+        .limit(limit)
+    )
+    return [doc async for doc in cur]
+
+
+class GrantPortalIn(BaseModel):
+    email: str
+    password: str = Field(..., min_length=6)
+    name: Optional[str] = None
+
+
+@router.post("/admin/marketing-partners/{partner_id}/grant-portal-access")
+async def grant_portal_access(
+    partner_id: str,
+    payload: GrantPortalIn,
+    user: dict = Depends(get_current_user),
+):
+    """Create a `role=partner` user account for the lead partner.
+
+    The partner can then log in at /login with the email + password the admin
+    sets here (the admin shares those credentials out-of-band — email/WA/etc).
+    Linked back to the partner record via `linked_partner_id` on the user.
+    """
+    _admin_only(user)
+    partner = await db.marketing_partners.find_one({"partner_id": partner_id}, {"_id": 0})
+    if not partner:
+        raise HTTPException(status_code=404, detail="Partner not found")
+
+    email = payload.email.strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Email required")
+
+    # Reuse the existing auth user-creation helper so password hashing matches
+    # the rest of the app exactly. Lazy import to keep this router decoupled.
+    from core import hash_password
+
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        # User exists — just attach them. Don't overwrite their password.
+        await db.users.update_one(
+            {"email": email},
+            {"$set": {"role": "partner", "linked_partner_id": partner_id, "updated_at": utc_now()}},
+        )
+        return {"ok": True, "user_id": existing["user_id"], "action": "linked-existing"}
+
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    await db.users.insert_one(
+        {
+            "user_id": user_id,
+            "email": email,
+            "name": (payload.name or partner.get("name") or "").strip(),
+            "password_hash": hash_password(payload.password),
+            "role": "partner",
+            "linked_partner_id": partner_id,
+            "created_at": utc_now(),
+            "updated_at": utc_now(),
+        }
+    )
+    # Also stamp the partner email if it wasn't set yet.
+    if not partner.get("email"):
+        await db.marketing_partners.update_one({"partner_id": partner_id}, {"$set": {"email": email}})
+    return {"ok": True, "user_id": user_id, "action": "created"}
+
+
+# ---------- monthly statement fan-out ----------
+
+class StatementsIn(BaseModel):
+    partner_ids: Optional[List[str]] = None  # None = all active partners with email
+    period_label: Optional[str] = None        # e.g. "June 2026". Auto if omitted.
+
+
+@router.post("/admin/marketing-partners/send-statements")
+async def send_statements(payload: StatementsIn, user: dict = Depends(get_current_user)):
+    """Email a P&L statement to each active partner (with an email on file).
+
+    Stats shown:
+      • This period (last 30 days) — earnings recorded in window
+      • Lifetime earnings + unpaid balance
+      • Up to 20 most-recent ledger rows
+    The button is admin-triggered for now; a cron can hit this endpoint with
+    `partner_ids=null` on the 1st of every month for full automation.
+    """
+    _admin_only(user)
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from emails import send_template
+
+    now = utc_now()
+    period_start = now - _td(days=30)
+    period_label = payload.period_label or now.strftime("%B %Y")
+
+    q: dict = {"status": "active"}
+    if payload.partner_ids:
+        q["partner_id"] = {"$in": payload.partner_ids}
+
+    cur = db.marketing_partners.find(q, {"_id": 0})
+    partners = [p async for p in cur]
+    if not partners:
+        return {"sent": 0, "skipped": 0, "reason": "No active partners match"}
+
+    sent = 0
+    skipped = 0
+    failed = 0
+    for p in partners:
+        email = (p.get("email") or "").strip()
+        if not email:
+            skipped += 1
+            continue
+
+        # Aggregate stats per partner.
+        agg = await _aggregate(p["partner_id"])
+        # Period earnings (last 30 days).
+        period_pipeline = [
+            {"$match": {"partner_id": p["partner_id"], "created_at": {"$gte": period_start}}},
+            {"$group": {"_id": None, "total": {"$sum": "$earning_amount"}}},
+        ]
+        period_doc = await db.marketing_partner_earnings.aggregate(period_pipeline).to_list(1)
+        period_earnings = round(period_doc[0]["total"], 2) if period_doc else 0.0
+        # Recent ledger rows (top 20).
+        ledger_cur = (
+            db.marketing_partner_earnings.find(
+                {"partner_id": p["partner_id"]},
+                {"_id": 0, "created_at": 1, "event_title": 1, "earning_amount": 1, "status": 1, "currency": 1},
+            )
+            .sort("created_at", -1)
+            .limit(20)
+        )
+        earnings = []
+        currency = "NZD"
+        async for row in ledger_cur:
+            ca = row.get("created_at")
+            if isinstance(ca, _dt):
+                date_str = ca.strftime("%b %d")
+            else:
+                date_str = str(ca)[:10]
+            earnings.append({
+                "date": date_str,
+                "event_title": row.get("event_title") or "",
+                "earning_amount": row.get("earning_amount") or 0,
+                "status": row.get("status") or "",
+            })
+            currency = row.get("currency") or currency
+
+        ctx = {
+            "partner_name": p.get("name") or "",
+            "period_label": period_label,
+            "currency": currency,
+            "lifetime_earnings": agg["lifetime_earnings"],
+            "period_earnings": period_earnings,
+            "unpaid_balance": agg["unpaid_balance"],
+            "organizer_count": agg["organizer_count"],
+            "earnings": earnings,
+        }
+        try:
+            await send_template("marketing_partner_statement", email, ctx, db=db)
+            sent += 1
+            await db.marketing_partners.update_one(
+                {"partner_id": p["partner_id"]},
+                {"$set": {"last_statement_sent_at": utc_now()}},
+            )
+        except Exception as exc:  # pragma: no cover
+            failed += 1
+            logger.warning(f"[marketing-partner] statement failed for {p['partner_id']}: {exc}")
+
+    return {"sent": sent, "skipped": skipped, "failed": failed, "period": period_label}
