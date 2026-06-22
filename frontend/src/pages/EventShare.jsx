@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, forwardRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { Download, ArrowLeft, Twitter, Facebook, Linkedin, MessageCircle, Send, Copy, Check, Sparkles, Package } from "lucide-react";
+import { Download, ArrowLeft, Twitter, Facebook, Linkedin, MessageCircle, Send, Copy, Check, Sparkles, Package, Wand2, X as XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { toPng } from "html-to-image";
 import JSZip from "jszip";
@@ -62,6 +62,11 @@ export default function EventShare() {
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState("square");
   const [copied, setCopied] = useState(false);
+  // AI-generated overlay text. Null = poster-first (clean) mode. When set,
+  // the flyer renders a translucent caption strip above the brand bar with the
+  // headline + tagline, and the brand bar's micro-copy becomes the CTA.
+  const [aiText, setAiText] = useState(null);
+  const [aiBusy, setAiBusy] = useState(false);
   const refs = useRef({});
 
   useEffect(() => {
@@ -153,6 +158,19 @@ export default function EventShare() {
 
   const activeFmt = FORMATS.find((f) => f.key === active);
 
+  const generateAi = async () => {
+    setAiBusy(true);
+    try {
+      const { data } = await api.post(`/events/${id}/flyer/generate-text`);
+      setAiText({ headline: data.headline || "", tagline: data.tagline || "", cta: data.cta || "GRAB TICKETS" });
+      toast.success("AI text added — edit any line, then download");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Couldn't generate text — try again");
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-10" data-testid="event-share-page">
       <Link to={`/events/${id}`} className="inline-flex items-center gap-1 text-xs mb-6 hover:opacity-80" style={{ color: "var(--text-muted)" }} data-testid="back-to-event">
@@ -207,6 +225,7 @@ export default function EventShare() {
                     ref={(el) => { refs.current[active] = el; }}
                     event={event}
                     format={activeFmt}
+                    aiText={aiText}
                   />
                 </div>
               </div>
@@ -224,7 +243,36 @@ export default function EventShare() {
             <button onClick={downloadAllZip} className="btn-ghost" data-testid="download-all-btn">
               <Package size={14} /> Download all 3 (ZIP)
             </button>
+            {!aiText ? (
+              <button onClick={generateAi} disabled={aiBusy} className="btn-ghost" data-testid="ai-generate-btn">
+                <Wand2 size={14} /> {aiBusy ? "Writing..." : "Add AI text overlay"}
+              </button>
+            ) : (
+              <button onClick={() => setAiText(null)} className="btn-ghost" data-testid="ai-remove-btn">
+                <XIcon size={14} /> Remove text overlay
+              </button>
+            )}
           </div>
+
+          {aiText && (
+            <div
+              className="mt-4 rounded-xl border p-4 space-y-3"
+              style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+              data-testid="ai-text-editor"
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-xs uppercase tracking-widest" style={{ color: "var(--accent)" }}>
+                  <Wand2 size={12} className="inline mr-1" /> AI flyer text · editable
+                </div>
+                <button onClick={generateAi} disabled={aiBusy} className="text-xs underline" style={{ color: "var(--text-muted)" }} data-testid="ai-regenerate-btn">
+                  {aiBusy ? "Rewriting..." : "Regenerate"}
+                </button>
+              </div>
+              <AiField label="Headline" value={aiText.headline} onChange={(v) => setAiText({ ...aiText, headline: v.slice(0, 60) })} maxLength={60} testid="ai-text-headline" />
+              <AiField label="Tagline" value={aiText.tagline} onChange={(v) => setAiText({ ...aiText, tagline: v.slice(0, 140) })} maxLength={140} testid="ai-text-tagline" />
+              <AiField label="CTA" value={aiText.cta} onChange={(v) => setAiText({ ...aiText, cta: v.slice(0, 30) })} maxLength={30} testid="ai-text-cta" />
+            </div>
+          )}
 
           {/* Hidden export-size DOM for the inactive formats so downloadAll
               works without flipping the visible tab. */}
@@ -235,6 +283,7 @@ export default function EventShare() {
                 ref={(el) => { refs.current[f.key] = el; }}
                 event={event}
                 format={f}
+                aiText={aiText}
               />
             ))}
           </div>
@@ -299,7 +348,7 @@ function ShareBtn({ icon, label, onClick, testid }) {
 // thin Allsale strip at the bottom carrying just the ticket URL + a scannable
 // QR. Works for any source aspect ratio (object-contain).
 // =================================================================
-const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format }, ref) {
+const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format, aiText = null }, ref) {
   const bg = flyerBgSrc(event);
 
   // Bottom brand strip height proportional to the format. Bigger frames get
@@ -312,6 +361,11 @@ const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format }, ref) {
   const qrSize = format.key === "story" ? 180 : format.key === "wide" ? 90 : 120;
   const titleSize = format.key === "story" ? 44 : format.key === "wide" ? 28 : 36;
   const urlSize = format.key === "story" ? 56 : format.key === "wide" ? 36 : 44;
+
+  // Headline overlay sizing — bigger on Story because it has more vertical room.
+  const headlineSize = format.key === "story" ? 78 : format.key === "wide" ? 44 : 60;
+  const taglineSize = format.key === "story" ? 30 : format.key === "wide" ? 20 : 24;
+  const overlayPadX = format.key === "wide" ? 40 : 56;
 
   // Public ticket URL & QR target.
   const ticketUrl = typeof window !== "undefined" ? `${window.location.origin}/events/${event.event_id}` : "";
@@ -354,6 +408,53 @@ const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format }, ref) {
             style={{ objectFit: "contain", objectPosition: "center" }}
           />
         )}
+
+        {/* AI headline overlay — only rendered when the organizer opted into
+            AI text. Sits at the bottom of the image area with a vertical
+            gradient so text is readable on any background photo. */}
+        {aiText && (aiText.headline || aiText.tagline) && (
+          <div
+            className="absolute left-0 right-0 bottom-0"
+            style={{
+              padding: `${format.key === "wide" ? 28 : 44}px ${overlayPadX}px ${format.key === "wide" ? 24 : 36}px`,
+              background:
+                "linear-gradient(180deg, rgba(15,42,58,0) 0%, rgba(15,42,58,0.55) 45%, rgba(15,42,58,0.92) 100%)",
+              color: "#FFFFFF",
+              fontFamily: "Helvetica, Arial, sans-serif",
+            }}
+          >
+            {aiText.headline && (
+              <div
+                style={{
+                  fontFamily: "Georgia, 'Times New Roman', serif",
+                  fontWeight: 700,
+                  fontSize: headlineSize,
+                  lineHeight: 1.02,
+                  letterSpacing: "-0.01em",
+                  textShadow: "0 4px 18px rgba(0,0,0,0.45)",
+                  wordBreak: "break-word",
+                }}
+              >
+                {aiText.headline}
+              </div>
+            )}
+            {aiText.tagline && (
+              <div
+                style={{
+                  marginTop: 12,
+                  fontSize: taglineSize,
+                  fontWeight: 400,
+                  color: "rgba(255,255,255,0.88)",
+                  lineHeight: 1.25,
+                  maxWidth: format.key === "wide" ? "70%" : "100%",
+                  textShadow: "0 2px 12px rgba(0,0,0,0.5)",
+                }}
+              >
+                {aiText.tagline}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Brand strip — sits flush at the bottom. Solid brand color so it
@@ -371,7 +472,7 @@ const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format }, ref) {
           gap: 32,
         }}
       >
-        {/* Left: Allsale wordmark */}
+        {/* Left: CTA (AI mode) or "GET TICKETS AT" wordmark (poster-first mode) */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
@@ -382,7 +483,7 @@ const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format }, ref) {
               marginBottom: 6,
             }}
           >
-            GET TICKETS AT
+            {aiText?.cta ? aiText.cta : "GET TICKETS AT"}
           </div>
           <div
             style={{
@@ -443,4 +544,23 @@ function slugify(s) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
+}
+
+function AiField({ label, value, onChange, maxLength, testid }) {
+  return (
+    <label className="block">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>{label}</span>
+        <span className="text-xs" style={{ color: "var(--text-dim)" }}>{value?.length || 0}/{maxLength}</span>
+      </div>
+      <input
+        type="text"
+        value={value || ""}
+        onChange={(e) => onChange(e.target.value)}
+        maxLength={maxLength}
+        className="w-full text-sm"
+        data-testid={testid}
+      />
+    </label>
+  );
 }
