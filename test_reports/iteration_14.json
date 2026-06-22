@@ -1,0 +1,40 @@
+{
+  "summary": "Comprehensive backend E2E tests for Marketing Partner commissions flow and Blog subscriber fan-out flow. 26/26 pytest tests pass. All admin-only endpoints enforce 403 for organizer role. Partner CRUD, organizer attach/detach, earnings ledger filtering, mark-paid batch, grant-portal-access (send_invitation_email=false), partner self-serve /partner/me + /partner/me/earnings, change-password roundtrip (restored acme.partner pass), blog subscribe/repeat/unsubscribe/resubscribe, invalid email 400, admin blog create with slug auto-suffix collision, notify-subscribers fan-out shape + idempotent re-run + unpublished 400, admin newsletter list + delete — all green.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/blog/{slug}/notify-subscribers", "issue": "Idempotent second-call response intermittently returns either {sent:0, reason:'All active...', total_active:N} or {sent:0, failed:0, skipped:N, total_active:N} depending on whether new subscribers exist between runs. Shape is consistent but the 'reason' key only appears when no targets remain. Documented behavior, not a bug — flagging for awareness."},
+      {"endpoint": "DELETE /api/admin/marketing-partners/{partner_id}", "issue": "Deleting a partner detaches organizers but does NOT delete the portal-access user created via grant-portal-access. Leaves an orphan `role=partner` user with `linked_partner_id` pointing to a now-deleted partner. /partner/me will then 404 for that user. Consider cascade cleanup or document this admin workflow."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_marketing_partners_blog.py",
+    "/app/test_reports/pytest/iteration_14_results.xml"
+  ],
+  "action_items": [
+    "Consider cascade-deleting (or at minimum disabling) the linked portal user when a marketing partner is deleted, to avoid orphaned partner accounts that 404 on /partner/me.",
+    "Optional: add a unique compound index on marketing_partner_earnings (partner_id, booking_id) to enforce idempotency at the DB layer in addition to the application-level find_one check in record_partner_earning_for_booking."
+  ],
+  "critical_code_review_comments": [
+    "marketing_partners.py:116 — idempotency relies on application-level find_one before insert. Under high concurrency two webhook replays could race and both pass the check. Add a unique index on (partner_id, booking_id) to make this truly safe.",
+    "marketing_partners.py:259 — delete_partner detaches organizers but leaves the portal user. Either also delete/disable the user with linked_partner_id=partner_id, or document the admin workflow.",
+    "blog.py:339-350 — notify-subscribers fan-out runs send_template sequentially inside the request handler with `await`. Docstring claims 'spawn it as a background task per recipient so the endpoint returns fast' but actual code is sequential. For large subscriber lists this will be slow and could hit request timeouts. Consider asyncio.gather with bounded concurrency, or a true background task queue.",
+    "blog.py:257-267 — unsubscribe endpoint always returns ok:true even when email doesn't exist in DB. Reasonable for privacy/email-enumeration prevention but worth documenting.",
+    "marketing_partners.py:475 — grant-portal-access stores password via hash_password but the partner_id is also stamped on partner.email if missing — that overwrite is silent and not in the response. Consider returning updated partner email."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_marketing_partners_blog.py (new)"
+  ],
+  "success_rate": {"backend": "100% (26/26)", "frontend": "n/a (backend-only run)"},
+  "test_credentials": "admin@allsale.events/admin123, orgtester@allsale.events/orgtest123, acme.partner@allsale.events/partner123 (restored after change-password roundtrip test)",
+  "seed_data_creation": "Created and cleaned up: one test marketing partner (TEST_Partner_*), one granted portal user (test_portal_*@example.com — left as orphan after partner delete, see minor issue), one test subscriber email (deleted at end), two test blog posts (published + draft, both deleted at end).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Test file at /app/backend/tests/test_marketing_partners_blog.py. Tests are ordered (test_01 through test_99) and depend on shared module-level state dicts STATE/BLOG_STATE — run with pytest -v to keep order. All seed data is TEST_ / qa1_ / test_portal_ prefixed for easy cleanup. acme.partner password is restored to partner123 at end of test_10. The change-password endpoint /api/auth/change-password works correctly. Email send via Resend is not configured in preview — notify-subscribers returns sent:0 in real fan-out but stamps notified_subscribers correctly so idempotency works.",
+  "rca of the issue": "n/a — no bugs blocking, only minor cleanup-cascade gap and a sequential-send doc/code mismatch noted in code review."
+}
