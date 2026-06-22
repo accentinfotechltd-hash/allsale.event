@@ -31,11 +31,17 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
-- **In-app Change Password for partners (NEW)**: Backend `PUT /api/auth/change-password` (verifies current pwd, blocks Google-only accounts, ≥6 chars, must differ from current). Frontend collapsible section in `PartnerPortal.jsx` with current/new/confirm fields + show/hide eye toggles, validated end-to-end via curl + screenshot.
+- **In-app Change Password for partners**: Backend `PUT /api/auth/change-password` (verifies current pwd, blocks Google-only accounts, ≥6 chars, must differ from current). Frontend collapsible section in `PartnerPortal.jsx` with current/new/confirm fields + show/hide eye toggles, validated end-to-end via curl + screenshot.
+- **E2E backend test suite (NEW)**: 26 pytest tests at `/app/backend/tests/test_marketing_partners_blog.py` covering Marketing Partner CRUD/attach/earnings/mark-paid/grant-portal/self-serve/change-password roundtrip + Blog subscribe/unsubscribe/resubscribe/admin notify fan-out idempotency. 100% pass rate. Resend not configured in preview — notify endpoint returns sent:0 but stamps `notified_subscribers` correctly for idempotency.
+
+## Known Minor Issues (non-blocking, surfaced by testing agent)
+- `DELETE /api/admin/marketing-partners/{id}` detaches organizers but leaves the linked `role=partner` user orphaned (their `/partner/me` then 404s). Consider cascade-deleting/disabling the portal user too.
+- `notify-subscribers` fan-out docstring claims background tasks but actually awaits sequentially — slow for large subscriber lists. Either fix docstring or use `asyncio.gather` with bounded concurrency.
+- No unique compound index on `marketing_partner_earnings(partner_id, booking_id)` — application-level idempotency only. Race risk under concurrent webhook replays.
 
 ## Backlog
-- P2: E2E testing of Marketing Partner commissions and blog subscriber fan-outs
 - P3: Opt-out survey on `/blog/unsubscribe` page
+- P3: Address the 3 minor issues above
 
 ## Critical Notes
 - Partner login uses standard `/api/auth/login`; partner role is just `user.role="partner"` + `user.linked_partner_id`
