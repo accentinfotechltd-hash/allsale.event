@@ -4,6 +4,7 @@ import { Search, LogOut, ShieldCheck, LayoutDashboard, Ticket, Sparkles, Menu, X
 import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
 import PwaInstallBanner from "@/components/PwaInstallBanner";
+import WelcomeModal from "@/components/WelcomeModal";
 
 /**
  * Site shell with a fully responsive header.
@@ -232,6 +233,7 @@ export default function Layout({ children }) {
             <div className="text-xs uppercase tracking-widest mb-3" style={{ color: "var(--text-dim)" }}>Company</div>
             <ul className="space-y-2 text-sm">
               <li><Link to="/about" style={{ color: "var(--text-muted)" }} data-testid="footer-about-link">About</Link></li>
+              <li><Link to="/help" style={{ color: "var(--text-muted)" }} data-testid="footer-help-link">How it works</Link></li>
               <li><Link to="/blog" style={{ color: "var(--text-muted)" }} data-testid="footer-blog-link">Blog</Link></li>
               <li><Link to="/contact" style={{ color: "var(--text-muted)" }} data-testid="footer-contact-link">Contact</Link></li>
               <li><Link to="/terms" style={{ color: "var(--text-muted)" }} data-testid="footer-terms-link">Terms</Link></li>
@@ -242,6 +244,7 @@ export default function Layout({ children }) {
           © 2026 Allsale Events. All rights reserved. Unauthorized reproduction prohibited.
         </div>
       </footer>
+      <WelcomeModal />
     </div>
   );
 }

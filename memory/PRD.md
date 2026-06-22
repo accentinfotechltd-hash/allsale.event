@@ -31,7 +31,9 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
-- **In-app Change Password for partners**: Backend `PUT /api/auth/change-password` (verifies current pwd, blocks Google-only accounts, ≥6 chars, must differ from current). Frontend collapsible section in `PartnerPortal.jsx` with current/new/confirm fields + show/hide eye toggles, validated end-to-end via curl + screenshot.
+- **First-time tutorial (NEW)**: Role-aware welcome modal (`/app/frontend/src/components/WelcomeModal.jsx`) auto-shows on first login (gated by `localStorage[welcomeSeen_<role>]`) with 4-5 slides tailored per role (attendee/organizer/partner/admin). Pagination dots, Back/Next/Got it, "Don't show again" toggle (default on), X-to-close. Mounted globally inside `Layout.jsx`. Re-trigger via the `allsale:show-welcome` window event.
+- **Help page (NEW)**: Static `/help` page (`/app/frontend/src/pages/Help.jsx`) with three persona tabs (For attendees / For organisers / For partners), each containing 4-6 icon cards with concrete next-action CTAs. Footer link added under "Company" column. "Show me the welcome tour" CTA at the bottom clears all `welcomeSeen_*` flags and dispatches the re-show event.
+- **In-app Change Password for partners**: Backend `PUT /api/auth/change-password` + frontend collapsible section in `PartnerPortal.jsx`.
 - **E2E backend test suite**: 26 pytest tests at `/app/backend/tests/test_marketing_partners_blog.py` covering Marketing Partner CRUD/attach/earnings/mark-paid/grant-portal/self-serve/change-password roundtrip + Blog subscribe/unsubscribe/resubscribe/admin notify fan-out idempotency. 100% pass rate.
 - **Hardened 3 minor issues from testing-agent code review**:
   1. **Cascade cleanup**: `DELETE /api/admin/marketing-partners/{id}` now unsets `linked_partner_id` and flips role to `attendee` on linked portal users.
