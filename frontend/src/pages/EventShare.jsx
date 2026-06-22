@@ -262,12 +262,27 @@ const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format }, ref) {
       }}
       data-testid={`flyer-canvas-${format.key}`}
     >
-      {/* Background image */}
+      {/* Background image — try CORS-friendly first so html2canvas can read
+          the pixels for download. If the host doesn't send CORS headers
+          (Unsplash etc.), strip crossOrigin so the image at least renders
+          for human viewing. Tainted-canvas download fallback handled below. */}
       {event.image_url && (
         <img
           src={event.image_url}
           alt=""
           crossOrigin="anonymous"
+          referrerPolicy="no-referrer"
+          onError={(e) => {
+            // CORS preflight failed → retry without crossOrigin so the
+            // visual at least shows up. Download may not include it; the
+            // user can screenshot in that case.
+            if (e.currentTarget.dataset.fallback !== "1") {
+              e.currentTarget.dataset.fallback = "1";
+              e.currentTarget.removeAttribute("crossorigin");
+              // Re-trigger load by bumping the cache-buster.
+              e.currentTarget.src = event.image_url + (event.image_url.includes("?") ? "&" : "?") + "_=" + Date.now();
+            }
+          }}
           className="absolute inset-0 w-full h-full object-cover"
           style={{ filter: "brightness(0.55) saturate(1.1)" }}
         />
