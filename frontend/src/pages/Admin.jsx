@@ -923,6 +923,7 @@ function SettingsTab() {
   const [settings, setSettings] = useState(null);
   const [percent, setPercent] = useState("8");
   const [flat, setFlat] = useState("0.5");
+  const [autoPayout, setAutoPayout] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const load = async () => {
@@ -931,6 +932,7 @@ function SettingsTab() {
       setSettings(data);
       setPercent(String(data.commission_percent));
       setFlat(String(data.commission_flat_fee_per_ticket));
+      setAutoPayout(Boolean(data.marketing_partners_auto_payout));
     } catch { toast.error("Failed to load settings"); }
   };
 
@@ -943,6 +945,7 @@ function SettingsTab() {
       const { data } = await api.put("/admin/platform-settings", {
         commission_percent: parseFloat(percent),
         commission_flat_fee_per_ticket: parseFloat(flat),
+        marketing_partners_auto_payout: autoPayout,
       });
       setSettings(data);
       toast.success("Settings saved");
@@ -1003,6 +1006,22 @@ function SettingsTab() {
               <Row label={`Processing (50 × NZ$${flat})`} value={`− NZ$${(50 * parseFloat(flat || 0)).toFixed(2)}`} accent="var(--danger)" />
               <Row label="Net to organizer" value={`NZ$${(1000 - (1000 * parseFloat(percent || 0) / 100) - (50 * parseFloat(flat || 0))).toFixed(2)}`} accent="var(--success)" bold />
             </div>
+          </div>
+          <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
+            <label className="flex items-start gap-3 cursor-pointer" data-testid="auto-payout-toggle">
+              <input
+                type="checkbox"
+                checked={autoPayout}
+                onChange={(e) => setAutoPayout(e.target.checked)}
+                className="mt-1"
+              />
+              <span>
+                <span className="block text-sm" style={{ color: "var(--text)" }}>Auto-batch marketing partner payouts on the 5th of each month</span>
+                <span className="block text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                  Statements go out on the 1st, then partners have 4 days to flag issues. On the 5th the scheduler marks all unpaid earnings as <code>paid</code> in batch <code>pbat_auto_YYYYMM</code>. You still need to wire the actual money transfer outside the platform.
+                </span>
+              </span>
+            </label>
           </div>
           <button type="submit" disabled={saving} className="btn-primary" data-testid="save-settings-btn">
             {saving ? "Saving…" : "Save settings"}

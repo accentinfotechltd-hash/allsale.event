@@ -819,6 +819,74 @@ async def _send_monthly_partner_statements(db: Any) -> int:
     return sent
 
 
+async def _run_monthly_partner_payouts(db: Any) -> dict:
+    """On the 5th of every month, auto-batch all unpaid partner earnings into
+    a payout batch (records them as `status=paid` with `payout_reference=
+    "auto-batch YYYY-MM"`).
+
+    Why the 5th, not the 1st? Statements go out on the 1st. Partners need a
+    few days to query anything that looks off BEFORE the ledger gets sealed.
+    Day 5 gives a 4-day reconciliation window.
+
+    Why not the 1st: payment is actual money movement; admin still needs to
+    actually transfer funds. This cron only updates the ledger to "paid" so
+    the admin's "Mark all paid" routine doesn't have to be clicked every
+    month. The admin opts in via `platform_settings.marketing_partners_auto_payout`.
+    """
+    settings = await db.platform_settings.find_one({}, {"_id": 0}) or {}
+    if not settings.get("marketing_partners_auto_payout"):
+        return {"skipped": "auto-payout disabled in platform_settings"}
+
+    now = datetime.now(timezone.utc)
+    if now.day != 5:
+        return {}
+    if not (3 <= now.hour < 9):
+        return {}
+
+    period_key = now.strftime("%Y-%m")
+    job_key = {"job": "marketing_partner_auto_payout", "period": period_key}
+    if await db.cron_runs.find_one(job_key):
+        return {}
+    try:
+        await db.cron_runs.insert_one({**job_key, "started_at": now.isoformat(), "status": "running"})
+    except Exception:
+        return {}
+
+    total_marked = 0
+    partner_count = 0
+    batch_id = f"pbat_auto_{now.strftime('%Y%m')}"
+    reference = f"auto-batch {now.strftime('%B %Y')}"
+    async for p in db.marketing_partners.find({"status": "active"}, {"_id": 0, "partner_id": 1}):
+        res = await db.marketing_partner_earnings.update_many(
+            {"partner_id": p["partner_id"], "status": "unpaid"},
+            {
+                "$set": {
+                    "status": "paid",
+                    "paid_at": datetime.now(timezone.utc).isoformat(),
+                    "paid_by": "scheduler",
+                    "payout_batch_id": batch_id,
+                    "payout_reference": reference,
+                }
+            },
+        )
+        if res.modified_count:
+            partner_count += 1
+            total_marked += res.modified_count
+
+    await db.cron_runs.update_one(
+        job_key,
+        {"$set": {
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "status": "done",
+            "earnings_marked_paid": total_marked,
+            "partners_touched": partner_count,
+            "batch_id": batch_id,
+        }},
+    )
+    logger.info(f"[cron-partner-payout] {period_key} → {total_marked} earnings across {partner_count} partners (batch {batch_id})")
+    return {"earnings_marked_paid": total_marked, "partners_touched": partner_count, "batch_id": batch_id}
+
+
 async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
     """Top-level loop — sleeps 30s on startup, then ticks every `interval_seconds`."""
     await asyncio.sleep(30)
@@ -833,12 +901,13 @@ async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
             n_boost = await _send_boost_recaps(db)
             n_recap = await _send_event_recaps(db)
             n_statements = await _send_monthly_partner_statements(db)
+            payout_batch = await _run_monthly_partner_payouts(db)
             webhook_alert = await _check_webhook_silent_failure(db)
             payout_summary = await run_due_event_payouts(db)
-            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or n_boost or n_recap or n_statements or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
+            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or n_boost or n_recap or n_statements or payout_batch or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
                 logger.info(
-                    "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s boost_recaps=%s event_recaps=%s monthly_statements=%s webhook_alert=%s payouts=%s",
-                    n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, n_boost, n_recap, n_statements, webhook_alert, payout_summary,
+                    "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s boost_recaps=%s event_recaps=%s monthly_statements=%s partner_payout_batch=%s webhook_alert=%s payouts=%s",
+                    n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, n_boost, n_recap, n_statements, payout_batch, webhook_alert, payout_summary,
                 )
         except Exception as exc:  # pragma: no cover
             logger.exception("[scheduler] tick failed: %s", exc)

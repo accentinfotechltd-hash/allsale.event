@@ -50,12 +50,14 @@ async def get_commission_settings() -> dict:
         "commission_percent": doc.get("commission_percent", DEFAULT_COMMISSION_PERCENT),
         "commission_flat_fee_per_ticket": doc.get("commission_flat_fee_per_ticket", DEFAULT_FLAT_FEE_PER_TICKET),
         "currency": doc.get("currency", "usd"),
+        "marketing_partners_auto_payout": bool(doc.get("marketing_partners_auto_payout", False)),
     }
 
 
 class CommissionSettingsIn(BaseModel):
     commission_percent: float = Field(ge=0, le=50)
     commission_flat_fee_per_ticket: float = Field(ge=0, le=20)
+    marketing_partners_auto_payout: Optional[bool] = None
 
 
 @router.get("/admin/platform-settings")
@@ -69,15 +71,16 @@ async def admin_get_settings(user: dict = Depends(get_current_user)):
 async def admin_update_settings(payload: CommissionSettingsIn, user: dict = Depends(get_current_user)):
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
+    updates = {
+        "commission_percent": payload.commission_percent,
+        "commission_flat_fee_per_ticket": payload.commission_flat_fee_per_ticket,
+        "updated_at": utc_now().isoformat(),
+        "updated_by": user["user_id"],
+    }
+    if payload.marketing_partners_auto_payout is not None:
+        updates["marketing_partners_auto_payout"] = bool(payload.marketing_partners_auto_payout)
     await db.platform_settings.update_one(
-        {"key": "commission"},
-        {"$set": {
-            "commission_percent": payload.commission_percent,
-            "commission_flat_fee_per_ticket": payload.commission_flat_fee_per_ticket,
-            "updated_at": utc_now().isoformat(),
-            "updated_by": user["user_id"],
-        }},
-        upsert=True,
+        {"key": "commission"}, {"$set": updates}, upsert=True
     )
     return await get_commission_settings()
 
