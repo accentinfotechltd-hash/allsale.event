@@ -198,7 +198,17 @@ async def list_partners(user: dict = Depends(get_current_user)):
     cur = db.marketing_partners.find({}, {"_id": 0}).sort("created_at", -1)
     items: List[dict] = []
     async for p in cur:
-        items.append({**p, **(await _aggregate(p["partner_id"]))})
+        # Check if a portal-login user is linked (drives the "Resend invite" button visibility).
+        portal_user = await db.users.find_one(
+            {"linked_partner_id": p["partner_id"]},
+            {"_id": 0, "user_id": 1, "email": 1},
+        )
+        items.append({
+            **p,
+            **(await _aggregate(p["partner_id"])),
+            "has_portal_access": bool(portal_user),
+            "portal_email": portal_user["email"] if portal_user else None,
+        })
     return items
 
 
@@ -508,6 +518,63 @@ async def grant_portal_access(
         "invitation_email_sent": email_sent,
         "invitation_email_error": email_error,
     }
+
+
+@router.post("/admin/marketing-partners/{partner_id}/resend-invitation")
+async def resend_invitation(
+    partner_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Re-send the welcome email with a freshly-rotated temp password.
+
+    Use case: original invite got spam-filtered, partner forgot password, etc.
+    A new password is generated and the user's `password_hash` is replaced,
+    invalidating the old credentials. The new password is included in the
+    email body just like the original invitation.
+    """
+    _admin_only(user)
+    partner = await db.marketing_partners.find_one({"partner_id": partner_id}, {"_id": 0})
+    if not partner:
+        raise HTTPException(status_code=404, detail="Partner not found")
+
+    portal_user = await db.users.find_one({"linked_partner_id": partner_id}, {"_id": 0})
+    if not portal_user:
+        raise HTTPException(
+            status_code=400,
+            detail="No portal access granted yet — use 'Grant /partner login' first.",
+        )
+
+    # Generate a memorable but secure temp password: 3 short chunks
+    # joined by dashes — easier for partners to type from email than a base64 blob.
+    import secrets
+    chunks = [secrets.token_hex(3) for _ in range(3)]
+    new_password = "-".join(chunks)  # e.g. "a3f9c1-2e8b4d-c5712a" (18 chars)
+
+    from core import hash_password
+    await db.users.update_one(
+        {"user_id": portal_user["user_id"]},
+        {"$set": {"password_hash": hash_password(new_password), "updated_at": utc_now()}},
+    )
+
+    try:
+        from emails import send_template
+        await send_template(
+            "marketing_partner_invitation",
+            portal_user["email"],
+            {
+                "partner_name": partner.get("name") or "",
+                "login_email": portal_user["email"],
+                "temp_password": new_password,
+                "commission_pct": partner.get("commission_pct") or 0,
+                "is_new_account": True,  # treat re-invite as new (show password block)
+            },
+            db=db,
+        )
+        return {"ok": True, "email_sent": True, "rotated_password": True}
+    except Exception as exc:  # pragma: no cover
+        logger.warning(f"[marketing-partner] resend invite failed for {partner_id}: {exc}")
+        # We already rotated the password — admin can still share it manually if email is down.
+        return {"ok": True, "email_sent": False, "fallback_password": new_password, "error": str(exc)}
 
 
 # ---------- monthly statement fan-out ----------

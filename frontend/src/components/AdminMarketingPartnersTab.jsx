@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Pencil, Trash2, Search, X as XIcon, Users, DollarSign, Receipt, CheckCircle2, KeyRound, Mail } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, X as XIcon, Users, DollarSign, Receipt, CheckCircle2, KeyRound, Mail, MailPlus } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 
@@ -47,6 +47,21 @@ export default function AdminMarketingPartnersTab() {
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Send failed", { id: t });
     } finally { setSending(false); }
+  };
+
+  const resendInvite = async (p) => {
+    if (!window.confirm(`Re-send the welcome email to ${p.portal_email}? A NEW temporary password will be generated and the old one will stop working.`)) return;
+    const t = toast.loading("Rotating password & sending...");
+    try {
+      const { data } = await api.post(`/admin/marketing-partners/${p.partner_id}/resend-invitation`);
+      if (data.email_sent) {
+        toast.success(`Welcome email re-sent to ${p.portal_email} with a new password`, { id: t, duration: 8000 });
+      } else {
+        toast.error(`Password rotated but email failed. Share manually: ${p.portal_email} / ${data.fallback_password}`, { id: t, duration: 16000 });
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Resend failed", { id: t });
+    }
   };
 
   return (
@@ -106,6 +121,11 @@ export default function AdminMarketingPartnersTab() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
+                    {p.has_portal_access && (
+                      <button onClick={() => resendInvite(p)} className="p-2 rounded hover:bg-black/5" title={`Re-send welcome email to ${p.portal_email}`} style={{ color: "var(--accent)" }} data-testid={`partner-resend-${p.partner_id}`}>
+                        <MailPlus size={14} />
+                      </button>
+                    )}
                     <button onClick={() => setEditing(p)} className="p-2 rounded hover:bg-black/5" title="Edit" data-testid={`partner-edit-${p.partner_id}`}>
                       <Pencil size={14} />
                     </button>
