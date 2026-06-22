@@ -237,6 +237,7 @@ export default function Layout({ children }) {
               <li><Link to="/blog" style={{ color: "var(--text-muted)" }} data-testid="footer-blog-link">Blog</Link></li>
               <li><Link to="/contact" style={{ color: "var(--text-muted)" }} data-testid="footer-contact-link">Contact</Link></li>
               <li><Link to="/terms" style={{ color: "var(--text-muted)" }} data-testid="footer-terms-link">Terms</Link></li>
+              <li><Link to="/privacy" style={{ color: "var(--text-muted)" }} data-testid="footer-privacy-link">Privacy</Link></li>
             </ul>
           </div>
         </div>

@@ -54,6 +54,7 @@ import BlogPost from "@/pages/BlogPost";
 import BlogUnsubscribe from "@/pages/BlogUnsubscribe";
 import PartnerPortal from "@/pages/PartnerPortal";
 import Help from "@/pages/Help";
+import Privacy from "@/pages/Privacy";
 import RequireOrganizer from "@/components/RequireOrganizer";
 
 function AppRouter() {
@@ -125,6 +126,7 @@ function AppRouter() {
         <Route path="/blog/:slug" element={<BlogPost />} />
         <Route path="/partner" element={<PartnerPortal />} />
         <Route path="/help" element={<Help />} />
+        <Route path="/privacy" element={<Privacy />} />
         <Route path="/organizer" element={<RequireOrganizer><Organizer /></RequireOrganizer>} />
         <Route path="/organizer/new" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
         <Route path="/organizer/events/:eventId/edit" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
