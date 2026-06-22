@@ -62,12 +62,21 @@ export default function EventShare() {
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState("square");
   const [copied, setCopied] = useState(false);
+  // Visual template — bold (default), minimal, neon. Persists per browser so
+  // organizers don't have to re-pick on every event.
+  const [template, setTemplate] = useState(() => {
+    try { return localStorage.getItem("allsale_flyer_template") || "bold"; } catch { return "bold"; }
+  });
   // AI-generated overlay text. Null = poster-first (clean) mode. When set,
   // the flyer renders a translucent caption strip above the brand bar with the
   // headline + tagline, and the brand bar's micro-copy becomes the CTA.
   const [aiText, setAiText] = useState(null);
   const [aiBusy, setAiBusy] = useState(false);
   const refs = useRef({});
+
+  useEffect(() => {
+    try { localStorage.setItem("allsale_flyer_template", template); } catch { /* private mode */ }
+  }, [template]);
 
   useEffect(() => {
     let cancelled = false;
@@ -188,6 +197,31 @@ export default function EventShare() {
       <div className="grid lg:grid-cols-[1fr_320px] gap-8">
         {/* Preview area */}
         <div>
+          {/* Template picker */}
+          <div className="mb-4">
+            <div className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>Visual style</div>
+            <div className="flex gap-2 flex-wrap" role="tablist" aria-label="Flyer template">
+              {Object.entries(THEMES).map(([key, t]) => (
+                <button
+                  key={key}
+                  onClick={() => setTemplate(key)}
+                  className="px-4 py-2 rounded-lg text-sm border transition text-left"
+                  style={{
+                    borderColor: template === key ? "var(--accent)" : "var(--border)",
+                    background: template === key ? "var(--accent-soft)" : "transparent",
+                    color: template === key ? "var(--accent)" : "var(--text)",
+                    minWidth: 140,
+                  }}
+                  data-testid={`template-${key}`}
+                  aria-pressed={template === key}
+                >
+                  <div style={{ fontWeight: 600 }}>{t.label}</div>
+                  <div className="text-xs mt-0.5 opacity-70">{t.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Format tabs */}
           <div className="flex gap-2 mb-4 flex-wrap" role="tablist">
             {FORMATS.map((f) => (
@@ -226,6 +260,7 @@ export default function EventShare() {
                     event={event}
                     format={activeFmt}
                     aiText={aiText}
+                    template={template}
                   />
                 </div>
               </div>
@@ -284,6 +319,7 @@ export default function EventShare() {
                 event={event}
                 format={f}
                 aiText={aiText}
+                template={template}
               />
             ))}
           </div>
@@ -348,8 +384,78 @@ function ShareBtn({ icon, label, onClick, testid }) {
 // thin Allsale strip at the bottom carrying just the ticket URL + a scannable
 // QR. Works for any source aspect ratio (object-contain).
 // =================================================================
-const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format, aiText = null }, ref) {
+// =================================================================
+// Flyer themes — each theme overrides color/font/accent decisions in
+// FlyerCanvas. The poster image is always object-contain so the visual
+// identity comes from the brand strip + the AI text overlay (when present),
+// never from cropping the user's image.
+// =================================================================
+const THEMES = {
+  bold: {
+    label: "Bold",
+    description: "Navy + orange · the Allsale default",
+    posterBg: "#0F2A3A",
+    stripBg: "linear-gradient(180deg, #0B2030 0%, #0F2A3A 100%)",
+    stripBorderTop: "3px solid #F08A2A",
+    stripText: "#FFFFFF",
+    stripMuted: "rgba(255,255,255,0.6)",
+    accent: "#F08A2A",
+    qrCode: "0F2A3A",            // dot color for the QR
+    qrBg: "ffffff",
+    aiTextColor: "#FFFFFF",
+    aiTextShadow: "0 4px 18px rgba(0,0,0,0.45)",
+    overlayGradient: "linear-gradient(180deg, rgba(15,42,58,0) 0%, rgba(15,42,58,0.55) 45%, rgba(15,42,58,0.92) 100%)",
+    headlineFont: "Georgia, 'Times New Roman', serif",
+    urlFont: "Georgia, 'Times New Roman', serif",
+    sansFont: "Helvetica, Arial, sans-serif",
+    headlineWeight: 700,
+    urlWeight: 600,
+  },
+  minimal: {
+    label: "Minimal",
+    description: "Ivory + charcoal · editorial elegance",
+    posterBg: "#F4EEE4",
+    stripBg: "#F4EEE4",
+    stripBorderTop: "1px solid #1A1A1A",
+    stripText: "#1A1A1A",
+    stripMuted: "rgba(26,26,26,0.55)",
+    accent: "#B6862C",  // antique gold
+    qrCode: "1A1A1A",
+    qrBg: "F4EEE4",
+    aiTextColor: "#FFFFFF",
+    aiTextShadow: "0 3px 12px rgba(0,0,0,0.55)",
+    overlayGradient: "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,0.35) 50%, rgba(0,0,0,0.78) 100%)",
+    headlineFont: "Georgia, 'Times New Roman', serif",
+    urlFont: "Georgia, 'Times New Roman', serif",
+    sansFont: "Helvetica, Arial, sans-serif",
+    headlineWeight: 400,
+    urlWeight: 500,
+  },
+  neon: {
+    label: "Neon",
+    description: "Pure black + cyan glow · club energy",
+    posterBg: "#0A0A0F",
+    stripBg: "linear-gradient(180deg, #050507 0%, #0A0A0F 100%)",
+    stripBorderTop: "2px solid #00E5FF",
+    stripText: "#FFFFFF",
+    stripMuted: "rgba(180,220,255,0.6)",
+    accent: "#FF2E92",  // hot magenta
+    qrCode: "00E5FF",
+    qrBg: "0A0A0F",
+    aiTextColor: "#FFFFFF",
+    aiTextShadow: "0 0 14px #00E5FF, 0 0 28px rgba(0,229,255,0.55), 0 4px 12px rgba(0,0,0,0.7)",
+    overlayGradient: "linear-gradient(180deg, rgba(10,10,15,0) 0%, rgba(10,10,15,0.6) 50%, rgba(10,10,15,0.97) 100%)",
+    headlineFont: "'Helvetica Neue', Helvetica, Arial, sans-serif",
+    urlFont: "'Helvetica Neue', Helvetica, Arial, sans-serif",
+    sansFont: "'Helvetica Neue', Helvetica, Arial, sans-serif",
+    headlineWeight: 800,
+    urlWeight: 700,
+  },
+};
+
+const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format, aiText = null, template = "bold" }, ref) {
   const bg = flyerBgSrc(event);
+  const theme = THEMES[template] || THEMES.bold;
 
   // Bottom brand strip height proportional to the format. Bigger frames get
   // a slightly larger strip so the QR stays scannable.
@@ -417,21 +523,21 @@ const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format, aiText = nu
             className="absolute left-0 right-0 bottom-0"
             style={{
               padding: `${format.key === "wide" ? 28 : 44}px ${overlayPadX}px ${format.key === "wide" ? 24 : 36}px`,
-              background:
-                "linear-gradient(180deg, rgba(15,42,58,0) 0%, rgba(15,42,58,0.55) 45%, rgba(15,42,58,0.92) 100%)",
-              color: "#FFFFFF",
-              fontFamily: "Helvetica, Arial, sans-serif",
+              background: theme.overlayGradient,
+              color: theme.aiTextColor,
+              fontFamily: theme.sansFont,
             }}
           >
             {aiText.headline && (
               <div
                 style={{
-                  fontFamily: "Georgia, 'Times New Roman', serif",
-                  fontWeight: 700,
+                  fontFamily: theme.headlineFont,
+                  fontWeight: theme.headlineWeight,
                   fontSize: headlineSize,
                   lineHeight: 1.02,
-                  letterSpacing: "-0.01em",
-                  textShadow: "0 4px 18px rgba(0,0,0,0.45)",
+                  letterSpacing: template === "neon" ? "0.02em" : "-0.01em",
+                  textTransform: template === "neon" ? "uppercase" : "none",
+                  textShadow: theme.aiTextShadow,
                   wordBreak: "break-word",
                 }}
               >
@@ -457,28 +563,27 @@ const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format, aiText = nu
         )}
       </div>
 
-      {/* Brand strip — sits flush at the bottom. Solid brand color so it
-          reads as part of the flyer, not an afterthought. */}
+      {/* Brand strip — themed bg/border/font. */}
       <div
         className="absolute left-0 right-0 bottom-0 flex items-center"
         style={{
           height: stripHeight,
-          background: "linear-gradient(180deg, #0B2030 0%, #0F2A3A 100%)",
+          background: theme.stripBg,
           paddingLeft: format.key === "wide" ? 36 : 56,
           paddingRight: format.key === "wide" ? 36 : 56,
-          borderTop: "3px solid #F08A2A",
-          color: "#FFFFFF",
-          fontFamily: "Helvetica, Arial, sans-serif",
+          borderTop: theme.stripBorderTop,
+          color: theme.stripText,
+          fontFamily: theme.sansFont,
           gap: 32,
         }}
       >
-        {/* Left: CTA (AI mode) or "GET TICKETS AT" wordmark (poster-first mode) */}
+        {/* Left: CTA (AI mode) or "GET TICKETS AT" wordmark */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
               fontSize: titleSize * 0.4,
               letterSpacing: "0.32em",
-              color: "#F08A2A",
+              color: theme.accent,
               fontWeight: 700,
               marginBottom: 6,
             }}
@@ -487,10 +592,10 @@ const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format, aiText = nu
           </div>
           <div
             style={{
-              fontFamily: "Georgia, 'Times New Roman', serif",
-              fontWeight: 600,
+              fontFamily: theme.urlFont,
+              fontWeight: theme.urlWeight,
               fontSize: urlSize,
-              color: "#FFFFFF",
+              color: theme.stripText,
               lineHeight: 1,
               letterSpacing: "-0.01em",
             }}
@@ -500,7 +605,7 @@ const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format, aiText = nu
           <div
             style={{
               fontSize: titleSize * 0.36,
-              color: "rgba(255,255,255,0.6)",
+              color: theme.stripMuted,
               marginTop: 8,
               letterSpacing: "0.04em",
               overflow: "hidden",
