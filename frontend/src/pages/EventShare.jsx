@@ -189,24 +189,26 @@ export default function EventShare() {
             ))}
           </div>
 
-          {/* Active preview — what the user sees. The wrapper has its own
-              explicit visual height so the scaled FlyerCanvas inside doesn't
-              bleed onto the download buttons below (negative-margin trick was
-              swallowing pointer events for buttons that visually appeared
-              below the flyer). */}
+          {/* Active preview — what the user sees. Wrapper has explicit size +
+              overflow:hidden; inside it a scaling div shrinks the real
+              1080px flyer DOM into the visible space. html-to-image still
+              snapshots the un-transformed DOM at full target resolution. */}
           {(() => {
             const w = active === "story" ? 300 : (active === "wide" ? 600 : 500);
-            const ratio = activeFmt.height / activeFmt.width;
+            const h = w * (activeFmt.height / activeFmt.width);
+            const scale = w / activeFmt.width;
             return (
               <div
-                className="relative mx-auto overflow-hidden"
-                style={{ width: w, height: w * ratio }}
+                className="relative mx-auto overflow-hidden rounded-lg"
+                style={{ width: w, height: h, background: "#0F2A3A" }}
               >
-                <FlyerCanvas
-                  ref={(el) => { refs.current[active] = el; }}
-                  event={event}
-                  format={activeFmt}
-                />
+                <div style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: activeFmt.width, height: activeFmt.height }}>
+                  <FlyerCanvas
+                    ref={(el) => { refs.current[active] = el; }}
+                    event={event}
+                    format={activeFmt}
+                  />
+                </div>
               </div>
             );
           })()}
@@ -288,40 +290,53 @@ function ShareBtn({ icon, label, onClick, testid }) {
 }
 
 // =================================================================
-// FlyerCanvas — the actual designed flyer. Same component renders all
-// three aspect ratios; tweaks happen via the `format` prop.
+// FlyerCanvas — "Poster-First" layout.
+//
+// Organizers almost always upload a fully-designed poster (title, venue, QR,
+// sponsors etc. already baked in). Stamping our own title/QR on top creates
+// visual clutter and bleeds outside the box in non-portrait aspects, so we
+// instead present the *full* poster inside a branded letterbox frame with a
+// thin Allsale strip at the bottom carrying just the ticket URL + a scannable
+// QR. Works for any source aspect ratio (object-contain).
 // =================================================================
 const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format }, ref) {
-  const isStory = format.key === "story";
-  const isWide = format.key === "wide";
-  const isSquare = format.key === "square";
+  const bg = flyerBgSrc(event);
+
+  // Bottom brand strip height proportional to the format. Bigger frames get
+  // a slightly larger strip so the QR stays scannable.
+  const stripHeight =
+    format.key === "story" ? 240
+    : format.key === "wide" ? 120
+    : 160;
+
+  const qrSize = format.key === "story" ? 180 : format.key === "wide" ? 90 : 120;
+  const titleSize = format.key === "story" ? 44 : format.key === "wide" ? 28 : 36;
+  const urlSize = format.key === "story" ? 56 : format.key === "wide" ? 36 : 44;
+
+  // Public ticket URL & QR target.
+  const ticketUrl = typeof window !== "undefined" ? `${window.location.origin}/events/${event.event_id}` : "";
+  const qrSrc = `${process.env.REACT_APP_BACKEND_URL}/api/img-proxy?url=${encodeURIComponent(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=0&color=0F2A3A&bgcolor=ffffff&data=${encodeURIComponent(ticketUrl)}`)}`;
 
   return (
     <div
       ref={ref}
-      className={`relative overflow-hidden ${format.displayClass}`}
+      className="relative overflow-hidden"
       style={{
-        // Render at target size; CSS scales it down for the preview via
-        // the parent's max-width. html-to-image picks up the real px size.
         width: format.width,
         height: format.height,
-        // Scale into the visible card
         transformOrigin: "top left",
-        transform: `scale(${isStory ? 300 / format.width : isWide ? 1 : 500 / format.width})`,
-        marginBottom: isStory ? `calc(${format.height * (300 / format.width)}px - ${format.height}px)` : isWide ? 0 : `calc(${format.height * (500 / format.width)}px - ${format.height}px)`,
         background: "#0F2A3A",
       }}
       data-testid={`flyer-canvas-${format.key}`}
     >
-      {/* Background image — proxied through our backend so html-to-image can
-          read the canvas pixels without tainting. The proxy adds proper CORS
-          headers regardless of what the original CDN sends. Prefers a
-          dedicated portrait poster for Story format, falling back to banner
-          / cover image. */}
-      {(() => {
-        const bg = flyerBgSrc(event);
-        if (!bg) return null;
-        return (
+      {/* Poster area — fills everything above the brand strip. object-contain
+          so the full designed poster is always visible, never cropped. The
+          deep navy backdrop fills any letterbox gap. */}
+      <div
+        className="absolute top-0 left-0 right-0"
+        style={{ bottom: stripHeight, background: "#0F2A3A" }}
+      >
+        {bg && (
           <img
             src={`${process.env.REACT_APP_BACKEND_URL}/api/img-proxy?url=${encodeURIComponent(bg)}`}
             alt=""
@@ -335,105 +350,79 @@ const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format }, ref) {
                 e.currentTarget.src = bg;
               }
             }}
-            className="absolute inset-0 w-full h-full object-cover"
-            style={{ objectPosition: "center", filter: "brightness(0.7) saturate(1.1) contrast(1.05)" }}
+            className="absolute inset-0 w-full h-full"
+            style={{ objectFit: "contain", objectPosition: "center" }}
           />
-        );
-      })()}
-      {/* Dark gradient + brand accent — top fade is light so the photo can breathe;
-          bottom fade is heavy so text is always readable. */}
+        )}
+      </div>
+
+      {/* Brand strip — sits flush at the bottom. Solid brand color so it
+          reads as part of the flyer, not an afterthought. */}
       <div
-        className="absolute inset-0"
+        className="absolute left-0 right-0 bottom-0 flex items-center"
         style={{
-          background:
-            "linear-gradient(180deg, rgba(15,42,58,0.15) 0%, rgba(15,42,58,0.05) 30%, rgba(15,42,58,0.55) 65%, rgba(15,42,58,0.97) 100%)",
+          height: stripHeight,
+          background: "linear-gradient(180deg, #0B2030 0%, #0F2A3A 100%)",
+          paddingLeft: format.key === "wide" ? 36 : 56,
+          paddingRight: format.key === "wide" ? 36 : 56,
+          borderTop: "3px solid #F08A2A",
+          color: "#FFFFFF",
+          fontFamily: "Helvetica, Arial, sans-serif",
+          gap: 32,
         }}
-      />
-      {/* Brand accent corner */}
-      <div
-        className="absolute top-0 left-0"
-        style={{
-          width: isWide ? 12 : 16,
-          height: "100%",
-          background: "linear-gradient(180deg, #F08A2A 0%, #F08A2A 30%, transparent 100%)",
-        }}
-      />
-
-      {/* Content */}
-      <div className={`absolute inset-0 flex flex-col ${isWide ? "justify-end p-14" : "justify-end p-16"}`} style={{ color: "#FFFFFF" }}>
-        <div
-          style={{
-            fontSize: isStory ? 22 : isWide ? 18 : 22,
-            letterSpacing: "0.25em",
-            color: "#F08A2A",
-            fontWeight: 600,
-            marginBottom: 16,
-          }}
-        >
-          ALLSALE EVENTS · LIVE
-        </div>
-
-        <div
-          style={{
-            fontFamily: "'Instrument Serif', serif",
-            fontSize: isWide ? 64 : isStory ? 110 : 84,
-            lineHeight: 1.02,
-            marginBottom: 24,
-            maxWidth: isWide ? "80%" : "100%",
-            wordBreak: "break-word",
-          }}
-        >
-          {event.title}
-        </div>
-
-        <div
-          style={{
-            display: "flex",
-            flexDirection: isWide ? "row" : "column",
-            gap: isWide ? 32 : 12,
-            fontSize: isWide ? 22 : isStory ? 32 : 28,
-            color: "rgba(255,255,255,0.92)",
-            marginBottom: 32,
-          }}
-        >
-          <div>
-            <span style={{ opacity: 0.6, marginRight: 8 }}>WHEN</span>
-            {formatDate(event.date)}
+      >
+        {/* Left: Allsale wordmark */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: titleSize * 0.4,
+              letterSpacing: "0.32em",
+              color: "#F08A2A",
+              fontWeight: 700,
+              marginBottom: 6,
+            }}
+          >
+            GET TICKETS AT
           </div>
-          <div>
-            <span style={{ opacity: 0.6, marginRight: 8 }}>WHERE</span>
-            {event.venue}, {event.city}
+          <div
+            style={{
+              fontFamily: "Georgia, 'Times New Roman', serif",
+              fontWeight: 600,
+              fontSize: urlSize,
+              color: "#FFFFFF",
+              lineHeight: 1,
+              letterSpacing: "-0.01em",
+            }}
+          >
+            allsale.events
+          </div>
+          <div
+            style={{
+              fontSize: titleSize * 0.36,
+              color: "rgba(255,255,255,0.6)",
+              marginTop: 8,
+              letterSpacing: "0.04em",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Scan the QR or visit the link to book
           </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 18,
-            paddingTop: 24,
-            borderTop: "2px solid rgba(255,255,255,0.18)",
-            justifyContent: "space-between",
-          }}
-        >
-          <div>
-            <div style={{ fontSize: isStory ? 22 : 14, opacity: 0.6, letterSpacing: "0.15em" }}>GET TICKETS</div>
-            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: isWide ? 32 : isStory ? 48 : 38, color: "#F08A2A", lineHeight: 1 }}>
-              allsale.events
-            </div>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-            <img
-              alt=""
-              width={isStory ? 180 : isWide ? 100 : 130}
-              height={isStory ? 180 : isWide ? 100 : 130}
-              crossOrigin="anonymous"
-              decoding="async"
-              src={`${process.env.REACT_APP_BACKEND_URL}/api/img-proxy?url=${encodeURIComponent(`https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=0&color=0F2A3A&bgcolor=ffffff&data=${encodeURIComponent(`${typeof window !== "undefined" ? window.location.origin : ""}/events/${event.event_id}`)}`)}`}
-              style={{ borderRadius: 8, background: "#FFFFFF", padding: 6 }}
-            />
-            <div style={{ fontSize: isStory ? 18 : 11, opacity: 0.7 }}>SCAN</div>
-          </div>
+        {/* Right: QR */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+          <img
+            alt=""
+            width={qrSize}
+            height={qrSize}
+            crossOrigin="anonymous"
+            decoding="async"
+            src={qrSrc}
+            style={{ borderRadius: 8, background: "#FFFFFF", padding: 6, display: "block" }}
+          />
+          <div style={{ fontSize: titleSize * 0.32, color: "#F08A2A", letterSpacing: "0.25em", fontWeight: 700 }}>SCAN</div>
         </div>
       </div>
     </div>
