@@ -262,25 +262,22 @@ const FlyerCanvas = forwardRef(function FlyerCanvas({ event, format }, ref) {
       }}
       data-testid={`flyer-canvas-${format.key}`}
     >
-      {/* Background image — try CORS-friendly first so html2canvas can read
-          the pixels for download. If the host doesn't send CORS headers
-          (Unsplash etc.), strip crossOrigin so the image at least renders
-          for human viewing. Tainted-canvas download fallback handled below. */}
+      {/* Background image — proxied through our backend so html-to-image can
+          read the canvas pixels without tainting. The proxy adds proper CORS
+          headers regardless of what the original CDN sends. */}
       {event.image_url && (
         <img
-          src={event.image_url}
+          src={`${process.env.REACT_APP_BACKEND_URL}/api/img-proxy?url=${encodeURIComponent(event.image_url)}`}
           alt=""
           crossOrigin="anonymous"
           referrerPolicy="no-referrer"
           onError={(e) => {
-            // CORS preflight failed → retry without crossOrigin so the
-            // visual at least shows up. Download may not include it; the
-            // user can screenshot in that case.
+            // Last-resort fallback: if the proxy itself fails, load direct
+            // so the flyer at least renders visually (download may taint).
             if (e.currentTarget.dataset.fallback !== "1") {
               e.currentTarget.dataset.fallback = "1";
               e.currentTarget.removeAttribute("crossorigin");
-              // Re-trigger load by bumping the cache-buster.
-              e.currentTarget.src = event.image_url + (event.image_url.includes("?") ? "&" : "?") + "_=" + Date.now();
+              e.currentTarget.src = event.image_url;
             }
           }}
           className="absolute inset-0 w-full h-full object-cover"
