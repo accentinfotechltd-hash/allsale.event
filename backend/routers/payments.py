@@ -370,6 +370,16 @@ async def _finalize_paid_booking(booking_id: str, session_id: str | None = None)
     await _send_booking_confirmation_email(booking_id)
     logger.info(f"[booking_paid] {booking_id} — confirmation email queued")
 
+    # Credit the marketing partner who brought this organizer (if any).
+    # Idempotent — re-running on a webhook replay is safe.
+    try:
+        full_booking = await db.bookings.find_one({"booking_id": booking_id}, {"_id": 0})
+        if full_booking:
+            from routers.marketing_partners import record_partner_earning_for_booking
+            await record_partner_earning_for_booking(full_booking)
+    except Exception as exc:  # pragma: no cover
+        logger.warning(f"[marketing-partner] credit hook failed for {booking_id}: {exc}")
+
     # Welcome email #3 — fired ONCE on the organizer's first ever paid sale.
     # Guarded by `organizer.first_sale_email_sent_at` to be idempotent.
     try:

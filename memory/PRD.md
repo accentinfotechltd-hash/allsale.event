@@ -1,39 +1,44 @@
 # Allsale Events — Product Requirements (PRD)
 
 ## Original Problem Statement
-Build an Eventbrite / BookMyShow-style ticketing platform. MVP covers event browsing, search/filter, atomic-hold ticket booking, custom seat layouts with aisles, QR-code e-tickets, and dashboards for attendees, organizers, and admins. Stack: **React + FastAPI + MongoDB Atlas**, deployed on Vercel (frontend) + Railway (backend).
+Build an Eventbrite / BookMyShow-style ticketing platform with full partner-revenue ecosystem. Stack: **React + FastAPI + MongoDB Atlas**, deployed on Vercel + Railway.
 
 ## Architecture
 - **Backend**: FastAPI, routers in `/app/backend/routers/`, MongoDB Atlas, WebSockets
 - **Frontend**: React 19, Tailwind, Shadcn UI, deployed to Vercel
-- **Integrations**: Stripe, Resend, Google OAuth, GA4, **Emergent LLM Key** (Gemini 2.5 Pro)
+- **Integrations**: Stripe, Resend, Google OAuth, GA4, Emergent LLM Key (Gemini 2.5 Pro)
+
+## Partner / Revenue Programs (4 distinct)
+1. **Affiliates** — per-event promo codes (`routers/affiliates.py`)
+2. **Organizer referrals** — flat $50 credit when organizer brings new organizer (`routers/organizer_referrals.py`)
+3. **Influencer hub** — promoters advertising events (`routers/influencers.py`)
+4. **Marketing Lead Partners** — *NEW*: admin-controlled lead-generation partners earning a % of platform commission on every paid booking from attached organizers (`routers/marketing_partners.py`)
 
 ## What's Implemented (latest session — Feb 2026)
 - Event browsing, atomic seat hold, QR e-tickets, dashboards
-- Admin → Organizer creation + Event creation on-behalf-of
-- Real-time Admin↔Organizer WebSocket chat + typing indicators
-- Eventfinda-style layout, backend image proxy, sidebar poster always visible
-- Social flyer "Download all 3 as ZIP" + Poster-First flyer redesign + **AI text overlay**
-- Blog + SEO — backend CRUD, public pages, JSON-LD, sitemap, admin CMS
-- Newsletter signup — public form + admin Subscribers panel + CSV export
-- Protection P&L widget on Admin → Protection claims
-- **Subscriber Fan-out (NEW)**:
-  - New email template `blog_new_post` in `emails.py` — branded layout with cover image, post title, excerpt, "Read the full story" CTA, and footer unsubscribe link.
-  - New endpoint `POST /api/admin/blog/{slug}/notify-subscribers` — fetches `status=active` subscribers from `blog_subscribers`, sends `blog_new_post` template via Resend through existing `send_template()` infra. Records sent recipients on the post doc as `notified_subscribers` for **per-subscriber idempotency** (re-runs only email new signups). Returns `{sent, failed, skipped, total_active}`.
-  - Frontend: Send icon (orange paper-plane) added to admin blog row for published posts. Confirmation dialog shows subscriber count, toast confirms send result with breakdown.
+- Admin → Organizer creation + Event on-behalf-of, real-time Admin↔Organizer chat + typing indicators
+- Eventfinda layout, image proxy, sidebar poster, ZIP flyer + Poster-First + AI text overlay
+- Blog + SEO + newsletter signup + subscriber fan-out + unsubscribe page
+- Protection P&L widget on Admin → Protection
+- **Marketing Lead Partners (NEW)**:
+  - `routers/marketing_partners.py` — full admin CRUD + organizer attach/detach + earnings ledger + mark-paid batches + organizer search helper
+  - **Booking hook** in `payments.py::_finalize_paid_booking` calls `record_partner_earning_for_booking()` after marking a booking paid. Computes `earning = booking.platform_fee * partner.commission_pct%` and writes to `marketing_partner_earnings` (idempotent on `(partner_id, booking_id)`). Recurring forever on every paid booking — no time cap.
+  - Admin → "Lead partners" tab with partners table (Partner, Commission, #Organizers, Lifetime, Unpaid chip) + side drawer with stat cards + attached-organizer list + earnings ledger + "Mark all unpaid as paid" batch button + organizer search-and-attach
+  - Data: `marketing_partners` collection, `marketing_partner_earnings` ledger, `users.marketing_partner_id` field links organizers
+  - Verified end-to-end with seeded booking: $13.50 platform fee × 20% = $2.70 earning row, status `unpaid`, attached organizer shown in drawer
 
 ## Backlog
 - P3: Promote Protection P&L widget to Admin dashboard hero
-- P3: Make `poster_url` field more prominent in CreateEvent
 - P3: Flyer template picker (Minimal / Neon / Bold)
-- P3: Wire `/blog/unsubscribe` URL to actual one-click unsubscribe page
+- P3: Make `poster_url` field more prominent in CreateEvent
+- P3: Per-partner monthly statement email via Resend
+- P3: Partner self-serve portal (currently admin-only)
 
 ## Critical Notes
-- `/api/img-proxy` must stay — required for `html-to-image` flyer downloads
-- Emergent LLM Key model must be `"gemini-2.5-pro"` via LiteLLM proxy (`gemini-2.5-flash` fails)
-- Newsletter admin endpoints live under `/admin/newsletter/...` (NOT `/admin/blog/...`) to avoid FastAPI path collision with `/admin/blog/{slug}`
-- Blog notify-subscribers endpoint IS under `/admin/blog/{slug}/notify-subscribers` — the extra `/notify-subscribers` suffix makes it unambiguous
-- Blog posts → `blog_posts`, subscribers → `blog_subscribers` (lowercased email PK)
-- `notified_subscribers` array on each post enables idempotent fan-out
-- Commission math reads from MongoDB `platform_settings`
+- Marketing partner earnings hook: `_finalize_paid_booking` → `record_partner_earning_for_booking()`. Don't bypass that path — webhook replays are safe because of `(partner_id, booking_id)` idempotency.
+- Earnings use `booking.platform_fee` as the base — if commission math is ever overhauled, audit the partner hook too.
+- `marketing_partner_id` lives on the user (organizer) doc, NOT on event — so events the organizer adds later still attribute correctly.
+- Newsletter admin endpoints under `/admin/newsletter/...`, marketing partner endpoints under `/admin/marketing-partners/...`
+- Emergent LLM Key model must be `gemini-2.5-pro` via LiteLLM
+- `/api/img-proxy` required for `html-to-image` flyer exports
 - Google OAuth `redirect_uri_mismatch` & Stripe USD/NZD display are dashboard configs (not bugs)
