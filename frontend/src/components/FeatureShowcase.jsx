@@ -39,7 +39,7 @@ const FEATURE_CARDS = [
     icon: DollarSign,
     photo: "https://images.unsplash.com/photo-1554224155-6726b3ff858f?auto=format&fit=crop&w=600&q=80",
     title: "Stripe Connect payouts",
-    body: "Money in your account 5 days after each event. Buyer pays the service fee — you keep 100%.",
+    body: "Money in your account 5 days after each event. Zero commission — you keep 100% of the ticket price.",
     tone: "teal",
   },
   {

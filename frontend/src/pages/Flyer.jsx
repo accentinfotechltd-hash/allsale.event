@@ -136,7 +136,7 @@ export default function Flyer() {
           <div className="flyer-cta-left">
             <div className="flyer-cta-eyebrow">GET STARTED</div>
             <div className="flyer-cta-url">www.allsale.events</div>
-            <div className="flyer-cta-sub">Free to list. Buyers cover the service fee.</div>
+            <div className="flyer-cta-sub">Free to list. Zero commission on ticket sales.</div>
           </div>
           <div className="flyer-cta-right">
             <div className="flyer-qr">

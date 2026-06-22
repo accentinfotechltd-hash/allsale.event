@@ -387,7 +387,7 @@ const TOP_FEATURES = [
   { slug: "custom-seat-maps", icon: Calendar, label: "Custom seat maps", sub: "Aisles, categories, holds" },
   { slug: "instant-e-tickets", icon: Zap, label: "Instant e-tickets", sub: "QR delivered in seconds" },
   { slug: "door-scanner-pwa", icon: ScanLine, label: "Door-scanner PWA", sub: "Works offline at the gate" },
-  { slug: "keep-100", icon: DollarSign, label: "Keep 100%", sub: "Buyer covers the fee" },
+  { slug: "keep-100", icon: DollarSign, label: "Keep 100%", sub: "Zero commission on ticket sales" },
   { slug: "stripe-payouts", icon: ShieldCheck, label: "Stripe payouts", sub: "5 days after the show" },
   { slug: "creator-marketplace", icon: Megaphone, label: "Creator marketplace", sub: "Pay only on sales" },
   { slug: "pwa-mobile-first", icon: Smartphone, label: "PWA + mobile-first", sub: "Install, no app store" },

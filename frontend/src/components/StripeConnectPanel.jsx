@@ -147,7 +147,7 @@ export default function StripeConnectPanel() {
           <>
             <div className="text-sm font-medium mb-0.5">Get paid for your events</div>
             <div className="text-xs" style={{ color: "var(--text-dim)" }}>
-              Connect a Stripe account once. We&apos;ll transfer your ticket revenue automatically <b>5 days after each event finishes</b>. Buyers cover the service fee at checkout — you keep the full ticket price.
+              Connect a Stripe account once. We&apos;ll transfer your ticket revenue automatically <b>5 days after each event finishes</b>. Zero commission — you keep the full ticket price.
             </div>
           </>
         )}

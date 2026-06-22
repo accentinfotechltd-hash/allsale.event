@@ -85,13 +85,13 @@ const FEATURES = [
     slug: "keep-100",
     icon: DollarSign,
     title: "Keep 100% of the ticket price",
-    tagline: "The buyer pays the service fee — your face-value goes to you.",
+    tagline: "Zero commission on your ticket sales — your face-value goes to you.",
     body:
-      "We never skim the ticket price. Stripe + platform fees are a transparent line on the buyer's checkout, separate from the face value. You keep what you priced.",
+      "We never skim the ticket price. Your sales settle 1:1 with what you set at checkout.",
     steps: [
       "When pricing your tiers / seats, set the face value you want to receive.",
-      "Allsale calculates Stripe + platform fees on top, shown clearly to the buyer.",
-      "Buyer pays face value + fees. Stripe Connect pays you the face value 5 days after the event.",
+      "Allsale settles the full face value into your Stripe account.",
+      "Payouts land in your bank 5 days after the event.",
     ],
     cta: { label: "Become an organizer", to: "/become-organizer" },
   },
