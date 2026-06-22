@@ -51,6 +51,7 @@ import OrganizerReferral from "@/pages/OrganizerReferral";
 import EventShare from "@/pages/EventShare";
 import Blog from "@/pages/Blog";
 import BlogPost from "@/pages/BlogPost";
+import BlogUnsubscribe from "@/pages/BlogUnsubscribe";
 import RequireOrganizer from "@/components/RequireOrganizer";
 
 function AppRouter() {
@@ -118,6 +119,7 @@ function AppRouter() {
         <Route path="/bundles/:bundleId/success" element={<BundleSuccess />} />
         <Route path="/events/:id/share" element={<EventShare />} />
         <Route path="/blog" element={<Blog />} />
+        <Route path="/blog/unsubscribe" element={<BlogUnsubscribe />} />
         <Route path="/blog/:slug" element={<BlogPost />} />
         <Route path="/organizer" element={<RequireOrganizer><Organizer /></RequireOrganizer>} />
         <Route path="/organizer/new" element={<RequireOrganizer><CreateEvent /></RequireOrganizer>} />
