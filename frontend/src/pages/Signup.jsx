@@ -14,6 +14,7 @@ export default function Signup() {
   const refCode = (params.get("ref") || "").trim().toLowerCase();
   const [form, setForm] = useState({ name: "", email: "", password: "", role: "attendee" });
   const [loading, setLoading] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   // Persist the referral code in localStorage so it survives the Google OAuth
   // round-trip (Google callback is a separate page).
@@ -38,6 +39,10 @@ export default function Signup() {
 
   const onSubmit = async (e) => {
     e.preventDefault();
+    if (!acceptedTerms) {
+      toast.error("Please accept the Terms and Privacy Policy to continue");
+      return;
+    }
     setLoading(true);
     try {
       const { data } = await api.post("/auth/register", form);
@@ -53,6 +58,10 @@ export default function Signup() {
   };
 
   const onGoogle = () => {
+    if (!acceptedTerms) {
+      toast.error("Please accept the Terms and Privacy Policy to continue");
+      return;
+    }
     // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
     const redirectUrl = window.location.origin + "/auth/callback";
     window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
@@ -109,7 +118,28 @@ export default function Signup() {
             <Field icon={<Mail className="w-4 h-4" />} type="email" placeholder="you@example.com" value={form.email} onChange={(v) => update("email", v)} testid="signup-email-input" />
             <Field icon={<Lock className="w-4 h-4" />} type="password" placeholder="Password (8+ chars)" value={form.password} onChange={(v) => update("password", v)} testid="signup-password-input" />
 
-            <button type="submit" disabled={loading} className="btn-primary w-full justify-center" data-testid="signup-submit-btn">
+            <label className="flex items-start gap-2.5 text-xs cursor-pointer pt-1" style={{ color: "var(--text-muted)" }}>
+              <input
+                type="checkbox"
+                checked={acceptedTerms}
+                onChange={(e) => setAcceptedTerms(e.target.checked)}
+                style={{ width: "16px", height: "16px", flexShrink: 0, marginTop: "2px", accentColor: "var(--accent)" }}
+                data-testid="signup-terms-checkbox"
+              />
+              <span>
+                I agree to the{" "}
+                <Link to="/terms" target="_blank" className="underline" style={{ color: "var(--accent)" }} data-testid="signup-terms-link">
+                  Terms of Service
+                </Link>{" "}
+                and{" "}
+                <Link to="/privacy" target="_blank" className="underline" style={{ color: "var(--accent)" }} data-testid="signup-privacy-link">
+                  Privacy Policy
+                </Link>
+                .
+              </span>
+            </label>
+
+            <button type="submit" disabled={loading || !acceptedTerms} className="btn-primary w-full justify-center" data-testid="signup-submit-btn">
               {loading ? "Creating..." : "Create account"} <ArrowRight className="w-4 h-4" />
             </button>
           </form>
