@@ -13,9 +13,10 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api";
 
 // Sensible fallbacks while the public-settings call is in-flight. These match
-// the backend's `DEFAULT_COMMISSION_PERCENT` / `DEFAULT_FLAT_FEE_PER_TICKET`.
-const DEFAULT_PLATFORM_PCT = 8;        // 8 %
-const DEFAULT_PLATFORM_FLAT = 0.50;    // $0.50 per ticket
+// the backend's env-var defaults in `fees.py` (PLATFORM_FEE_BPS=500 → 5%,
+// STRIPE_FEE_FLAT=0.30). DB-stored admin overrides are fetched lazily.
+const DEFAULT_PLATFORM_PCT = 5;        // 5 %
+const DEFAULT_PLATFORM_FLAT = 0.30;    // $0.30 per ticket
 const DEFAULT_STRIPE_PCT = 2.7;        // 2.7 %  (NZ domestic card)
 const TICKET_PROTECTION_BPS = 650;     // 6.5 %
 
