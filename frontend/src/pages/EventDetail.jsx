@@ -28,6 +28,10 @@ export default function EventDetail() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [qty, setQty] = useState(1);
   const [submitting, setSubmitting] = useState(false);
+  // Only the event owner or an admin should see internal metrics (views,
+  // bookings, demand sparkline, capacity numbers). Public visitors get a
+  // cleaner UI without giving away inventory information.
+  const canSeeMetrics = !!user && (user.role === "admin" || (event && user.user_id === event.organizer_id));
   const [codeInput, setCodeInput] = useState("");
   const [appliedCode, setAppliedCode] = useState(null); // {code, discount_amount, final_amount, kind, value}
   const [validatingCode, setValidatingCode] = useState(false);
@@ -538,7 +542,7 @@ export default function EventDetail() {
                 </span>
               )}
             </div>
-            {demand.length > 0 && (
+            {demand.length > 0 && canSeeMetrics && (
               <div className="mb-4 pb-4 border-b" style={{ borderColor: "var(--border)" }}>
                 <DemandSparkline items={demand} />
               </div>
@@ -562,7 +566,9 @@ export default function EventDetail() {
                       <div className="flex justify-between items-center">
                         <div>
                           <div className="serif text-xl">{t.name}</div>
-                          <div className="text-xs" style={{ color: "var(--text-dim)" }}>{t.capacity} seats total</div>
+                          {canSeeMetrics && (
+                            <div className="text-xs" style={{ color: "var(--text-dim)" }}>{t.capacity} seats total</div>
+                          )}
                         </div>
                         <div className="text-right">
                           {t.surging && t.effective_price > t.price ? (
