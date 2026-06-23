@@ -5,7 +5,7 @@ import EventCard from "@/components/EventCard";
 import FeatureShowcase from "@/components/FeatureShowcase";
 import TrendingCarousel from "@/components/TrendingCarousel";
 import { useAuth } from "@/lib/auth";
-import { ArrowRight, Search, Calendar, Zap, Award, Sparkles, Ticket, ScanLine, DollarSign, ShieldCheck, Smartphone, Megaphone } from "lucide-react";
+import { ArrowRight, Search, Calendar, Zap, Award, Sparkles, Ticket, ScanLine, DollarSign, ShieldCheck, Smartphone, Megaphone, Users } from "lucide-react";
 
 export default function Landing() {
   const { user } = useAuth();
@@ -386,9 +386,11 @@ const TOP_FEATURES = [
   { slug: "multi-tier-ticketing", icon: Ticket, label: "Multi-tier ticketing", sub: "Early Bird, GA, VIP" },
   { slug: "custom-seat-maps", icon: Calendar, label: "Custom seat maps", sub: "Aisles, categories, holds" },
   { slug: "instant-e-tickets", icon: Zap, label: "Instant e-tickets", sub: "QR delivered in seconds" },
+  { slug: "ai-flyer-maker", icon: Sparkles, label: "AI Flyer Maker", sub: "Posters in seconds", isNew: true },
   { slug: "door-scanner-pwa", icon: ScanLine, label: "Door-scanner PWA", sub: "Works offline at the gate" },
   { slug: "keep-100", icon: DollarSign, label: "Keep 100%", sub: "Zero commission on ticket sales" },
   { slug: "stripe-payouts", icon: ShieldCheck, label: "Stripe payouts", sub: "5 days after the show" },
+  { slug: "marketing-partners", icon: Users, label: "Partner program", sub: "Refer and earn", isNew: true },
   { slug: "creator-marketplace", icon: Megaphone, label: "Creator marketplace", sub: "Pay only on sales" },
   { slug: "pwa-mobile-first", icon: Smartphone, label: "PWA + mobile-first", sub: "Install, no app store" },
 ];
@@ -413,7 +415,7 @@ function FeatureStrip() {
             What you get
           </span>
           <span className="hidden sm:inline-block w-px h-3" style={{ background: "var(--border-strong)" }} />
-          {TOP_FEATURES.map(({ icon: Icon, label, sub, slug }) => (
+          {TOP_FEATURES.map(({ icon: Icon, label, sub, slug, isNew }) => (
             <Link
               key={label}
               to={`/features#${slug}`}
@@ -428,6 +430,15 @@ function FeatureStrip() {
             >
               <Icon className="w-3.5 h-3.5" style={{ color: "var(--accent)" }} />
               <span className="text-xs font-medium whitespace-nowrap">{label}</span>
+              {isNew && (
+                <span
+                  className="text-[9px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
+                  style={{ background: "var(--accent)", color: "#fff" }}
+                  data-testid={`feature-chip-${slug}-new-badge`}
+                >
+                  New
+                </span>
+              )}
               <span className="text-[10px] opacity-60 whitespace-nowrap hidden md:inline">· {sub}</span>
             </Link>
           ))}

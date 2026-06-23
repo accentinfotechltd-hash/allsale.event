@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import {
   Ticket, QrCode, ScanLine, ShieldCheck, Zap, DollarSign, Megaphone,
-  Sparkles, Globe, BarChart3, Heart, Smartphone, ArrowRight,
+  Sparkles, BarChart3, Heart, Smartphone, ArrowRight, Users,
 } from "lucide-react";
 
 /**
@@ -45,15 +45,16 @@ const FEATURE_CARDS = [
   {
     icon: Sparkles,
     photo: "https://images.unsplash.com/photo-1611162616305-c69b3fa7fbe0?auto=format&fit=crop&w=600&q=80",
-    title: "Creator marketplace",
-    body: "Open your event to influencers. Pay only on sales they drive. Self-serve, no contracts.",
+    title: "AI Flyer Maker",
+    body: "Auto-generate Instagram-ready posters in three sizes with AI-written headlines. Download all formats as one zip.",
     tone: "black",
+    isNew: true,
   },
   {
-    icon: Globe,
-    photo: "https://images.unsplash.com/photo-1561070791-2526d30994b8?auto=format&fit=crop&w=600&q=80",
-    title: "Embed on any website",
-    body: "Drop a 1-line script into Squarespace, Wix, Webflow — checkout opens in a Stripe-hosted modal.",
+    icon: Megaphone,
+    photo: "https://images.unsplash.com/photo-1554224155-6726b3ff858f?auto=format&fit=crop&w=600&q=80",
+    title: "Creator marketplace",
+    body: "Open your event to influencers. Pay only on sales they drive. Self-serve, no contracts.",
     tone: "orange",
   },
 ];
@@ -66,7 +67,7 @@ const PILL_FEATURES = [
   { icon: ShieldCheck, label: "Self-serve refunds" },
   { icon: Zap, label: "Auto FIRST-50 promo" },
   { icon: Smartphone, label: "PWA install" },
-  { icon: Megaphone, label: "Affiliate links" },
+  { icon: Users, label: "Partner program" },
 ];
 
 export default function FeatureShowcase() {
@@ -175,7 +176,7 @@ export default function FeatureShowcase() {
   );
 }
 
-function FeatureCard({ icon: Icon, photo, title, body, tone = "orange", wide = false, testid }) {
+function FeatureCard({ icon: Icon, photo, title, body, tone = "orange", wide = false, testid, isNew }) {
   const accentMap = {
     orange: { ring: "rgba(240,138,42,0.4)", iconBg: "var(--accent)", iconFg: "#0F2A3A" },
     teal: { ring: "rgba(27,122,158,0.4)", iconBg: "var(--primary)", iconFg: "#FFFFFF" },
@@ -188,6 +189,14 @@ function FeatureCard({ icon: Icon, photo, title, body, tone = "orange", wide = f
       style={{ background: "var(--bg-card)", border: "1px solid var(--border)", minHeight: wide ? 240 : 215 }}
       data-testid={testid}
     >
+      {isNew && (
+        <span
+          className="absolute top-4 right-4 z-10 text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full"
+          style={{ background: "var(--accent)", color: "#fff" }}
+        >
+          New
+        </span>
+      )}
       <div className="absolute inset-y-0 right-0 w-2/5 overflow-hidden">
         <img
           src={photo}
