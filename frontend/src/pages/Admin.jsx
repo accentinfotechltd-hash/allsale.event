@@ -10,6 +10,7 @@ import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
 import StripeAdminDiagnostics from "@/components/StripeAdminDiagnostics";
 import AdminBlogTab from "@/components/AdminBlogTab";
 import AdminMarketingPartnersTab from "@/components/AdminMarketingPartnersTab";
+import AdminFlyersTab from "@/components/AdminFlyersTab";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -47,11 +48,12 @@ export default function Admin() {
           <TabBtn id="protection" current={tab} onClick={setTab} icon={<ShieldAlert className="w-4 h-4" />} label="Protection claims" />
           <TabBtn id="blog" current={tab} onClick={setTab} icon={<FileText className="w-4 h-4" />} label="Blog" />
           <TabBtn id="partners" current={tab} onClick={setTab} icon={<Handshake className="w-4 h-4" />} label="Lead partners" />
+          <TabBtn id="flyers" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Recruitment flyers" />
           <TabBtn id="settings" current={tab} onClick={setTab} icon={<SettingsIcon className="w-4 h-4" />} label="Settings" />
         </div>
       </div>
 
-      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : tab === "org-chat" ? <OrganizerChatTab /> : tab === "protection" ? <ProtectionClaimsTab /> : tab === "blog" ? <AdminBlogTab /> : tab === "partners" ? <AdminMarketingPartnersTab /> : <SettingsTab />}
+      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : tab === "org-chat" ? <OrganizerChatTab /> : tab === "protection" ? <ProtectionClaimsTab /> : tab === "blog" ? <AdminBlogTab /> : tab === "partners" ? <AdminMarketingPartnersTab /> : tab === "flyers" ? <AdminFlyersTab /> : <SettingsTab />}
     </div>
   );
 }
