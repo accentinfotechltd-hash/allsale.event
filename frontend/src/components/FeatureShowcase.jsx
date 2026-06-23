@@ -83,7 +83,7 @@ export default function FeatureShowcase() {
           <Sparkles className="w-3 h-3" /> Everything you need
         </div>
         <h2 className="serif text-4xl sm:text-5xl mb-3">One platform. Every moving part.</h2>
-        <p className="text-base max-w-2xl mx-auto" style={{ color: "var(--text-muted)" }}>
+        <p className="text-base max-w-2xl mx-auto" style={{ color: "var(--text)" }}>
           From the first poster to the last person through the gate — Allsale handles every step so you don&apos;t have to glue 5 tools together.
         </p>
       </div>
@@ -219,7 +219,7 @@ function FeatureCard({ icon: Icon, photo, title, body, tone = "orange", wide = f
             <Icon className="w-5 h-5" />
           </div>
           <h3 className="serif text-xl sm:text-2xl mb-2 leading-tight">{title}</h3>
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>{body}</p>
+          <p className="text-sm" style={{ color: "var(--text)" }}>{body}</p>
         </div>
       </div>
     </div>

@@ -94,7 +94,7 @@ export default function Landing() {
               The night is <em style={{ color: "var(--accent)" }}>yours</em>.
               <br /> Tickets are <em>limited</em>.
             </h1>
-            <p className="text-base sm:text-lg max-w-xl mb-8" style={{ color: "var(--text-muted)" }}>
+            <p className="text-base sm:text-lg max-w-xl mb-8" style={{ color: "var(--text)" }}>
               Aotearoa&apos;s ticketing platform where <strong style={{ color: "var(--text)" }}>organizers keep 100%</strong> of the ticket price. Concerts, comedy, sports, theatre, festivals — locked seats, no scalpers, refundable on the organizer&apos;s terms.
             </p>
             <form
@@ -117,7 +117,7 @@ export default function Landing() {
               </button>
             </form>
 
-            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mt-10 text-sm" style={{ color: "var(--text-muted)" }}>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mt-10 text-sm" style={{ color: "var(--text)" }}>
               <div className="flex items-center gap-2 whitespace-nowrap"><Zap className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> Instant e-tickets</div>
               <div className="flex items-center gap-2 whitespace-nowrap"><Award className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> Paid out in 5 days</div>
               <div className="flex items-center gap-2 whitespace-nowrap"><Calendar className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> 10-min seat hold</div>
@@ -192,7 +192,7 @@ export default function Landing() {
                     type="button"
                     onClick={() => setHeroIdx((i) => (i - 1 + heroPicks.length) % heroPicks.length)}
                     className="text-sm hover:opacity-80 inline-flex items-center gap-1"
-                    style={{ color: "var(--text-muted)" }}
+                    style={{ color: "var(--text)" }}
                     data-testid="hero-prev"
                     aria-label="Previous pick"
                   >
@@ -220,7 +220,7 @@ export default function Landing() {
                     type="button"
                     onClick={() => setHeroIdx((i) => (i + 1) % heroPicks.length)}
                     className="text-sm hover:opacity-80 inline-flex items-center gap-1"
-                    style={{ color: "var(--text-muted)" }}
+                    style={{ color: "var(--text)" }}
                     data-testid="hero-next"
                     aria-label="Next pick"
                   >
@@ -246,7 +246,7 @@ export default function Landing() {
             <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>Browse by mood</div>
             <h2 className="serif text-4xl">Pick your scene</h2>
           </div>
-          <Link to="/events" className="hidden md:inline-flex items-center gap-2 text-sm hover:opacity-80" style={{ color: "var(--text-muted)" }}>
+          <Link to="/events" className="hidden md:inline-flex items-center gap-2 text-sm hover:opacity-80" style={{ color: "var(--text)" }}>
             All events <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
@@ -278,7 +278,7 @@ export default function Landing() {
                 <Sparkles className="w-3 h-3" /> Picked for you
               </div>
               <h2 className="serif text-4xl">Recommendations</h2>
-              <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
+              <p className="text-sm mt-1" style={{ color: "var(--text)" }}>
                 Personalized by your booking history.
               </p>
             </div>
@@ -294,7 +294,7 @@ export default function Landing() {
               {(Array.isArray(recs) ? recs : []).map((r, i) => (
                 <div key={r.event.event_id} className="relative" data-testid={`rec-${r.event.event_id}`}>
                   <EventCard event={r.event} index={i} />
-                  <div className="mt-2 px-1 text-xs italic leading-snug" style={{ color: "var(--text-muted)" }}>
+                  <div className="mt-2 px-1 text-xs italic leading-snug" style={{ color: "var(--text)" }}>
                     "{r.reason}"
                   </div>
                 </div>
@@ -311,7 +311,7 @@ export default function Landing() {
             <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>Curated this week</div>
             <h2 className="serif text-4xl">Hand-picked headliners</h2>
           </div>
-          <Link to="/events" className="hidden md:inline-flex items-center gap-2 text-sm hover:opacity-80" style={{ color: "var(--text-muted)" }}>
+          <Link to="/events" className="hidden md:inline-flex items-center gap-2 text-sm hover:opacity-80" style={{ color: "var(--text)" }}>
             See all <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
@@ -324,7 +324,7 @@ export default function Landing() {
       <section className="max-w-7xl mx-auto px-6 pb-16" data-testid="why-organizers">
         <div className="text-xs uppercase tracking-[0.3em] mb-2 text-center" style={{ color: "var(--accent)" }}>Why promoters move to Allsale</div>
         <h2 className="serif text-4xl text-center mb-3">Price the show. Keep the show.</h2>
-        <p className="text-sm text-center max-w-xl mx-auto mb-10" style={{ color: "var(--text-muted)" }}>
+        <p className="text-sm text-center max-w-xl mx-auto mb-10" style={{ color: "var(--text)" }}>
           Built in Aotearoa for promoters tired of giving away 15-20% to platforms that don&apos;t lift a finger past launch day.
         </p>
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -341,7 +341,7 @@ export default function Landing() {
             >
               <div className="serif text-4xl mb-1" style={{ color: "var(--accent)" }}>{item.kpi}</div>
               <div className="text-sm font-semibold mb-2" style={{ color: "var(--text)" }}>{item.label}</div>
-              <div className="text-xs leading-relaxed" style={{ color: "var(--text-muted)" }}>{item.sub}</div>
+              <div className="text-xs leading-relaxed" style={{ color: "var(--text)" }}>{item.sub}</div>
             </div>
           ))}
         </div>
@@ -354,7 +354,7 @@ export default function Landing() {
             <div>
               <div className="text-xs uppercase tracking-[0.3em] mb-3" style={{ color: "var(--accent)" }}>For organizers</div>
               <h3 className="serif text-4xl lg:text-5xl leading-tight mb-4">Sell out your next show. <em style={{ color: "var(--accent)" }}>Keep&nbsp;every dollar.</em></h3>
-              <p className="mb-6 max-w-md" style={{ color: "var(--text-muted)" }}>
+              <p className="mb-6 max-w-md" style={{ color: "var(--text)" }}>
                 Drag-build your seat map. Set tier prices. Hand affiliate codes to local influencers. Watch sales hit your dashboard live. On-the-door QR scanning, refunds on your terms, payouts in 5 days. No spreadsheets, no scalper drama, <strong style={{ color: "var(--text)" }}>no platform tax</strong>.
               </p>
               <Link to="/signup" className="btn-primary" data-testid="cta-signup-organizer">
@@ -365,7 +365,7 @@ export default function Landing() {
               {["Live sales tracking", "Affiliate codes", "Custom seat maps", "Auto QR check-in"].map((s, i) => (
                 <div key={s} className="glass rounded-xl p-5 fade-up" style={{ animationDelay: `${i * 0.05}s` }}>
                   <div className="serif text-2xl mb-1">0{i + 1}</div>
-                  <div className="text-sm" style={{ color: "var(--text-muted)" }}>{s}</div>
+                  <div className="text-sm" style={{ color: "var(--text)" }}>{s}</div>
                 </div>
               ))}
             </div>
