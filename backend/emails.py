@@ -259,6 +259,239 @@ def _t_team_invitation(ctx: Dict[str, Any]) -> tuple[str, str, str]:
     return subject, html, text
 
 
+    return subject, html, text
+
+
+# ---------------------------------------------------------------------------
+# Recruitment / pitch flyers: features-rich emails sent to organizers
+# (existing or prospect) and influencers (prospect partners). Each lists the
+# features that benefit *their* role. Triggered via the admin marketing
+# broadcast endpoint or any one-off `send_template` call.
+# ---------------------------------------------------------------------------
+
+def _feature_row(emoji: str, title: str, body: str) -> str:
+    """Renders one icon + title + body row inside the flyer template. Email
+    clients vary wildly so we keep it to a simple two-column table — no flex,
+    no grid. Tested in Gmail / Outlook / Apple Mail.
+    """
+    return f"""
+    <tr><td style="padding:14px 0;border-bottom:1px solid {BORDER};">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+        <tr>
+          <td valign="top" width="38" style="padding-right:14px;font-size:22px;line-height:1;">{emoji}</td>
+          <td valign="top">
+            <div style="color:{TEXT};font-weight:600;font-size:15px;margin-bottom:4px;">{title}</div>
+            <div style="color:{TEXT_MUTED};font-size:13px;line-height:1.55;">{body}</div>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+    """
+
+
+def _t_organizer_features_flyer(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Pitch email to organizers: every feature that helps them sell more,
+    work less, and keep 100% of the ticket price.
+    """
+    name = ctx.get("name") or ctx.get("user_name") or "there"
+
+    rows = "".join([
+        _feature_row(
+            "🎟️",
+            "Multi-tier ticketing in minutes",
+            "Set up Early Bird, GA, VIP, table seating — anything. Live capacity caps, automatic sell-out detection, and instant promo codes.",
+        ),
+        _feature_row(
+            "🗺️",
+            "Custom seat maps with aisles",
+            "Drag-to-design seating with aisles, categories, accessibility seats, and seat holds. No external software, no per-event setup fee.",
+        ),
+        _feature_row(
+            "⚡",
+            "Instant e-tickets with QR",
+            "Buyers get a QR ticket the moment they pay. No printers, no will-call. Apple Wallet support included.",
+        ),
+        _feature_row(
+            "✨",
+            "AI Flyer Maker (new)",
+            "One click generates Instagram-ready posters in three sizes with AI-written headlines. Download all formats as a single zip.",
+        ),
+        _feature_row(
+            "📲",
+            "Door-scanner PWA",
+            "Your staff scan tickets from any phone — works offline, no app store install, no extra hardware. Real-time check-in counts.",
+        ),
+        _feature_row(
+            "💰",
+            "Keep 100% of the ticket price",
+            "Zero commission on your face-value ticket sales. Stripe Connect pays you out 5 days after each show.",
+        ),
+        _feature_row(
+            "📊",
+            "Live analytics &amp; P&amp;L",
+            "Track sales, refund rate, scan-ins and demographics by event, tier or date. CSV exports your accountant will love.",
+        ),
+        _feature_row(
+            "🎁",
+            "Promo codes &amp; gift cards",
+            "Run FIRST-50 launch campaigns automatically, issue per-tier codes, and sell gift cards — all from one dashboard.",
+        ),
+        _feature_row(
+            "📣",
+            "Creator marketplace + Partner program",
+            "Open your event to influencers who get paid only on sales they drive. Connect marketing partners to multiply your reach.",
+        ),
+        _feature_row(
+            "🛡️",
+            "Refund protection &amp; transfers",
+            "Self-serve refund policies you set per event. Buyers can transfer tickets at zero fee — your guest list stays accurate.",
+        ),
+    ])
+
+    body = f"""
+    <p style="color:{TEXT};">Hi {name},</p>
+    <p style="color:{TEXT};">Allsale is the ticketing platform Aotearoa organisers actually want — built for keeping more of your revenue and selling out faster. Here&apos;s what you get from day one:</p>
+
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:18px;">
+      {rows}
+    </table>
+
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:24px;border:1px solid {BORDER};border-radius:12px;background:rgba(255,79,0,0.06);">
+      <tr><td style="padding:18px;">
+        <div style="color:{BRAND_COLOR};font-weight:700;letter-spacing:0.5px;font-size:11px;text-transform:uppercase;margin-bottom:6px;">Why now</div>
+        <div style="color:{TEXT};font-size:14px;line-height:1.55;">
+          Sign up takes 60 seconds. List your first event in under five minutes. Cancel any time — we&apos;ll never lock your data.
+        </div>
+      </td></tr>
+    </table>
+    """
+
+    subject = "Run your next event on Allsale — keep 100% of the ticket price"
+    html = _layout(
+        "Built for organisers like you",
+        "Allsale Events — keep 100%, sell out faster, zero hassle",
+        body,
+        "Get started — it's free to list",
+        f"{APP_PUBLIC_URL}/signup?role=organizer",
+    )
+    text = _text_fallback([
+        f"Hi {name},",
+        "Allsale is the ticketing platform built for organisers who want to keep more of their revenue.",
+        "Features you get on day one:",
+        "• Multi-tier ticketing & custom seat maps",
+        "• Instant QR e-tickets + door-scanner PWA",
+        "• AI Flyer Maker — Instagram-ready posters in one click",
+        "• Keep 100% of the ticket price (zero commission)",
+        "• Live analytics, promo codes, gift cards",
+        "• Creator marketplace + marketing partner program",
+        "• Self-serve refunds & free ticket transfers",
+        "",
+        f"Sign up free: {APP_PUBLIC_URL}/signup?role=organizer",
+    ])
+    return subject, html, text
+
+
+def _t_influencer_features_flyer(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Pitch email to influencers / marketing partners: how the partner
+    program works, what they earn, and what we hand them on a plate.
+    """
+    name = ctx.get("name") or ctx.get("user_name") or "there"
+
+    rows = "".join([
+        _feature_row(
+            "💸",
+            "Earn on every booking, forever",
+            "Get a percentage of every paid ticket your referred organisers sell — not just the first one. Forever-residual income.",
+        ),
+        _feature_row(
+            "📊",
+            "Live earnings dashboard",
+            "Your private portal shows commission %, attached organisers, lifetime earnings, and unpaid balance — updated in real time as bookings clear.",
+        ),
+        _feature_row(
+            "📅",
+            "Automatic monthly statements",
+            "1st of each month we email you a clean statement of the previous month. No spreadsheets, no chasing — it just arrives.",
+        ),
+        _feature_row(
+            "🏦",
+            "Payouts on the 5th",
+            "Funds land in your nominated bank account on the 5th of every month via Stripe Connect. Predictable, no manual claim needed.",
+        ),
+        _feature_row(
+            "🎨",
+            "Marketing assets ready to go",
+            "Every event has a Share page with Instagram-ready flyers (square / story / landscape) and AI-written copy. Just download &amp; post.",
+        ),
+        _feature_row(
+            "🛒",
+            "Open creator marketplace",
+            "Apply to promote any event opted into the marketplace — earn on individual events too, not only on the organisers attached to you.",
+        ),
+        _feature_row(
+            "🔗",
+            "Trackable referral links",
+            "Every share you make is tracked back to your account. No coupon codes to remember, no clunky tracking pixels — it just works.",
+        ),
+        _feature_row(
+            "🔐",
+            "Your account, locked down",
+            "Two-factor option, password rotation, and Stripe-level security on payout details. We treat your data the same way we treat ticket-buyer data.",
+        ),
+        _feature_row(
+            "📈",
+            "Performance benchmarking",
+            "See how your conversion rate stacks up against the network average — pinpoint what&apos;s working and double down.",
+        ),
+        _feature_row(
+            "🤝",
+            "Real humans in your corner",
+            "A dedicated partner manager helps you grow the roster of organisers you bring on. Reply to any statement email to reach us directly.",
+        ),
+    ])
+
+    body = f"""
+    <p style="color:{TEXT};">Hey {name},</p>
+    <p style="color:{TEXT};">Allsale&apos;s Marketing Partner program turns your audience into a recurring revenue stream — without the chasing, the spreadsheets, or the late payouts. Here&apos;s the deal:</p>
+
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:18px;">
+      {rows}
+    </table>
+
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-top:24px;border:1px solid {BORDER};border-radius:12px;background:rgba(255,79,0,0.06);">
+      <tr><td style="padding:18px;">
+        <div style="color:{BRAND_COLOR};font-weight:700;letter-spacing:0.5px;font-size:11px;text-transform:uppercase;margin-bottom:6px;">In short</div>
+        <div style="color:{TEXT};font-size:14px;line-height:1.55;">
+          You bring the audience. We bring the events, the assets, and the automation. Statements monthly, payouts on the 5th, earnings forever.
+        </div>
+      </td></tr>
+    </table>
+    """
+
+    subject = "Turn your audience into recurring income — partner with Allsale"
+    html = _layout(
+        "Built for influencers like you",
+        "Allsale Marketing Partners — earn on every booking, forever",
+        body,
+        "Apply to become a partner",
+        f"{APP_PUBLIC_URL}/partner",
+    )
+    text = _text_fallback([
+        f"Hey {name},",
+        "Allsale's Marketing Partner program turns your audience into recurring revenue.",
+        "Benefits:",
+        "• Earn % commission on every paid booking, forever",
+        "• Live earnings dashboard, statements on the 1st, payouts on the 5th",
+        "• Instagram-ready marketing assets generated for every event",
+        "• Trackable referral links — no coupon codes to manage",
+        "• Stripe-level payout security",
+        "• Dedicated partner manager + creator marketplace access",
+        "",
+        f"Apply: {APP_PUBLIC_URL}/partner",
+    ])
+    return subject, html, text
+
+
 TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "booking_confirmation": _t_booking_confirmation,
     "hold_expired": _t_hold_expired,
@@ -283,6 +516,8 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "organizer_welcome_3_first_sale": lambda ctx: _t_organizer_welcome_3_first_sale(ctx),
     "organizer_welcome_4_reactivate": lambda ctx: _t_organizer_welcome_4_reactivate(ctx),
     "gift_card_delivered": lambda ctx: _t_gift_card_delivered(ctx),
+    "organizer_features_flyer": _t_organizer_features_flyer,
+    "influencer_features_flyer": _t_influencer_features_flyer,
     "boost_recap": lambda ctx: _t_boost_recap(ctx),
     "event_recap": lambda ctx: _t_event_recap(ctx),
     "admin_created_account": lambda ctx: _t_admin_created_account(ctx),

@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from core import db, get_current_user, event_to_public, utc_now
-from emails import send_template_fireforget
+from emails import send_template_fireforget, TEMPLATES as EMAIL_TEMPLATES
+from fastapi.responses import HTMLResponse
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -659,6 +660,67 @@ async def admin_send_blast(payload: BlastIn, user: dict = Depends(get_current_us
         except Exception:
             pass
     return {"sent": sent, "target": target, "event_id": payload.event_id}
+
+
+# ---------- Marketing flyers (organizer / influencer recruitment pitches) ----------
+FLYER_KINDS = {"organizer_features_flyer", "influencer_features_flyer"}
+
+
+@router.get("/marketing/flyer-preview/{kind}", response_class=HTMLResponse)
+async def admin_flyer_preview(kind: str, user: dict = Depends(get_current_user)):
+    """Returns the rendered HTML of a recruitment flyer so admins can preview
+    it in the browser before sending. Mounts at:
+      GET /api/admin/marketing/flyer-preview/organizer_features_flyer
+      GET /api/admin/marketing/flyer-preview/influencer_features_flyer
+    """
+    _admin_only(user)
+    if kind not in FLYER_KINDS:
+        raise HTTPException(status_code=404, detail="Unknown flyer kind")
+    builder = EMAIL_TEMPLATES[kind]
+    _, html, _ = builder({"name": "Sample Recipient"})
+    return HTMLResponse(content=html)
+
+
+class FlyerSendIn(BaseModel):
+    kind: str  # organizer_features_flyer | influencer_features_flyer
+    emails: list[str]  # Up to 200 per request to avoid Resend rate-limit spikes
+
+
+@router.post("/marketing/flyer-send")
+async def admin_send_flyer(payload: FlyerSendIn, user: dict = Depends(get_current_user)):
+    """Send a recruitment flyer to a list of email addresses. Used for cold
+    outreach to organizers / influencers from the admin Marketing tab.
+
+    Sends sequentially via the fire-and-forget helper to keep the request fast
+    and let Resend's HTTP queue handle retries. Capped at 200 recipients per
+    request — for larger lists, batch on the client side.
+    """
+    _admin_only(user)
+    if payload.kind not in FLYER_KINDS:
+        raise HTTPException(status_code=400, detail="Unknown flyer kind")
+    if not payload.emails:
+        raise HTTPException(status_code=400, detail="At least one recipient required")
+    if len(payload.emails) > 200:
+        raise HTTPException(status_code=400, detail="Max 200 recipients per send — batch your list")
+
+    # Cheap name lookup so the salutation reads naturally for known users.
+    name_lookup: dict[str, str] = {}
+    async for u in db.users.find({"email": {"$in": payload.emails}}, {"_id": 0, "email": 1, "name": 1}):
+        name_lookup[u["email"]] = u.get("name") or "there"
+
+    sent = 0
+    for email in payload.emails:
+        try:
+            send_template_fireforget(
+                payload.kind,
+                email,
+                {"name": name_lookup.get(email, "there")},
+                db,
+            )
+            sent += 1
+        except Exception:
+            pass
+    return {"queued": sent, "kind": payload.kind, "total_recipients": len(payload.emails)}
 
 
 # ---------- Email logs (audit trail) ----------
