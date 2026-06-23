@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from core import db, get_current_user, event_to_public, utc_now
-from emails import send_template_fireforget, TEMPLATES as EMAIL_TEMPLATES
+from emails import send_template_fireforget, send_template, TEMPLATES as EMAIL_TEMPLATES
 from fastapi.responses import HTMLResponse
+from datetime import datetime, timedelta, timezone
+import uuid
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -683,44 +685,151 @@ async def admin_flyer_preview(kind: str, user: dict = Depends(get_current_user))
 
 class FlyerSendIn(BaseModel):
     kind: str  # organizer_features_flyer | influencer_features_flyer
-    emails: list[str]  # Up to 200 per request to avoid Resend rate-limit spikes
+    emails: list[str]  # Up to 200 if sending now; up to 5000 if scheduled
+    scheduled_for: Optional[str] = None  # ISO datetime; None = send immediately
+    label: Optional[str] = None  # Free-form campaign name shown in admin UI
 
 
 @router.post("/marketing/flyer-send")
 async def admin_send_flyer(payload: FlyerSendIn, user: dict = Depends(get_current_user)):
-    """Send a recruitment flyer to a list of email addresses. Used for cold
-    outreach to organizers / influencers from the admin Marketing tab.
+    """Send (or schedule) a recruitment flyer.
 
-    Sends sequentially via the fire-and-forget helper to keep the request fast
-    and let Resend's HTTP queue handle retries. Capped at 200 recipients per
-    request — for larger lists, batch on the client side.
+    • If `scheduled_for` is omitted, sends immediately via fire-and-forget
+      (max 200 recipients — to keep the request fast).
+    • If `scheduled_for` is provided, the campaign is queued in
+      `flyer_campaigns`; the scheduler picks it up every 60 seconds, sends
+      it in 200-recipient batches, and stamps progress on the doc. Allows
+      up to 5000 recipients per scheduled campaign.
+
+    Every send is recorded in `flyer_campaigns` with `resend_ids[email]` so
+    the Resend webhook can map opens/clicks back for per-campaign analytics.
     """
     _admin_only(user)
     if payload.kind not in FLYER_KINDS:
         raise HTTPException(status_code=400, detail="Unknown flyer kind")
-    if not payload.emails:
+    # Normalize + dedupe (case-insensitive)
+    seen, emails = set(), []
+    for raw in payload.emails:
+        e = (raw or "").strip().lower()
+        if e and e not in seen:
+            seen.add(e)
+            emails.append(e)
+    if not emails:
         raise HTTPException(status_code=400, detail="At least one recipient required")
-    if len(payload.emails) > 200:
-        raise HTTPException(status_code=400, detail="Max 200 recipients per send — batch your list")
+
+    scheduled_dt = None
+    if payload.scheduled_for:
+        try:
+            scheduled_dt = datetime.fromisoformat(payload.scheduled_for.replace("Z", "+00:00"))
+            if scheduled_dt.tzinfo is None:
+                scheduled_dt = scheduled_dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid scheduled_for ISO timestamp")
+        if scheduled_dt <= utc_now() + timedelta(minutes=1):
+            raise HTTPException(status_code=400, detail="scheduled_for must be at least 1 minute in the future")
+        if len(emails) > 5000:
+            raise HTTPException(status_code=400, detail="Max 5000 recipients per scheduled campaign")
+    else:
+        if len(emails) > 200:
+            raise HTTPException(status_code=400, detail="Max 200 recipients when sending now — schedule it or batch it")
 
     # Cheap name lookup so the salutation reads naturally for known users.
     name_lookup: dict[str, str] = {}
-    async for u in db.users.find({"email": {"$in": payload.emails}}, {"_id": 0, "email": 1, "name": 1}):
+    async for u in db.users.find({"email": {"$in": emails}}, {"_id": 0, "email": 1, "name": 1}):
         name_lookup[u["email"]] = u.get("name") or "there"
 
-    sent = 0
-    for email in payload.emails:
+    campaign_id = f"cmp_{uuid.uuid4().hex[:12]}"
+    base_doc = {
+        "campaign_id": campaign_id,
+        "kind": payload.kind,
+        "label": (payload.label or "").strip()[:80] or None,
+        "emails": emails,
+        "total": len(emails),
+        "scheduled_for": scheduled_dt.isoformat() if scheduled_dt else None,
+        "created_by": user["user_id"],
+        "created_at": utc_now().isoformat(),
+        "sent_count": 0,
+        "failed_count": 0,
+        "resend_ids": {},  # email -> resend message id (for webhook lookup)
+        "status": "scheduled" if scheduled_dt else "sending",
+    }
+    await db.flyer_campaigns.insert_one(base_doc)
+
+    if scheduled_dt:
+        return {
+            "status": "scheduled",
+            "campaign_id": campaign_id,
+            "scheduled_for": scheduled_dt.isoformat(),
+            "total_recipients": len(emails),
+        }
+
+    # Send immediately, in-process.
+    sent, failed, resend_map = 0, 0, {}
+    for email in emails:
         try:
-            send_template_fireforget(
-                payload.kind,
-                email,
-                {"name": name_lookup.get(email, "there")},
-                db,
-            )
-            sent += 1
+            res = await send_template(payload.kind, email, {"name": name_lookup.get(email, "there")}, db)
+            if res.get("status") == "sent":
+                sent += 1
+                rid = res.get("resend_id")
+                if rid:
+                    resend_map[email.replace(".", "_DOT_")] = rid  # mongo keys can't contain dots
+            else:
+                failed += 1
         except Exception:
-            pass
-    return {"queued": sent, "kind": payload.kind, "total_recipients": len(payload.emails)}
+            failed += 1
+    await db.flyer_campaigns.update_one(
+        {"campaign_id": campaign_id},
+        {"$set": {
+            "status": "sent",
+            "sent_count": sent,
+            "failed_count": failed,
+            "resend_ids": resend_map,
+            "completed_at": utc_now().isoformat(),
+        }},
+    )
+    return {"status": "sent", "campaign_id": campaign_id, "sent": sent, "failed": failed, "total_recipients": len(emails)}
+
+
+@router.get("/marketing/flyer-campaigns")
+async def admin_list_flyer_campaigns(user: dict = Depends(get_current_user), limit: int = 50):
+    """List recent flyer campaigns with per-campaign open/click stats pulled
+    from `email_events` (populated by the Resend webhook). Stats are computed
+    on demand so they reflect events that arrived after the send completed.
+    """
+    _admin_only(user)
+    cur = db.flyer_campaigns.find({}, {"_id": 0, "emails": 0}).sort("created_at", -1).limit(max(1, min(100, limit)))
+    items = [doc async for doc in cur]
+    # Compute opens / clicks per campaign by joining resend_ids → email_events
+    for c in items:
+        ids = list((c.get("resend_ids") or {}).values())
+        if not ids:
+            c["opened"] = 0
+            c["clicked"] = 0
+            c["bounced"] = 0
+            continue
+        events = await db.email_events.aggregate([
+            {"$match": {"resend_id": {"$in": ids}}},
+            {"$group": {"_id": "$event_type", "ids": {"$addToSet": "$resend_id"}}},
+        ]).to_list(20)
+        c["opened"] = next((len(e["ids"]) for e in events if e["_id"] in ("email.opened", "opened")), 0)
+        c["clicked"] = next((len(e["ids"]) for e in events if e["_id"] in ("email.clicked", "clicked")), 0)
+        c["bounced"] = next((len(e["ids"]) for e in events if e["_id"] in ("email.bounced", "bounced")), 0)
+    return {"items": items}
+
+
+@router.delete("/marketing/flyer-campaigns/{campaign_id}")
+async def admin_cancel_flyer_campaign(campaign_id: str, user: dict = Depends(get_current_user)):
+    """Cancel a *scheduled* campaign before it dispatches. No-op if the
+    campaign already started sending.
+    """
+    _admin_only(user)
+    res = await db.flyer_campaigns.update_one(
+        {"campaign_id": campaign_id, "status": "scheduled"},
+        {"$set": {"status": "cancelled", "cancelled_at": utc_now().isoformat()}},
+    )
+    if res.modified_count == 0:
+        raise HTTPException(status_code=400, detail="Campaign already dispatched or not found")
+    return {"cancelled": campaign_id}
 
 
 # ---------- Email logs (audit trail) ----------

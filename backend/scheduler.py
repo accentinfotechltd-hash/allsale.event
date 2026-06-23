@@ -887,6 +887,89 @@ async def _run_monthly_partner_payouts(db: Any) -> dict:
     return {"earnings_marked_paid": total_marked, "partners_touched": partner_count, "batch_id": batch_id}
 
 
+async def _dispatch_due_flyer_campaigns(db: Any) -> int:
+    """Pick up `flyer_campaigns` whose `scheduled_for` is now-or-past and send
+    them in 200-recipient chunks. Each successfully-sent email's Resend
+    message-id is stamped on the campaign so the webhook can compute opens /
+    clicks later.
+
+    Called from the fast (60s) loop, NOT the hourly tick.
+    """
+    from emails import send_template as _send_template
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    cursor = db.flyer_campaigns.find(
+        {"status": "scheduled", "scheduled_for": {"$lte": now_iso}},
+    ).limit(5)  # bound per tick so we never block the loop too long
+
+    dispatched = 0
+    async for camp in cursor:
+        cid = camp["campaign_id"]
+        # Claim atomically so two replicas don't double-send.
+        claim = await db.flyer_campaigns.update_one(
+            {"campaign_id": cid, "status": "scheduled"},
+            {"$set": {"status": "sending", "started_at": now_iso}},
+        )
+        if claim.modified_count == 0:
+            continue
+
+        kind = camp["kind"]
+        emails = camp.get("emails") or []
+        # Name lookup for personalized salutations.
+        name_lookup: dict = {}
+        async for u in db.users.find({"email": {"$in": emails}}, {"_id": 0, "email": 1, "name": 1}):
+            name_lookup[u["email"]] = u.get("name") or "there"
+
+        sent, failed, resend_map = 0, 0, {}
+        # 200-recipient chunks, brief sleep between chunks to respect Resend rate limit.
+        chunk_size = 200
+        for i in range(0, len(emails), chunk_size):
+            chunk = emails[i:i + chunk_size]
+            for email in chunk:
+                try:
+                    res = await _send_template(kind, email, {"name": name_lookup.get(email, "there")}, db)
+                    if res.get("status") == "sent":
+                        sent += 1
+                        rid = res.get("resend_id")
+                        if rid:
+                            resend_map[email.replace(".", "_DOT_")] = rid
+                    else:
+                        failed += 1
+                except Exception:
+                    failed += 1
+            if i + chunk_size < len(emails):
+                await asyncio.sleep(1)  # short breath between chunks
+
+        await db.flyer_campaigns.update_one(
+            {"campaign_id": cid},
+            {"$set": {
+                "status": "sent",
+                "sent_count": sent,
+                "failed_count": failed,
+                "resend_ids": resend_map,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        logger.info(f"[scheduler] flyer campaign {cid} dispatched: sent={sent} failed={failed}")
+        dispatched += 1
+    return dispatched
+
+
+async def fast_loop(db: Any, interval_seconds: int = 60) -> None:
+    """High-cadence loop for tasks that need minute-level precision.
+
+    Currently dispatches due `flyer_campaigns`. Could host future things like
+    flash-sale start triggers without disturbing the hourly scheduler.
+    """
+    await asyncio.sleep(15)
+    while True:
+        try:
+            await _dispatch_due_flyer_campaigns(db)
+        except Exception as exc:  # pragma: no cover
+            logger.exception("[fast-loop] tick failed: %s", exc)
+        await asyncio.sleep(interval_seconds)
+
+
 async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
     """Top-level loop — sleeps 30s on startup, then ticks every `interval_seconds`."""
     await asyncio.sleep(30)

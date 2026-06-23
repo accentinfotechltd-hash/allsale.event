@@ -67,7 +67,7 @@ for _name in [
     "auth", "events", "bookings", "payments", "uploads", "admin",
     "organizer", "discount_codes", "payouts", "waitlist",
     "recommendations", "ws_seats", "analytics", "downloads", "team", "seatmap_ai", "contact", "site_settings",
-    "contact_organizer", "stripe_connect", "embed", "revenue_splits", "refunds", "follows", "transfers", "affiliates", "stripe_tax", "marketing", "influencers", "support_chat", "feedback", "seo", "gift_cards", "bundles", "organizer_referrals", "seatmap_templates", "ticket_protection", "admin_organizer_chat", "img_proxy", "blog", "flyer_ai", "marketing_partners",
+    "contact_organizer", "stripe_connect", "embed", "revenue_splits", "refunds", "follows", "transfers", "affiliates", "stripe_tax", "marketing", "influencers", "support_chat", "feedback", "seo", "gift_cards", "bundles", "organizer_referrals", "seatmap_templates", "ticket_protection", "admin_organizer_chat", "img_proxy", "blog", "flyer_ai", "marketing_partners", "resend_webhook",
 ]:
     r, err = _safe_import_router(f"routers.{_name}")
     if r is not None:
@@ -222,10 +222,11 @@ async def on_startup():
     # Schedule but don't await — health-check responds while this runs.
     asyncio.create_task(_heavy_startup())
 
-    # Background scheduler: hourly reminders + weekly digest.
+    # Background scheduler: hourly reminders + weekly digest + due flyer campaigns.
     try:
-        from scheduler import scheduler_loop
+        from scheduler import scheduler_loop, fast_loop
         asyncio.create_task(scheduler_loop(db))
+        asyncio.create_task(fast_loop(db))
         logger.info("[boot] scheduler started")
     except Exception as sch_err:
         logger.error(f"[boot] scheduler failed to start: {sch_err}")

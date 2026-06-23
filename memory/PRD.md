@@ -31,7 +31,13 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
-- **First-time tutorial (NEW)**: Role-aware welcome modal (`/app/frontend/src/components/WelcomeModal.jsx`) auto-shows on first login (gated by `localStorage[welcomeSeen_<role>]`) with 4-5 slides tailored per role (attendee/organizer/partner/admin). Pagination dots, Back/Next/Got it, "Don't show again" toggle (default on), X-to-close. Mounted globally inside `Layout.jsx`. Re-trigger via the `allsale:show-welcome` window event.
+- **Recruitment flyer system (NEW — 3 features)**:
+  1. **Schedule for later** — `flyer_campaigns` collection + 60s `fast_loop` in `scheduler.py` picks up due campaigns and dispatches in 200-recipient chunks with atomic claim. Max 5000 recipients per scheduled campaign.
+  2. **CSV import** — Drag-and-drop or file picker on the Recipients box. Regex-extracts all emails from any text/CSV file, dedupes case-insensitively, populates textarea.
+  3. **Open/click tracking** — `POST /api/webhooks/resend` (public router) stores events in `email_events`. Admin campaigns table aggregates opens/clicks/bounces per campaign via `resend_ids` join with rate %.
+  - Also added campaign label field, Cancel button for scheduled campaigns, and an instrumented "Recent campaigns" history table on the admin tab.
+- **AdminFlyersTab UI** — preview iframe via authenticated srcDoc, Send now / Schedule toggle, optional label, CSV upload, validation, campaign history.
+- **Two new email templates** in `emails.py`: `organizer_features_flyer` and `influencer_features_flyer` — fully-styled HTML pitches.
 - **Help page (NEW)**: Static `/help` page (`/app/frontend/src/pages/Help.jsx`) with three persona tabs (For attendees / For organisers / For partners), each containing 4-6 icon cards with concrete next-action CTAs. Footer link added under "Company" column. "Show me the welcome tour" CTA at the bottom clears all `welcomeSeen_*` flags and dispatches the re-show event.
 - **In-app Change Password for partners**: Backend `PUT /api/auth/change-password` + frontend collapsible section in `PartnerPortal.jsx`.
 - **E2E backend test suite**: 26 pytest tests at `/app/backend/tests/test_marketing_partners_blog.py` covering Marketing Partner CRUD/attach/earnings/mark-paid/grant-portal/self-serve/change-password roundtrip + Blog subscribe/unsubscribe/resubscribe/admin notify fan-out idempotency. 100% pass rate.
