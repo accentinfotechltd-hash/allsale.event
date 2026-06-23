@@ -584,7 +584,7 @@ export default function EventDetail() {
                           ) : (
                             <div className="serif text-2xl" style={{ color: "var(--accent)" }}>{formatMoney(t.price, event.currency, { minimumFractionDigits: 0, maximumFractionDigits: 2, free: true })}</div>
                           )}
-                          {Number(t.effective_price ?? t.price) > 0 && canSeeMetrics && (
+                          {Number(t.effective_price ?? t.price) > 0 && (
                             <div className="text-[10px] mt-1" style={{ color: "var(--text-dim)" }} data-testid={`tier-fee-breakdown-${t.name}`}>
                               {formatMoney(Number(t.effective_price ?? t.price), event.currency, { free: false })} + {formatMoney(estimateBuyerFees(Number(t.effective_price ?? t.price), feeSettings).fees, event.currency, { free: false })} fees
                             </div>
