@@ -439,7 +439,7 @@ function FeatureStrip() {
                   New
                 </span>
               )}
-              <span className="text-[10px] opacity-60 whitespace-nowrap hidden md:inline">· {sub}</span>
+              <span className="text-[10px] whitespace-nowrap hidden md:inline" style={{ color: "var(--text)", opacity: 0.85 }}>· {sub}</span>
             </Link>
           ))}
         </div>
