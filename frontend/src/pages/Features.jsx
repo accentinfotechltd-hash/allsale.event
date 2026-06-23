@@ -14,7 +14,7 @@ import { useEffect, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import {
   Ticket, Calendar, Zap, ScanLine, DollarSign, ShieldCheck,
-  Megaphone, Smartphone, ArrowRight, Check,
+  Megaphone, Smartphone, ArrowRight, Check, Sparkles, Users,
 } from "lucide-react";
 
 const FEATURES = [
@@ -141,6 +141,36 @@ const FEATURES = [
     ],
     cta: { label: "Browse events", to: "/events" },
   },
+  {
+    slug: "ai-flyer-maker",
+    icon: Sparkles,
+    title: "AI Flyer Maker",
+    tagline: "Instagram-ready posters in seconds — no designer required.",
+    body:
+      "Every event gets a Share page that renders three pixel-perfect flyer sizes (square 1:1, story 9:16, landscape 16:9) from your cover photo and details. Hit one button to generate AI-written headlines and CTAs; download all three as a single zip ready for socials.",
+    steps: [
+      "Open any event you own and click 'Share'.",
+      "Pick a template (Minimal / Neon / Bold) and tweak colors if you want.",
+      "Tap 'Add AI text overlay' — we generate a headline, tagline and CTA in your voice.",
+      "Hit 'Download all (zip)' to get all three social sizes in one click.",
+    ],
+    cta: { label: "Browse events", to: "/events" },
+  },
+  {
+    slug: "marketing-partners",
+    icon: Users,
+    title: "Marketing Partner program",
+    tagline: "Refer organisers, earn commission — fully automated.",
+    body:
+      "Bring organisers onto Allsale and earn a percentage of every paid booking they make, forever. Partners get a private portal showing live earnings, attached organisers, and monthly payout statements — all settled via Stripe.",
+    steps: [
+      "Apply to become a marketing partner (or get granted access by Allsale).",
+      "Receive your portal login by email with a temporary password.",
+      "Refer organisers — Allsale links them to your account automatically.",
+      "Earnings credit on every paid booking; statements email on the 1st, payouts on the 5th.",
+    ],
+    cta: { label: "Open partner portal", to: "/partner" },
+  },
 ];
 
 export default function Features() {
@@ -174,8 +204,8 @@ export default function Features() {
         <h1 className="serif text-4xl sm:text-5xl lg:text-6xl leading-[1.05] mb-3">
           Everything you need to <em style={{ color: "var(--accent)" }}>sell out</em>.
         </h1>
-        <p className="text-base max-w-2xl" style={{ color: "var(--text-muted)" }}>
-          Eight core capabilities that cover the entire journey — from listing
+        <p className="text-base max-w-2xl" style={{ color: "var(--text)" }}>
+          Ten core capabilities that cover the entire journey — from listing
           your first event to scanning the last ticket at the door. Click any
           feature below to jump to a quick tutorial.
         </p>
@@ -219,8 +249,8 @@ export default function Features() {
                   Feature {String(idx + 1).padStart(2, "0")}
                 </div>
                 <h2 className="serif text-3xl sm:text-4xl mb-3">{title}</h2>
-                <p className="text-base mb-4" style={{ color: "var(--text-muted)" }}>{tagline}</p>
-                <p className="text-sm leading-relaxed" style={{ color: "var(--text-muted)" }}>{body}</p>
+                <p className="text-base mb-4" style={{ color: "var(--text)" }}>{tagline}</p>
+                <p className="text-sm leading-relaxed" style={{ color: "var(--text)" }}>{body}</p>
                 {cta && (
                   <Link
                     to={cta.to}
@@ -248,7 +278,7 @@ export default function Features() {
                       >
                         {i + 1}
                       </span>
-                      <span style={{ color: "var(--text-muted)" }}>{s}</span>
+                      <span style={{ color: "var(--text)" }}>{s}</span>
                     </li>
                   ))}
                 </ol>
@@ -267,7 +297,7 @@ export default function Features() {
         style={{ background: "var(--bg-elev)", borderColor: "var(--border)" }}
       >
         <h3 className="serif text-3xl sm:text-4xl mb-3">Ready to run your show?</h3>
-        <p className="text-sm mb-6 max-w-xl mx-auto" style={{ color: "var(--text-muted)" }}>
+        <p className="text-sm mb-6 max-w-xl mx-auto" style={{ color: "var(--text)" }}>
           Sign up takes 60 seconds. List your event in under five minutes.
           Allsale handles tickets, payments and the front door.
         </p>
