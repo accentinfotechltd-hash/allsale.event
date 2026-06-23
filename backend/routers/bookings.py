@@ -18,6 +18,34 @@ from routers.ws_seats import notify_seats, notify_tier_refresh
 router = APIRouter(tags=["bookings"])
 
 
+# Public endpoint so the frontend's per-tier fee preview ("+ $X fees")
+# matches what we'll actually charge at checkout. Reads the same
+# admin-configured `platform_settings.commission` document used by the real
+# booking math, plus exposes the Stripe % so the client can gross-up.
+@router.get("/fees/public-settings")
+async def public_fee_settings():
+    """Return the effective fee parameters the buyer actually pays — no auth,
+    safe to expose. The frontend uses these to render the tier breakdown so
+    it never diverges from the backend `compute_fees()` result.
+    """
+    from fees import PLATFORM_FEE_BPS, STRIPE_FEE_BPS, STRIPE_FEE_FLAT
+    from routers.payouts import DEFAULT_COMMISSION_PERCENT, DEFAULT_FLAT_FEE_PER_TICKET
+
+    doc = await db.platform_settings.find_one({"key": "commission"}, {"_id": 0}) or {}
+    # commission_percent is admin's override; fall back to env default (PLATFORM_FEE_BPS/100).
+    pct = doc.get("commission_percent")
+    if pct is None:
+        pct = (PLATFORM_FEE_BPS / 100.0) if PLATFORM_FEE_BPS != 500 else DEFAULT_COMMISSION_PERCENT
+    flat = doc.get("commission_flat_fee_per_ticket")
+    if flat is None:
+        flat = DEFAULT_FLAT_FEE_PER_TICKET if STRIPE_FEE_FLAT == 0.30 else STRIPE_FEE_FLAT
+    return {
+        "platform_pct": float(pct),
+        "platform_flat_per_ticket": float(flat),
+        "stripe_pct": STRIPE_FEE_BPS / 100.0,
+    }
+
+
 @router.post("/bookings/hold")
 async def create_hold(payload: HoldIn, request: Request, user: dict = Depends(get_current_user)):
     event = await db.events.find_one({"event_id": payload.event_id}, {"_id": 0})

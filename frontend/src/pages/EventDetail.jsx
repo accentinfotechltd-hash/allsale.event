@@ -9,7 +9,7 @@ import { ContactOrganizerButton } from "@/components/ContactOrganizerDialog";
 import FollowOrganizerButton from "@/components/FollowOrganizerButton";
 import AffiliateBanner from "@/components/AffiliateBanner";
 import { usePageMeta } from "@/lib/usePageMeta";
-import { estimateBuyerFees, estimateTicketProtection } from "@/lib/fees";
+import { estimateBuyerFees, estimateTicketProtection, useFeeSettings } from "@/lib/fees";
 import SocialShareButtons from "@/components/SocialShareButtons";
 import SeoHead from "@/components/SeoHead";
 import EventMedia, { BannerExpandHint } from "@/components/EventMedia";
@@ -32,6 +32,10 @@ export default function EventDetail() {
   // bookings, demand sparkline, capacity numbers). Public visitors get a
   // cleaner UI without giving away inventory information.
   const canSeeMetrics = !!user && (user.role === "admin" || (event && user.user_id === event.organizer_id));
+  // Admin-configured commission % + flat per-ticket fee. Pulled from
+  // `/api/fees/public-settings` so the per-tier "+ $X fees" preview matches
+  // the actual checkout charge exactly.
+  const feeSettings = useFeeSettings();
   const [codeInput, setCodeInput] = useState("");
   const [appliedCode, setAppliedCode] = useState(null); // {code, discount_amount, final_amount, kind, value}
   const [validatingCode, setValidatingCode] = useState(false);
@@ -580,9 +584,9 @@ export default function EventDetail() {
                           ) : (
                             <div className="serif text-2xl" style={{ color: "var(--accent)" }}>{formatMoney(t.price, event.currency, { minimumFractionDigits: 0, maximumFractionDigits: 2, free: true })}</div>
                           )}
-                          {Number(t.effective_price ?? t.price) > 0 && (
+                          {Number(t.effective_price ?? t.price) > 0 && canSeeMetrics && (
                             <div className="text-[10px] mt-1" style={{ color: "var(--text-dim)" }} data-testid={`tier-fee-breakdown-${t.name}`}>
-                              {formatMoney(Number(t.effective_price ?? t.price), event.currency, { free: false })} + {formatMoney(estimateBuyerFees(Number(t.effective_price ?? t.price)).fees, event.currency, { free: false })} fees
+                              {formatMoney(Number(t.effective_price ?? t.price), event.currency, { free: false })} + {formatMoney(estimateBuyerFees(Number(t.effective_price ?? t.price), feeSettings).fees, event.currency, { free: false })} fees
                             </div>
                           )}
                         </div>

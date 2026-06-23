@@ -1,0 +1,37 @@
+{
+  "summary": "Validated the per-tier fee-breakdown privacy fix and dynamic commission-driven fee math. 9/9 backend pytest tests passing. Public UI verified to have 0 'tier-fee-breakdown-*' elements visible while admin sees all 3 with correct math (5% / $0.30 → $25→$2.29, $35→$3.08, $75→$6.24). Demand sparkline and 'seats total' capacity labels remain hidden from public, visible to admin. Public /api/fees/public-settings endpoint is reachable without auth, reflects admin updates (5/0.30 ↔ 8/0.50) within < 1s, and the client-side estimator in fees.js matches backend compute_fees() exactly. Commission restored to 5%/$0.30 at end of test.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/admin/payouts/settings", "issue": "Review request referenced this path but the actual implementation lives at PUT /api/admin/platform-settings (see routers/payouts.py:70). Not a bug — just a docs/spec drift to flag to the main agent."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fees_public_settings.py",
+    "/app/test_reports/pytest/iteration_15_fees.xml"
+  ],
+  "action_items": [
+    "Optional: align the agent-to-agent context note path (`/api/admin/payouts/settings`) with the real route (`/api/admin/platform-settings`) so future testers don't waste a cycle.",
+    "Consider adding an explicit `data-testid=\"demand-sparkline\"` to the DemandSparkline wrapper so the regression test can target it directly rather than checking for absence of text."
+  ],
+  "critical_code_review_comments": [
+    "bookings.py:25-46 — public_fee_settings has a subtle fallback bug: when the doc is missing AND PLATFORM_FEE_BPS == 500 (default 5%), it falls back to DEFAULT_COMMISSION_PERCENT=8.0 instead of the env-derived 5.0. The conditional `(PLATFORM_FEE_BPS / 100.0) if PLATFORM_FEE_BPS != 500 else DEFAULT_COMMISSION_PERCENT` is inverted — should return env-based 5.0 (its non-default override) and only fall back to 8.0 when env is unset. In practice the DB doc is always seeded by get_commission_settings() so this is rarely hit, but if `platform_settings.commission` is ever wiped the public endpoint would report 8% while compute_fees() (which uses PLATFORM_FEE_BPS=500 ⇒ 5%) would charge 5%, creating buyer-pricing divergence.",
+    "fees.js:17-19 — Client-side fallbacks (DEFAULT_PLATFORM_PCT=8, DEFAULT_PLATFORM_FLAT=0.50) don't match the real backend default of 5%/0.30. If /api/fees/public-settings is slow/down, the UI will briefly display 8% fees on a 5% account. Recommend lowering fallbacks to 5/0.30 to match the most likely steady state, OR hiding the breakdown until settings load.",
+    "EventDetail.jsx:34 — `canSeeMetrics` is computed before `event` is loaded, so on first render it's always false. Once event loads it re-renders correctly. No bug, just worth noting that the breakdown briefly flickers as 'absent' even for admins on first paint."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_fees_public_settings.py (new)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (public hide + admin show + math verified)"},
+  "test_credentials": "admin@allsale.events / admin123 (used); orgtester@allsale.events / orgtest123 not needed because admin view exercises the same canSeeMetrics gate.",
+  "seed_data_creation": "None. Modified platform_settings.commission temporarily (5→8→5, 0.30→0.50→0.30) and restored to original 5%/$0.30 at end of TestPublicFeeSettings.test_restore_5pct.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend test file /app/backend/tests/test_fees_public_settings.py is idempotent and self-restoring. The event evt_656b89734cd7 has tiers Early Bird ($25), General ($35), VIP Front Stage ($75) — not the $30 'General'/'VIP' referenced in the spec, so admin verification used these actual tier prices. Math identity confirmed: face × 5% + 0.30 grossed up by 1/(1−0.027) matches displayed breakdown. The review-request endpoint path /api/admin/payouts/settings does NOT exist — use /api/admin/platform-settings. WebSocket warning about wss://.../api/ws/events/... is pre-existing and unrelated.",
+  "rca of the issue": "n/a — fix verified working. Public buyers no longer see fee breakdown; admin/owner see it; math driven by admin-configured platform_settings.commission via /api/fees/public-settings; FE estimator (fees.js) matches BE compute_fees() to the cent."
+}

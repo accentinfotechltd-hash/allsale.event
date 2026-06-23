@@ -1,18 +1,32 @@
 /**
  * Client-side fee estimator — mirrors backend `fees.py:compute_fees()`.
- * Used purely for display (per-tier "+ $X fees" line). The backend is the
- * source of truth for the actual charge.
+ *
+ * The backend remains the source of truth for the actual charge. This module
+ * is purely for display ("+ $X fees" line under each ticket tier).
+ *
+ * The numbers we *display* must match the admin's configured commission
+ * (`platform_settings.commission`) or buyers see one price on the listing
+ * page and a different price at checkout. Use `useFeeSettings()` (or
+ * pre-fetch `/api/fees/public-settings`) and pass the values through.
  */
-const PLATFORM_FEE_BPS = 500;   // 5%
-const STRIPE_FEE_BPS = 270;     // 2.7%
-const STRIPE_FEE_FLAT = 0.30;   // $0.30 per transaction
-const TICKET_PROTECTION_BPS = 650; // 6.5%
+import { useEffect, useState } from "react";
+import api from "@/lib/api";
 
-export function estimateBuyerFees(faceValue) {
+// Sensible fallbacks while the public-settings call is in-flight. These match
+// the backend's `DEFAULT_COMMISSION_PERCENT` / `DEFAULT_FLAT_FEE_PER_TICKET`.
+const DEFAULT_PLATFORM_PCT = 8;        // 8 %
+const DEFAULT_PLATFORM_FLAT = 0.50;    // $0.50 per ticket
+const DEFAULT_STRIPE_PCT = 2.7;        // 2.7 %  (NZ domestic card)
+const TICKET_PROTECTION_BPS = 650;     // 6.5 %
+
+export function estimateBuyerFees(faceValue, opts = {}) {
   if (!faceValue || faceValue <= 0) return { fees: 0, total: 0 };
-  const platform = faceValue * (PLATFORM_FEE_BPS / 10000);
-  const stripePct = STRIPE_FEE_BPS / 10000;
-  const total = (faceValue + platform + STRIPE_FEE_FLAT) / Math.max(1e-6, 1 - stripePct);
+  const platformPct = (opts.platformPct ?? DEFAULT_PLATFORM_PCT) / 100;
+  const platformFlat = opts.platformFlat ?? DEFAULT_PLATFORM_FLAT;
+  const stripePct = (opts.stripePct ?? DEFAULT_STRIPE_PCT) / 100;
+
+  const platform = faceValue * platformPct;
+  const total = (faceValue + platform + platformFlat) / Math.max(1e-6, 1 - stripePct);
   const fees = total - faceValue;
   return { fees: round2(fees), total: round2(total) };
 }
@@ -20,6 +34,40 @@ export function estimateBuyerFees(faceValue) {
 export function estimateTicketProtection(subtotal) {
   if (!subtotal || subtotal <= 0) return 0;
   return round2(subtotal * (TICKET_PROTECTION_BPS / 10000));
+}
+
+// Single-flight cache so multiple components mounting at once only issue one
+// network request. Refreshes when the user reloads.
+let _settingsPromise = null;
+function loadFeeSettings() {
+  if (!_settingsPromise) {
+    _settingsPromise = api.get("/fees/public-settings")
+      .then((r) => ({
+        platformPct: r.data?.platform_pct,
+        platformFlat: r.data?.platform_flat_per_ticket,
+        stripePct: r.data?.stripe_pct,
+      }))
+      .catch(() => ({
+        platformPct: DEFAULT_PLATFORM_PCT,
+        platformFlat: DEFAULT_PLATFORM_FLAT,
+        stripePct: DEFAULT_STRIPE_PCT,
+      }));
+  }
+  return _settingsPromise;
+}
+
+export function useFeeSettings() {
+  const [settings, setSettings] = useState({
+    platformPct: DEFAULT_PLATFORM_PCT,
+    platformFlat: DEFAULT_PLATFORM_FLAT,
+    stripePct: DEFAULT_STRIPE_PCT,
+  });
+  useEffect(() => {
+    let cancelled = false;
+    loadFeeSettings().then((s) => { if (!cancelled) setSettings(s); });
+    return () => { cancelled = true; };
+  }, []);
+  return settings;
 }
 
 function round2(n) { return Math.round(n * 100) / 100; }
