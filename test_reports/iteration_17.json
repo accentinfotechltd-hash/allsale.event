@@ -1,0 +1,38 @@
+{
+  "summary": "RETEST PASSED. The Dict[str, Any] annotation fix resolves the iteration_16 bug. Graceful fallback now returns HTTP 200 (not 500) with body {headline, tagline, cta, ai_fallback: true} when EMERGENT_LLM_KEY is invalid. Latency was 1.07s — well under the 5s target. All 6 prior pytest cases still pass with real key. 5x extra happy-path probe also returned 200 with real AI output (no ai_fallback). Original EMERGENT_LLM_KEY restored and backend confirmed running.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/events/{event_id}/flyer/generate-text",
+        "issue": "Auth short-circuit at line 118 does NOT actually fire. The check `'AuthenticationError' in type(exc).__name__ or 'invalid api key' in str(exc).lower()` doesn't match the real wrapper exception: type name is something like `Exception`/`LlmChatError` (not `AuthenticationError`), and the OpenAI error message uses the wording 'Incorrect API key' (not 'invalid api key'). Backend logs confirm all 3 models were tried in sequence (gemini-flash 01:48:28.426, gemini-pro 01:48:28.458, openai 01:48:29.330) and the expected log line `[flyer-ai] auth error — short-circuiting model chain` was NEVER emitted. Functional impact is small (each provider rejects in ~30-900ms so total stayed at 1.07s on this run), but the optimization is silently broken and could bite under different network conditions. Suggested fix: also match on `'AuthenticationError' in str(exc)` and add 'incorrect api key' / 'unauthorized' to the keyword set."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_flyer_ai.py",
+    "/app/test_reports/pytest/iter17_flyer_ai_regression.xml",
+    "/tmp/test_fallback.py (one-off fallback validator)"
+  ],
+  "action_items": [
+    "(Optional, minor) Strengthen the auth short-circuit match in /app/backend/routers/flyer_ai.py line 118 — current condition never matches the emergentintegrations wrapper exception. Add `'AuthenticationError' in str(exc)` and substrings 'incorrect api key', 'unauthorized'. Endpoint already returns in ~1s today even without it, so this is a polish item, not a blocker."
+  ],
+  "critical_code_review_comments": [
+    "Primary bug from iter_16 (Dict[str, str] -> Dict[str, Any]) is fixed and verified end-to-end.",
+    "Auth short-circuit (line 118) is dead code in practice — log evidence shows all 3 models are still tried. Fortunately each rejects in <1s on bad keys so total stays well under the 5s target, but the comment in the source overstates what the code does.",
+    "Good: no raw LiteLLM/OpenAI error string leaks into the 200 response body in either real-AI or fallback paths — confirmed by both pytest assertions and the manual fallback probe.",
+    "Persistent (not regression): fallback tagline uses Python's salted `hash(event_id)` for selection, so taglines change between worker restarts. Cosmetic, but use `int(event_id[-2:], 16) % len(...)` or hashlib for deterministic selection across deploys."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% on must-pass scenarios (6/6 pytest + graceful-fallback 200 + 5/5 happy-path-after-restore). Minor short-circuit optimization broken but not blocking.",
+    "frontend": "n/a (backend-only retest)"
+  },
+  "test_credentials": "admin@allsale.events / admin123 ; orgtester@allsale.events / orgtest123 ; event evt_656b89734cd7",
+  "seed_data_creation": "none",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "EMERGENT_LLM_KEY has been restored to sk-emergent-a9d96A438Fb133c367 in /app/backend/.env and backend is running healthy. The flyer-ai fix is verified working. If next iteration touches flyer_ai.py, re-run /app/backend/tests/test_flyer_ai.py (55s, 6 tests) for regression and optionally /tmp/test_fallback.py after temporarily setting an invalid key.",
+  "rca of the issue": "iter_16 RCA confirmed and fix verified: changing the route's return annotation from `Dict[str, str]` to `Dict[str, Any]` lets FastAPI's response-model validator accept the `ai_fallback: True` bool in the template-fallback dict. Endpoint now returns 200 instead of 500 when every upstream LLM provider rejects the key. Latency is ~1s because each provider's auth rejection is fast — even though the line-118 auth short-circuit didn't actually fire (type-name and substring checks don't match the real wrapper exception), the cumulative latency of trying all 3 still comes in under the 5s target."
+}

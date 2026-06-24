@@ -17,7 +17,7 @@ import logging
 import os
 import re
 import uuid
-from typing import Dict
+from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 from emergentintegrations.llm.chat import LlmChat, UserMessage
@@ -63,7 +63,7 @@ def _strip_json(s: str) -> str:
 @router.post("/events/{event_id}/flyer/generate-text")
 async def generate_flyer_text(
     event_id: str, user: dict = Depends(get_current_user)
-) -> Dict[str, str]:
+) -> Dict[str, Any]:
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -113,6 +113,11 @@ async def generate_flyer_text(
         except Exception as exc:  # noqa: BLE001
             last_err = exc
             logger.warning("[flyer-ai] %s/%s failed: %s", provider, model, str(exc)[:200])
+            # Authentication failures will hit every model identically (we
+            # share one Emergent LLM key) — don't burn 3× latency proving it.
+            if "AuthenticationError" in type(exc).__name__ or "invalid api key" in str(exc).lower():
+                logger.error("[flyer-ai] auth error — short-circuiting model chain")
+                break
             continue
 
     if raw is None:
