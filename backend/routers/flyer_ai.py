@@ -115,7 +115,13 @@ async def generate_flyer_text(
             logger.warning("[flyer-ai] %s/%s failed: %s", provider, model, str(exc)[:200])
             # Authentication failures will hit every model identically (we
             # share one Emergent LLM key) — don't burn 3× latency proving it.
-            if "AuthenticationError" in type(exc).__name__ or "invalid api key" in str(exc).lower():
+            # emergentintegrations wraps provider errors so the type name and
+            # substrings vary; check broadly across the wrapped message too.
+            exc_str = (str(exc) + " " + type(exc).__name__).lower()
+            if any(s in exc_str for s in (
+                "authenticationerror", "invalid api key", "incorrect api key",
+                "unauthorized", "invalid_api_key",
+            )):
                 logger.error("[flyer-ai] auth error — short-circuiting model chain")
                 break
             continue
