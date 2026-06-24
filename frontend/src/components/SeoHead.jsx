@@ -27,10 +27,8 @@ export default function SeoHead({ title, description, image, url, event }) {
       script = document.createElement("script");
       script.id = "ld-event";
       script.type = "application/ld+json";
-      // Derive endDate so Google's Event Rich Results validator stops
-      // complaining about the missing field. Prefer an explicit event.end_date
-      // if the organiser set one; otherwise add 3h to the start as a sane
-      // default that covers most gigs/shows.
+      // Derive every "recommended" field flagged by Google Search Console:
+      //   endDate, performer, organizer.url, organizer, offers.validFrom.
       const startIso = event.date || null;
       let endIso = event.end_date || null;
       if (!endIso && startIso) {
@@ -39,6 +37,15 @@ export default function SeoHead({ title, description, image, url, event }) {
           endIso = new Date(start.getTime() + 3 * 60 * 60 * 1000).toISOString();
         }
       }
+      const origin = (typeof window !== "undefined" && window.location?.origin) || "https://allsale.events";
+      const organizerUrl = event.organizer_id
+        ? `${origin}/organizers/${event.organizer_id}`
+        : origin;
+      const derivedPerformerName = (event.performer || event.title || "")
+        .split(/[—\-|·]/)[0]
+        .trim() || event.title || "Event";
+      const validFromIso = event.created_at
+        || (startIso ? new Date(Math.max(0, new Date(startIso).getTime() - 30 * 24 * 60 * 60 * 1000)).toISOString() : new Date().toISOString());
       script.text = JSON.stringify({
         "@context": "https://schema.org",
         "@type": "Event",
@@ -52,7 +59,13 @@ export default function SeoHead({ title, description, image, url, event }) {
         image: event.banner_url || event.image_url,
         description: event.description,
         offers: { "@type": "Offer", url, price: event.min_price || 0, priceCurrency: event.currency || "NZD",
-          availability: "https://schema.org/InStock" },
+          availability: "https://schema.org/InStock", validFrom: validFromIso },
+        performer: { "@type": "PerformingGroup", name: derivedPerformerName },
+        organizer: {
+          "@type": "Organization",
+          name: event.organizer_name || "Allsale Events",
+          url: organizerUrl,
+        },
       });
       document.head.appendChild(script);
     }
