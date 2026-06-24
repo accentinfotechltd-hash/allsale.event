@@ -1,0 +1,23 @@
+{
+  "summary": "Verified the Google Rich Results Event JSON-LD endDate fix end-to-end. All 6 backend pytest cases pass and the rendered <script id='event-jsonld'> and legacy <script id='ld-event'> both contain a non-null ISO endDate. Default-derivation (startDate + 3h) and explicit organizer override both work correctly. Backend create+PATCH accept end_date, persist it, and enforce role permissions (attendee 403, owner 200, admin 200).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_event_enddate.py",
+    "/app/test_reports/pytest/iter18_enddate.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "EventDetail.jsx (line ~81): eventStatus uses the same URL for both branches of the ternary — `event.sold_out ? https://schema.org/EventScheduled : https://schema.org/EventScheduled`. Likely intended `EventCancelled` or `EventScheduled`/`EventPostponed` distinction. Minor SEO correctness issue, not part of this fix scope.",
+    "SeoHead.jsx duplicates the JSON-LD that usePageMeta already injects in EventDetail.jsx — two <script type='application/ld+json'> blobs end up in <head> with overlapping Event data (id='event-jsonld' and id='ld-event'). Google tolerates this but it's redundant and the two payloads differ slightly (offers, organizer). Consider removing the SeoHead JSON-LD path now that usePageMeta covers it.",
+    "models.py: end_date is Optional[str] with no ISO-8601 validation. A malformed end_date (e.g. 'tomorrow') would be persisted as-is and emitted unchanged in the JSON-LD, failing Google validation. Suggest pydantic AwareDatetime or a validator."
+  ],
+  "updated_files": ["/app/backend/tests/test_event_enddate.py"],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "test_credentials": "Used /app/memory/test_credentials.md (admin@allsale.events / orgtester@allsale.events) plus a TEST_attendee_* registered ad hoc.",
+  "seed_data_creation": "Created and deleted evt_60bca204ff29 (TEST_ENDDATE_OVERRIDE). Created TEST_ENDDATE_Event_Explicit and TEST_ENDDATE_Event_NoEnd via pytest — these remain in DB in 'pending' moderation state (TEST_ prefix for easy cleanup).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "End-to-end verification of the JSON-LD endDate fix is complete: backend POST/PATCH accept end_date, persist it; public event page renders both id='event-jsonld' (usePageMeta) and id='ld-event' (SeoHead) with a non-null ISO endDate. Default derivation = startDate + 3h; explicit override echoes the provided value. Test data prefixed TEST_ remains in DB (pending status, won't appear on public listings).",
+  "rca of the issue": "Before the fix: EventDetail.jsx and SeoHead.jsx generated Schema.org Event JSON-LD without an endDate field, which Google's Event Rich Results validator flags as a missing required field. Fix derives endDate from event.end_date when present, else startDate + 3h fallback. Backend models.py + routers/events.py were updated to accept/persist/PATCH the new field. Verified working on evt_656b89734cd7 (no DB end_date → +3h fallback) and on a freshly created event with explicit end_date (verbatim echo)."
+}

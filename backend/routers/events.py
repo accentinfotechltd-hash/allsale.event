@@ -303,6 +303,7 @@ async def create_event(payload: EventIn, user: dict = Depends(get_current_user))
         "country": (payload.country or "NZ").upper(),
         "timezone": payload.timezone,
         "date": payload.date,
+        "end_date": payload.end_date,
         "image_url": payload.image_url,
         "banner_url": payload.banner_url or payload.image_url,
         "promo_video_url": payload.promo_video_url,
@@ -408,7 +409,7 @@ async def update_event(event_id: str, payload: dict, user: dict = Depends(get_cu
         raise HTTPException(status_code=403, detail="Not your event")
 
     EDITABLE = {
-        "title", "description", "category", "venue", "city", "country", "timezone", "date",
+        "title", "description", "category", "venue", "city", "country", "timezone", "date", "end_date",
         "image_url", "banner_url", "promo_video_url", "poster_url", "tiers",
         "has_seatmap", "seat_rows", "seat_cols", "seat_price",
         "aisles", "seat_map_image_url",

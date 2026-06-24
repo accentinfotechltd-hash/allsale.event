@@ -38,6 +38,10 @@ class EventIn(BaseModel):
     # conversion on the event detail page.
     timezone: Optional[str] = None
     date: str
+    # Optional explicit end timestamp (ISO 8601). Required by Google Event
+    # rich-results — if omitted on the frontend, we derive `endDate` as
+    # `date + 3h` for the Schema.org JSON-LD. Organisers can override here.
+    end_date: Optional[str] = None
     image_url: str
     banner_url: Optional[str] = None
     # Optional promo video URL — accepts YouTube / Vimeo / Instagram / direct

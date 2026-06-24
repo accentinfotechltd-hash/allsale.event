@@ -59,12 +59,25 @@ export default function EventDetail() {
       ? Number(event.seat_price || 0)
       : Math.min(...((event.tiers || []).map((t) => Number(t.price)).concat([Number(event.seat_price || 0)])).filter((n) => !Number.isNaN(n)));
     const description = `${event.title} — ${venueLine || event.city || "live event"}. Book tickets on Allsale Events. ${event.description ? String(event.description).slice(0, 140) : ""}`.trim();
+    // Google's Event Rich Results validator requires `endDate`. Most
+    // organisers don't set one explicitly, so we derive it from `event.date`
+    // + a sensible default duration (3 hours). If the event has an explicit
+    // `end_date` field set in the DB, prefer that.
+    const startIso = event.date || null;
+    let endIso = event.end_date || null;
+    if (!endIso && startIso) {
+      const start = new Date(startIso);
+      if (!Number.isNaN(start.getTime())) {
+        endIso = new Date(start.getTime() + 3 * 60 * 60 * 1000).toISOString();
+      }
+    }
     const jsonLd = {
       "@context": "https://schema.org",
       "@type": "Event",
       name: event.title,
       description: event.description || description,
-      startDate: event.date,
+      startDate: startIso,
+      endDate: endIso,
       eventStatus: event.sold_out ? "https://schema.org/EventScheduled" : "https://schema.org/EventScheduled",
       eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
       image: event.banner_url || event.image_url ? [event.banner_url || event.image_url] : undefined,

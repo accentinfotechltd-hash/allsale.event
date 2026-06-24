@@ -27,11 +27,24 @@ export default function SeoHead({ title, description, image, url, event }) {
       script = document.createElement("script");
       script.id = "ld-event";
       script.type = "application/ld+json";
+      // Derive endDate so Google's Event Rich Results validator stops
+      // complaining about the missing field. Prefer an explicit event.end_date
+      // if the organiser set one; otherwise add 3h to the start as a sane
+      // default that covers most gigs/shows.
+      const startIso = event.date || null;
+      let endIso = event.end_date || null;
+      if (!endIso && startIso) {
+        const start = new Date(startIso);
+        if (!Number.isNaN(start.getTime())) {
+          endIso = new Date(start.getTime() + 3 * 60 * 60 * 1000).toISOString();
+        }
+      }
       script.text = JSON.stringify({
         "@context": "https://schema.org",
         "@type": "Event",
         name: event.title,
-        startDate: event.date,
+        startDate: startIso,
+        endDate: endIso,
         eventStatus: "https://schema.org/EventScheduled",
         eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
         location: { "@type": "Place", name: event.venue,
