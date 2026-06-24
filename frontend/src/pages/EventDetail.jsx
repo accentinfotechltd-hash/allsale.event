@@ -93,7 +93,7 @@ export default function EventDetail() {
       description: event.description || description,
       startDate: startIso,
       endDate: endIso,
-      eventStatus: event.sold_out ? "https://schema.org/EventScheduled" : "https://schema.org/EventScheduled",
+      eventStatus: event.cancelled ? "https://schema.org/EventCancelled" : "https://schema.org/EventScheduled",
       eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
       image: event.banner_url || event.image_url ? [event.banner_url || event.image_url] : undefined,
       url,
