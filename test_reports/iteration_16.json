@@ -1,0 +1,46 @@
+{
+  "summary": "Tested POST /api/events/{event_id}/flyer/generate-text after the model-chain fallback fix. 6/6 happy-path pytest cases pass (auth gating, admin 200, 10/10 robustness, length caps, no raw provider error leak). FOUND 1 CRITICAL BUG: the graceful all-models-fail fallback path returns HTTP 500 (not 200) because the route's return-type annotation `Dict[str, str]` triggers FastAPI ResponseValidationError on `ai_fallback: True` (bool, not str). Verified by setting EMERGENT_LLM_KEY to invalid value, restarting backend, calling endpoint — observed 500 with FastAPI ResponseValidationError in backend logs. EMERGENT_LLM_KEY has been fully restored to original value `sk-emergent-a9d96A438Fb133c367`.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/events/{event_id}/flyer/generate-text",
+        "issue": "Graceful fallback returns 500 instead of 200. When all 3 upstream models fail, code reaches the template fallback block (line 129-134) which returns {'headline': ..., 'tagline': ..., 'cta': ..., 'ai_fallback': True}. The route signature is `async def generate_flyer_text(...) -> Dict[str, str]:` — `True` is not a str, so FastAPI raises ResponseValidationError -> HTTP 500. The exact intent stated in the request ('response should still be 200 with ai_fallback: true') is therefore NOT met today. User would still see a hard failure if every provider is genuinely down (e.g. if the LiteLLM auth issue from the original bug report recurred). Fix: change return annotation to `Dict[str, Any]` (or remove annotation), or coerce ai_fallback to a string, or split into a Pydantic response model. Repro: set EMERGENT_LLM_KEY=invalid in /app/backend/.env, restart backend, POST as admin -> 500 'Internal Server Error'. Backend log shows: `fastapi.exceptions.ResponseValidationError: 1 validation errors: {'type': 'string_type', 'loc': ('response', 'ai_fallback'), 'msg': 'Input should be a valid string', 'input': True}`.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_flyer_ai.py",
+    "/app/test_reports/pytest/iter16_flyer_ai.xml"
+  ],
+  "action_items": [
+    "Fix return-type annotation in /app/backend/routers/flyer_ai.py line 65: change `-> Dict[str, str]` to `-> Dict[str, Any]` (and `from typing import Dict, Any`), OR coerce `ai_fallback` to string ('true'), OR return a TypedDict / Pydantic model that allows bool. This unblocks the graceful template fallback so the endpoint never 500s.",
+    "(Optional polish) After fixing, also add `ai_fallback: false` (or omit) in the success path so the frontend can rely on the field shape."
+  ],
+  "critical_code_review_comments": [
+    "Return-type annotation `Dict[str, str]` is too strict — FastAPI uses it to validate the response, which silently breaks the well-intentioned fallback path. This is a typing-vs-runtime contract mismatch.",
+    "The template fallback path (lines 124-134) is unreachable in practice today because of the bug above; once fixed, consider also adding a `Retry-After`-style hint header so the UI can surface a 'AI is busy, here's a draft' badge.",
+    "All 3 models are tried even on non-transient errors (e.g. AuthenticationError, which will fail identically on all 3 since they share the same EMERGENT_LLM_KEY). Adds ~3x latency in that scenario; consider breaking out of the loop on AuthenticationError specifically. Logs already show this clearly.",
+    "Good: no raw LiteLLM/OpenAI error string leaks back to clients in any of the 200 responses observed (verified across 10 successive happy-path calls). Logging is at WARNING with truncated provider error which is appropriate.",
+    "Minor: `hash(event_id)` for fallback tagline selection is fine, but Python's `hash()` is salted per process — taglines will jump between restarts. Use `int(event_id[-2:], 16) % 3` or hashlib for stable selection."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_flyer_ai.py (new pytest module, 6 tests)"
+  ],
+  "success_rate": {
+    "backend": "85% (5/6 scenarios — auth 401/403, admin happy-path, 10/10 robustness, length caps, no-error-leak ALL PASS; graceful fallback FAILS with 500)",
+    "frontend": "n/a (backend-only)"
+  },
+  "test_credentials": "admin@allsale.events / admin123 ; orgtester@allsale.events / orgtest123 ; event evt_656b89734cd7",
+  "seed_data_creation": "none",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "After main agent fixes the Dict[str, str] return annotation in /app/backend/routers/flyer_ai.py, re-verify the graceful fallback by: (1) backup .env, (2) set EMERGENT_LLM_KEY=invalid, (3) restart backend, (4) POST as admin -> expect 200 with {headline, tagline, cta, ai_fallback: True}, (5) RESTORE original key `sk-emergent-a9d96A438Fb133c367`, (6) restart backend. Existing test file /app/backend/tests/test_flyer_ai.py can be extended with a fallback test that uses requests + temp .env mutation but it's invasive — easier to leave that as a one-off manual curl.",
+  "rca of the issue": "Root cause: FastAPI uses the function's return-type annotation as a Pydantic response_model when `response_model` is not explicitly set on the decorator. `Dict[str, str]` requires every value to be a string. The graceful-fallback dict at line 129-134 includes `'ai_fallback': True` (bool), which fails the str validator and FastAPI converts that into HTTP 500 with body 'Internal Server Error'. This defeats the entire purpose of the fallback chain — the user's original symptom ('AI failed: ... litellm.AuthenticationError') would still recur as a 500 if all providers genuinely fail. Reproduction: set EMERGENT_LLM_KEY to any invalid string, restart backend, POST /api/events/evt_656b89734cd7/flyer/generate-text as admin -> 500. Mitigation: change line 65 to `-> Dict[str, Any]:` (with `from typing import Any`) OR drop the annotation entirely OR convert ai_fallback to the string 'true'."
+}

@@ -1,19 +1,19 @@
 """AI flyer text generator.
 
 Auto-generates a punchy 3-line text overlay (headline, tagline, CTA) for an
-event's social flyer using the Emergent LLM Key (Gemini). Organizers + admins
-of the event can call it. The frontend then renders the lines on the flyer
-canvas and lets the user fine-tune before downloading.
+event's social flyer using the Emergent LLM Key. Organizers + admins of the
+event can call it. The frontend then renders the lines on the flyer canvas
+and lets the user fine-tune before downloading.
 
-Why this exists: most organizers upload a stock photo as the cover image
-(not a fully-designed poster). On the social flyer, those photos look bland
-without a headline. Asking the AI to write a 4-6 word punch + a one-line
-tagline keeps the design consistent and saves the organizer 10 minutes per
-event.
+Robustness strategy: tries Gemini first (best copywriting quality), falls
+back to OpenAI gpt-5.2 on auth/quota errors, and finally falls back to a
+hand-crafted template based on the event title so the button never returns
+a hard failure to the organizer.
 """
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import uuid
@@ -24,6 +24,7 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 from core import db, get_current_user
 
+logger = logging.getLogger("aura.flyer_ai")
 router = APIRouter(tags=["flyer-ai"])
 
 
@@ -90,20 +91,53 @@ async def generate_flyer_text(
         "Write the 3 lines now. Output the JSON only."
     )
 
-    try:
-        chat = LlmChat(
-            api_key=key,
-            session_id=f"flyer_text_{uuid.uuid4().hex[:10]}",
-            system_message=SYSTEM_PROMPT,
-        ).with_model("gemini", "gemini-2.5-pro")
-        raw = await chat.send_message(UserMessage(text=user_text))
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AI failed: {exc}") from exc
+    # Try a chain of models so a transient outage on one provider doesn't
+    # break the feature. Each candidate is (provider, model).
+    MODEL_CHAIN = [
+        ("gemini", "gemini-2.5-flash"),  # primary: fast + cheap, great for copy
+        ("gemini", "gemini-2.5-pro"),    # quality fallback
+        ("openai", "gpt-5.2"),           # final fallback if Google is down
+    ]
+
+    raw = None
+    last_err: Exception | None = None
+    for provider, model in MODEL_CHAIN:
+        try:
+            chat = LlmChat(
+                api_key=key,
+                session_id=f"flyer_text_{uuid.uuid4().hex[:10]}",
+                system_message=SYSTEM_PROMPT,
+            ).with_model(provider, model)
+            raw = await chat.send_message(UserMessage(text=user_text))
+            break
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            logger.warning("[flyer-ai] %s/%s failed: %s", provider, model, str(exc)[:200])
+            continue
+
+    if raw is None:
+        # All models failed — return a graceful template instead of a 500 so
+        # the organizer still gets something useful on screen. Surface the
+        # underlying error in logs only, not back to the buyer-facing UI.
+        logger.error("[flyer-ai] all models failed for event %s: %s", event_id, last_err)
+        title = (event.get("title") or "LIVE TONIGHT").upper()[:60]
+        fallback_taglines = [
+            "An unmissable night you'll remember forever.",
+            "Doors open soon — secure your spot now.",
+            "Limited tickets. Big energy. Don't miss it.",
+        ]
+        return {
+            "headline": title,
+            "tagline": fallback_taglines[hash(event_id) % len(fallback_taglines)],
+            "cta": "BOOK NOW",
+            "ai_fallback": True,
+        }
 
     try:
         parsed = json.loads(_strip_json(raw if isinstance(raw, str) else str(raw)))
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Could not parse AI output: {exc}") from exc
+        logger.error("[flyer-ai] parse failed: %s | raw=%s", exc, str(raw)[:200])
+        raise HTTPException(status_code=502, detail="The AI returned unexpected output — please try again") from exc
 
     # Clean + size-limit the 3 fields so a misbehaving model can't break our layout.
     headline = str(parsed.get("headline") or "").strip()[:60]
