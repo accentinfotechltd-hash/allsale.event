@@ -41,6 +41,7 @@ export default function CreateEvent() {
     country: DEFAULT_COUNTRY,
     timezone: timezoneForCountry(DEFAULT_COUNTRY),
     date: "",
+    end_date: "",
     image_url: "",
     banner_url: "",
     promo_video_url: "",
@@ -97,6 +98,7 @@ export default function CreateEvent() {
           timezone: data.timezone || timezoneForCountry(data.country || DEFAULT_COUNTRY),
           // Trim the timezone suffix for the datetime-local input
           date: data.date ? data.date.slice(0, 16) : "",
+          end_date: data.end_date ? data.end_date.slice(0, 16) : "",
           image_url: data.image_url || "",
           banner_url: data.banner_url || "",
           promo_video_url: data.promo_video_url || "",
@@ -225,11 +227,25 @@ export default function CreateEvent() {
       toast.error("That date doesn't look right — please pick it again");
       return;
     }
+    // Optional end_date — if provided, must be after the start.
+    let parsedEnd = null;
+    if (form.end_date) {
+      parsedEnd = new Date(form.end_date);
+      if (Number.isNaN(parsedEnd.getTime())) {
+        toast.error("That end date doesn't look right — please pick it again");
+        return;
+      }
+      if (parsedEnd.getTime() <= parsedDate.getTime()) {
+        toast.error("End time must be after the start time");
+        return;
+      }
+    }
     setSubmitting(true);
     try {
       const payload = {
         ...form,
         date: parsedDate.toISOString(),
+        end_date: parsedEnd ? parsedEnd.toISOString() : null,
         tiers: form.has_seatmap ? [] : tiers,
         group_discount: (Number(form.group_discount_min_qty) > 0 && Number(form.group_discount_pct_off) > 0)
           ? { min_qty: Number(form.group_discount_min_qty), pct_off: Number(form.group_discount_pct_off) }
@@ -400,6 +416,9 @@ export default function CreateEvent() {
           </Field>
           <Field label="Date & time">
             <DateTimePicker value={form.date} onChange={(v) => update("date", v)} testid="event-datetime" />
+          </Field>
+          <Field label="End date & time (optional)" hint="Leave blank if unknown — we'll assume the event runs ~3 hours. Helps Google show your event in search results.">
+            <DateTimePicker value={form.end_date} onChange={(v) => update("end_date", v)} testid="event-end-datetime" />
           </Field>
           <Field label="Venue">
             <input required value={form.venue} onChange={(e) => update("venue", e.target.value)} />
