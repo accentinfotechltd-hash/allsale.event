@@ -67,7 +67,7 @@ for _name in [
     "auth", "events", "bookings", "payments", "uploads", "admin",
     "organizer", "discount_codes", "payouts", "waitlist",
     "recommendations", "ws_seats", "analytics", "downloads", "team", "seatmap_ai", "contact", "site_settings",
-    "contact_organizer", "stripe_connect", "embed", "revenue_splits", "refunds", "follows", "transfers", "affiliates", "stripe_tax", "marketing", "influencers", "support_chat", "feedback", "seo", "gift_cards", "bundles", "organizer_referrals", "seatmap_templates", "ticket_protection", "admin_organizer_chat", "img_proxy", "blog", "flyer_ai", "marketing_partners", "resend_webhook",
+    "contact_organizer", "stripe_connect", "embed", "revenue_splits", "refunds", "follows", "transfers", "affiliates", "stripe_tax", "marketing", "influencers", "support_chat", "feedback", "seo", "gift_cards", "bundles", "organizer_referrals", "seatmap_templates", "ticket_protection", "admin_organizer_chat", "img_proxy", "blog", "flyer_ai", "marketing_partners", "resend_webhook", "creator_codes",
 ]:
     r, err = _safe_import_router(f"routers.{_name}")
     if r is not None:
@@ -192,6 +192,12 @@ async def on_startup():
                  {"unique": True, "name": "partner_booking_unique"}),
                 (db.marketing_partner_earnings, "partner_id", {}),
                 (db.marketing_partner_earnings, "status", {}),
+                # Creator promo-code earnings — idempotency at DB layer
+                (db.creator_earnings,
+                 [("creator_id", 1), ("booking_id", 1)],
+                 {"unique": True, "name": "creator_booking_unique"}),
+                (db.creator_earnings, "creator_id", {}),
+                (db.creator_earnings, "code_id", {}),
                 (db.marketing_partners, "partner_id", {"unique": True}),
                 (db.blog_posts, "slug", {"unique": True}),
                 (db.blog_subscribers, "email", {"unique": True}),

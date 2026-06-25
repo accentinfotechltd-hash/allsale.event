@@ -1,0 +1,33 @@
+{
+  "summary": "Backend testing of admin-managed creator promo codes (iteration 22). 20/21 pytest tests passed. All critical flows work: create (200), duplicate (409), missing creator (404), missing event (404), non-admin 403 on all 4 endpoints, list with stats fields, public /api/discount-codes/validate finds admin-created code (discount math correct: 15% off $100 = $85), deactivate (200 + subsequent validation 404), users autocomplete, helper presence, unique index 'creator_booking_unique' on creator_earnings(creator_id, booking_id) with unique=True verified. ONE FAILURE: the code 'ab' is accepted (200), not rejected (400), because CODE_RE=^[A-Z0-9][A-Z0-9_-]{1,23}$ allows minimum 2 chars — matches the error message 'Code must be 2-24 chars' but contradicts the review spec which lists 'ab' as 'too short'. This is a spec/implementation mismatch, not a code bug — single-char 'a', special chars '!!!', 'AB!', and '-AB' all correctly return 400.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/events/{event_id}/creator-codes", "issue": "Spec mismatch: 2-char codes like 'ab' (→'AB') are accepted because CODE_RE allows 2-24 chars (matches the error message text). Either (a) tighten regex to require >=3 chars and update the error message, or (b) update spec to acknowledge 2-char codes are valid. Currently the test for 'ab→400' fails because impl returns 200. All other invalid formats (single char, special chars, leading dash) correctly return 400."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_creator_codes.py",
+    "/app/test_reports/pytest/iter22_creator_codes.xml"
+  ],
+  "action_items": [
+    "Decide on min code length: if 2 chars is intentional, update review spec / strip the 'ab too short' case. If not intentional, change CODE_RE in creator_codes.py from {1,23} to {2,23} and update error message to '3-24 chars'. Same regex is duplicated in routers/discount_codes.py line 34 — consider keeping them aligned."
+  ],
+  "critical_code_review_comments": [
+    "CODE_RE duplicated in routers/creator_codes.py (line 43) and routers/discount_codes.py (line 34). Consider extracting to a shared validator to avoid future drift.",
+    "record_creator_earning_for_booking() catches Exception and only re-raises non-DuplicateKeyError. The import of DuplicateKeyError is inside the except block — works but unconventional; move to top-level imports for clarity.",
+    "admin_search_users uses re.escape on user input then case-insensitive regex match — safe, no ReDoS risk because regex is anchored prefix-ish via $regex (still scans, but $options:'i' with re.escape is fine). Result limit of 10 is good.",
+    "admin_list_creator_codes does N+1 aggregations (one per code). For events with many creator codes this could be slow — consider a single aggregation with $facet or $lookup. Low priority unless creator-code count grows.",
+    "Aggregation pipeline for bookings filters status in ['paid','confirmed'] — confirm 'confirmed' is actually a valid booking status in this app, otherwise it's dead filter clause.",
+    "No upper bound on commission_percent + value being simultaneously high — admin can set 50% discount + 50% commission on a $100 booking, leaving the organizer with $0 net. May be intentional, but worth a confirmation modal in UI."
+  ],
+  "updated_files": ["/app/backend/tests/test_creator_codes.py"],
+  "success_rate": {"backend": "95% (20/21)", "frontend": "not tested (out of scope)"},
+  "test_credentials": "Used admin@allsale.events/admin123 and orgtester@allsale.events/orgtest123 from /app/memory/test_credentials.md. Both work via /api/auth/login.",
+  "seed_data_creation": "Created (then deactivated) one creator code per test run with prefix 'TST' + 6 hex chars. Also created and deactivated 'AB' on evt_656b89734cd7 (cleanup applied via direct MongoDB update_many).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Test file at /app/backend/tests/test_creator_codes.py is parametrized + idempotent across runs (uses uuid for unique codes; cleans up via DB at end). To re-run: pytest tests/test_creator_codes.py -v. Note: each run leaves one deactivated TST<uuid> creator code on evt_656b89734cd7 — harmless. The 'ab' parametrize case will continue to fail until the spec/regex disagreement is resolved.",
+  "rca of the issue": "The 'ab → 400' test failure has root cause in CODE_RE: r'^[A-Z0-9][A-Z0-9_-]{1,23}$' — the {1,23} on the second character class means total length is [1+1, 1+23] = [2, 24] chars. Error message 'Code must be 2-24 chars' confirms the implementer intended 2 chars to be valid. The review request lists 'ab' as 'too short' but the impl treats 2 chars as valid. No code bug; mitigation = align spec with impl OR tighten regex to {2,23}."
+}

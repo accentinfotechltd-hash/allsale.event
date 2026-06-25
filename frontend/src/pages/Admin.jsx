@@ -4,13 +4,14 @@ import api from "@/lib/api";
 import MessageReactions from "@/components/MessageReactions";
 import { useAuth } from "@/lib/auth";
 import useChatLive from "@/lib/useChatLive";
-import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send, Pencil, UserPlus, MessagesSquare, FileText, Handshake } from "lucide-react";
+import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send, Pencil, UserPlus, MessagesSquare, FileText, Handshake, Tag } from "lucide-react";
 import { toast } from "sonner";
 import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
 import StripeAdminDiagnostics from "@/components/StripeAdminDiagnostics";
 import AdminBlogTab from "@/components/AdminBlogTab";
 import AdminMarketingPartnersTab from "@/components/AdminMarketingPartnersTab";
 import AdminFlyersTab from "@/components/AdminFlyersTab";
+import AdminCreatorCodesTab from "@/components/AdminCreatorCodesTab";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -49,11 +50,12 @@ export default function Admin() {
           <TabBtn id="blog" current={tab} onClick={setTab} icon={<FileText className="w-4 h-4" />} label="Blog" />
           <TabBtn id="partners" current={tab} onClick={setTab} icon={<Handshake className="w-4 h-4" />} label="Lead partners" />
           <TabBtn id="flyers" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Recruitment flyers" />
+          <TabBtn id="creator-codes" current={tab} onClick={setTab} icon={<Tag className="w-4 h-4" />} label="Creator codes" />
           <TabBtn id="settings" current={tab} onClick={setTab} icon={<SettingsIcon className="w-4 h-4" />} label="Settings" />
         </div>
       </div>
 
-      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : tab === "org-chat" ? <OrganizerChatTab /> : tab === "protection" ? <ProtectionClaimsTab /> : tab === "blog" ? <AdminBlogTab /> : tab === "partners" ? <AdminMarketingPartnersTab /> : tab === "flyers" ? <AdminFlyersTab /> : <SettingsTab />}
+      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : tab === "org-chat" ? <OrganizerChatTab /> : tab === "protection" ? <ProtectionClaimsTab /> : tab === "blog" ? <AdminBlogTab /> : tab === "partners" ? <AdminMarketingPartnersTab /> : tab === "flyers" ? <AdminFlyersTab /> : tab === "creator-codes" ? <AdminCreatorCodesTab /> : <SettingsTab />}
     </div>
   );
 }

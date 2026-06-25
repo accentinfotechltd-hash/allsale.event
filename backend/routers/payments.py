@@ -377,6 +377,10 @@ async def _finalize_paid_booking(booking_id: str, session_id: str | None = None)
         if full_booking:
             from routers.marketing_partners import record_partner_earning_for_booking
             await record_partner_earning_for_booking(full_booking)
+            # Creator promo codes — credit the creator if the booking used one
+            # with a non-zero commission_percent. Idempotent on (creator_id, booking_id).
+            from routers.creator_codes import record_creator_earning_for_booking
+            await record_creator_earning_for_booking(full_booking)
     except Exception as exc:  # pragma: no cover
         logger.warning(f"[marketing-partner] credit hook failed for {booking_id}: {exc}")
 
