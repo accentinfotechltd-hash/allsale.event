@@ -1,0 +1,84 @@
+{
+  "summary": "PWA installability verification for BOTH the main Allsale Events site and the separate /scan Scanner PWA. All Chromium installability criteria pass for both manifests (manifest reachable, valid JSON, name+short_name, display=standalone, scope/start_url, theme+bg color, icons >=192px). HOWEVER — one CRITICAL bug found: the scanner manifest swap on /scan is broken. The static <link rel='manifest' href='/manifest.json'> in index.html is NEVER removed when ScannerEntry/CheckIn inject the scanner manifest — instead a SECOND <link> is appended. Per HTML spec, browsers use the FIRST <link rel='manifest'> in tree order, so Chrome will install the main 'Allsale Events' app (not 'Allsale Scanner') when users tap Install on /scan. The scanner PWA is technically reachable and valid, but functionally unreachable as a separate installable app.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Scanner PWA install on /scan",
+        "issue": "Both <link rel='manifest' href='/manifest.json'> (static, from index.html line 101) and <link rel='manifest' href='/scanner.webmanifest'> (dynamic, injected by ScannerEntry.jsx line 34-42 / CheckIn.jsx line 31-38) coexist in document.head when user visits /scan. Browsers select the FIRST in tree order — which is /manifest.json — so installing the PWA from /scan installs the 'Allsale Events' app, NOT the 'Allsale Scanner' app. The swap mechanism does not actually swap.",
+        "affected_selectors": ["link[rel=manifest]"]
+      },
+      {
+        "flow": "Scanner manifest SPA cleanup",
+        "issue": "ScannerEntry.jsx useEffect cleanup (lines 47-49) only restores theme-color but does NOT remove the appended <link id='allsale-scanner-manifest'>. After SPA-navigating away from /scan (e.g. via <Link to='/'>) the scanner manifest stays in the DOM. Full page reloads mask this (verified working in this test only because page.goto does a full navigation).",
+        "affected_selectors": ["#allsale-scanner-manifest"]
+      }
+    ],
+    "design_issues": []
+  },
+  "installability_report": {
+    "main_pwa": {
+      "url": "/",
+      "manifest": "/manifest.json",
+      "manifest_status": 200,
+      "name": "Allsale Events",
+      "short_name": "Allsale",
+      "start_url": "/",
+      "scope": "/",
+      "display": "standalone",
+      "theme_color": "#FFFFFF",
+      "background_color": "#FFFFFF",
+      "icons_count": 4,
+      "icons": "192/512 any + 192/512 maskable — all reachable image/png 200",
+      "criteria_passed": "8/8 (manifest_reachable, has_name, has_short_name, display_ok, start_url_reachable, has_icon>=144, theme_color, bg_color)"
+    },
+    "scanner_pwa": {
+      "url": "/scan",
+      "manifest_file": "/scanner.webmanifest",
+      "manifest_file_status": 200,
+      "content_type": "application/manifest+json",
+      "name": "Allsale Scanner",
+      "short_name": "Scanner",
+      "start_url": "/scan",
+      "scope": "/scan",
+      "display": "standalone",
+      "theme_color": "#FF4F00",
+      "background_color": "#0e0e10",
+      "icons": "192 any+maskable, 512 any+maskable",
+      "criteria_passed_on_manifest_content": "9/9",
+      "BUT_browser_picks_wrong_manifest": "First <link rel=manifest> in DOM is /manifest.json (static, never removed). Browser uses tree-order — scanner.webmanifest is the SECOND link and is ignored for install. Net effect: scanner PWA NOT installable as a separate app."
+    },
+    "icons_verified": {
+      "/icon-192.png": "200 image/png",
+      "/icon-512.png": "200 image/png",
+      "/icon-maskable-192.png": "200 image/png",
+      "/icon-maskable-512.png": "200 image/png"
+    },
+    "manifest_swap_back": "After navigating from /scan back to /, only /manifest.json remains (verified — but this only works due to full reload; SPA-style nav would leak the scanner link)."
+  },
+  "test_report_links": ["/app/test_reports/iteration_20.json"],
+  "action_items": [
+    "FIX THE SCANNER MANIFEST SWAP: In ScannerEntry.jsx (lines 34-42) and CheckIn.jsx (lines 31-38), instead of appendChild-ing a new <link rel='manifest'>, modify the EXISTING <link rel='manifest'> in the head. Recommended pattern: (a) on /scan mount, store the original href, then do existingLink.href = '/scanner.webmanifest'; (b) on cleanup (return fn) restore existingLink.href = originalHref. Alternatively REMOVE the static link before appending. This is the only way the browser will pick the scanner manifest for installability.",
+    "ADD CLEANUP for SPA navigation: ensure the useEffect cleanup function in BOTH ScannerEntry.jsx and CheckIn.jsx restores the manifest link to its original state, otherwise navigating /scan → / via React Router leaves the scanner manifest still attached.",
+    "Optional: dedupe the manifest swap logic — both ScannerEntry.jsx and CheckIn.jsx have nearly identical 14-line blocks. Extract to a small useScannerManifest() hook."
+  ],
+  "critical_code_review_comments": [
+    "ScannerEntry.jsx:34-42 and CheckIn.jsx:31-38 use document.head.appendChild for a 2nd <link rel='manifest'>. Browsers honor only the FIRST manifest link in the document — so the injected scanner manifest is dead code for installability. The user-visible symptom is that installing the PWA on /scan creates an 'Allsale Events' icon instead of 'Allsale Scanner'.",
+    "ScannerEntry.jsx cleanup (lines 47-49) only restores theme-color; the appended <link id='allsale-scanner-manifest'> is never removed on unmount. CheckIn.jsx (line 42) has the same shape. Combined with the swap bug above, this means the DOM keeps accumulating manifest links if the user navigates /scan ↔ / via React Router.",
+    "Manifest itself looks great — scanner.webmanifest has 'any maskable' on both icon sizes which is the modern best practice. No issues with the manifest content or icon files.",
+    "Code duplication: ScannerEntry.jsx and CheckIn.jsx share an almost-identical manifest-swap useEffect. Worth extracting to /lib/useScannerManifest.js.",
+    "Nice-to-have for installability: serve a real service worker. Chrome 93+ does not require it, but Lighthouse still wants 'offline-capable' — currently the PWA install criteria pass but the 'Web app manifest meets the installability requirements' audit will pass while the 'Current page does not respond with a 200 when offline' audit will fail."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "n/a (frontend-only PWA test)",
+    "frontend": "Main PWA: 100% installable. Scanner PWA: manifest itself is 100% valid but functionally not selectable by browser due to swap bug — effective installability 50%."
+  },
+  "test_credentials": "Not needed — both /scan and / are public.",
+  "seed_data_creation": "None.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "After main agent fixes the manifest swap (modify existing <link>.href instead of appendChild), re-run the test on /scan and assert: (1) document.querySelectorAll('link[rel=manifest]').length === 1, (2) that single link's href ends with /scanner.webmanifest. Then navigate via <Link> back to / and assert it's back to /manifest.json — not the scanner one.",
+  "rca of the issue": "Root cause: both ScannerEntry.jsx and CheckIn.jsx use `document.head.appendChild(link)` to add a NEW <link rel='manifest' href='/scanner.webmanifest'> while the static <link rel='manifest' href='/manifest.json'> from public/index.html line 101 is still present. Per the HTML spec (and confirmed in Chromium source: third_party/blink/renderer/core/loader/document_loader.cc → ManifestManager picks first <link rel=manifest> in tree order), the browser uses the FIRST manifest link. Since the static one is parsed first and inserted at the position it appears in index.html, the dynamically-appended scanner manifest is at a LATER position in tree order and is ignored. Fix: instead of appending, find the existing <link rel='manifest'> and mutate its href (and add a cleanup that restores it on unmount). One-liner: const existing = document.querySelector('link[rel=manifest]'); const orig = existing.getAttribute('href'); existing.setAttribute('href','/scanner.webmanifest'); return () => existing.setAttribute('href', orig)."
+}
