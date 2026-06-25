@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { QrCode, ScanLine, ArrowRight, Loader2, AlertCircle } from "lucide-react";
 import api from "@/lib/api";
 import { toast } from "sonner";
+import { useScannerManifest } from "@/lib/useScannerManifest";
 
 /**
  * Allsale Scanner — entry point at /scan.
@@ -29,25 +30,12 @@ export default function ScannerEntry() {
   const [event, setEvent] = useState("");
   const [validating, setValidating] = useState(false);
 
-  // Inject the scanner manifest only on this PWA's pages so the install
-  // prompt advertises the right scope/name.
-  useEffect(() => {
-    const id = "allsale-scanner-manifest";
-    if (!document.getElementById(id)) {
-      const link = document.createElement("link");
-      link.id = id;
-      link.rel = "manifest";
-      link.href = "/scanner.webmanifest";
-      document.head.appendChild(link);
-    }
-    // Reflect status-bar color on iOS
-    const theme = document.querySelector("meta[name=theme-color]");
-    const orig = theme?.getAttribute("content");
-    theme?.setAttribute("content", "#0e0e10");
-    return () => {
-      if (theme && orig) theme.setAttribute("content", orig);
-    };
-  }, []);
+  // Mutate the existing <link rel="manifest"> href so the "Add to Home Screen"
+  // prompt advertises the Scanner PWA (scope=/scan), then restore on unmount.
+  // See /app/frontend/src/lib/useScannerManifest.js for the rationale (Chrome
+  // honours the FIRST manifest link in tree order — appending a second one is
+  // a no-op for installability).
+  useScannerManifest();
 
   // Auto-flow: if a complete magic link was provided in the URL, hop
   // straight to the CheckIn page without making the user paste anything.

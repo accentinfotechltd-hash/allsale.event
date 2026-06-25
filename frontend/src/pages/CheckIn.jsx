@@ -5,6 +5,7 @@ import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { ArrowLeft, Camera, CameraOff, CheckCircle2, AlertCircle, Search, Download, RotateCcw, Users } from "lucide-react";
 import { toast } from "sonner";
+import { useScannerManifest } from "@/lib/useScannerManifest";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
@@ -26,21 +27,9 @@ export default function CheckIn() {
   // When loaded via the public /scan/:eventId path, install the dedicated
   // Scanner PWA manifest so iOS/Android offers an "Add to Home Screen"
   // prompt branded as "Allsale Scanner" (separate icon from the main app).
-  useEffect(() => {
-    if (!window.location.pathname.startsWith("/scan/")) return;
-    const id = "allsale-scanner-manifest";
-    if (!document.getElementById(id)) {
-      const link = document.createElement("link");
-      link.id = id;
-      link.rel = "manifest";
-      link.href = "/scanner.webmanifest";
-      document.head.appendChild(link);
-    }
-    const theme = document.querySelector("meta[name=theme-color]");
-    const orig = theme?.getAttribute("content");
-    theme?.setAttribute("content", "#0e0e10");
-    return () => { if (theme && orig) theme.setAttribute("content", orig); };
-  }, []);
+  // We MUTATE the existing <link rel="manifest"> instead of appending —
+  // browsers honour only the first manifest link in tree order.
+  useScannerManifest(window.location.pathname.startsWith("/scan/"));
 
   const loadStats = async () => {
     try {
