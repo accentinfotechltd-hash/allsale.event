@@ -21,9 +21,62 @@ def _admin_only(user: dict):
 # ---------- Events moderation ----------
 @router.get("/events")
 async def admin_events(user: dict = Depends(get_current_user)):
+    """List every event with sales rollups (tickets sold + revenue) attached.
+
+    The dashboard table needs per-event sales numbers without paging through
+    bookings client-side. We batch a single `$group` over `bookings` keyed by
+    `event_id` so the response stays O(events + 1) regardless of how many
+    paid bookings each event has.
+    """
     _admin_only(user)
-    cursor = db.events.find({}, {"_id": 0}).sort("created_at", -1)
-    return [event_to_public(e) async for e in cursor]
+    items = [event_to_public(e) async for e in db.events.find({}, {"_id": 0}).sort("created_at", -1)]
+    if not items:
+        return []
+
+    event_ids = [e["event_id"] for e in items]
+    # One aggregation pass over bookings → revenue + tickets per event_id.
+    # Only counts paid/confirmed bookings — pending holds and refunded rows
+    # would mislead the dashboard about real revenue.
+    sales_pipeline = [
+        {"$match": {
+            "event_id": {"$in": event_ids},
+            "status": {"$in": ["paid", "confirmed"]},
+        }},
+        {"$group": {
+            "_id": "$event_id",
+            "tickets_sold": {"$sum": "$quantity"},
+            "bookings_count": {"$sum": 1},
+            "revenue": {"$sum": "$amount"},
+            "face_value_total": {"$sum": "$face_value"},
+        }},
+    ]
+    sales_map: dict = {}
+    async for row in db.bookings.aggregate(sales_pipeline):
+        sales_map[row["_id"]] = {
+            "tickets_sold": int(row.get("tickets_sold") or 0),
+            "bookings_count": int(row.get("bookings_count") or 0),
+            "revenue": round(float(row.get("revenue") or 0), 2),
+            "face_value_total": round(float(row.get("face_value_total") or 0), 2),
+        }
+    # Refunded amount per event so admin sees gross / net distinction.
+    refund_pipeline = [
+        {"$match": {"event_id": {"$in": event_ids}, "status": "refunded"}},
+        {"$group": {"_id": "$event_id", "refunded": {"$sum": "$amount"}}},
+    ]
+    refund_map: dict = {}
+    async for row in db.bookings.aggregate(refund_pipeline):
+        refund_map[row["_id"]] = round(float(row.get("refunded") or 0), 2)
+
+    for ev in items:
+        s = sales_map.get(ev["event_id"]) or {
+            "tickets_sold": 0, "bookings_count": 0, "revenue": 0, "face_value_total": 0,
+        }
+        ev["sales"] = {
+            **s,
+            "refunded": refund_map.get(ev["event_id"], 0),
+            "net_revenue": round(s["revenue"] - refund_map.get(ev["event_id"], 0), 2),
+        }
+    return items
 
 
 @router.get("/pending-events-count")

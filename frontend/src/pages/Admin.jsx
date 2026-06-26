@@ -233,6 +233,28 @@ function Section({ title, events, act, del, showApprove, showFeature }) {
               <div className="flex-1 p-4">
                 <div className="serif text-xl mb-1">{e.title}</div>
                 <div className="text-xs mb-3" style={{ color: "var(--text-dim)" }}>{e.organizer_name} · {e.venue}, {e.city}</div>
+                {e.sales && (
+                  <div
+                    className="grid grid-cols-3 gap-2 mb-3 text-xs rounded-lg border p-2"
+                    style={{ borderColor: "var(--border)", background: "var(--bg-elev)" }}
+                    data-testid={`admin-event-sales-${e.event_id}`}
+                  >
+                    <div>
+                      <div className="opacity-60 text-[10px] uppercase tracking-widest">Tickets</div>
+                      <div className="text-sm font-medium" style={{ color: "var(--text)" }}>{e.sales.tickets_sold}</div>
+                    </div>
+                    <div>
+                      <div className="opacity-60 text-[10px] uppercase tracking-widest">Bookings</div>
+                      <div className="text-sm font-medium" style={{ color: "var(--text)" }}>{e.sales.bookings_count}</div>
+                    </div>
+                    <div>
+                      <div className="opacity-60 text-[10px] uppercase tracking-widest">Revenue</div>
+                      <div className="text-sm font-medium" style={{ color: "var(--accent)" }} title={e.sales.refunded > 0 ? `Gross $${e.sales.revenue.toFixed(2)} · Refunded $${e.sales.refunded.toFixed(2)}` : undefined}>
+                        ${e.sales.net_revenue.toFixed(2)}
+                      </div>
+                    </div>
+                  </div>
+                )}
                 <div className="flex gap-2 flex-wrap">
                   {showApprove && (
                     <>
