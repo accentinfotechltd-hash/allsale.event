@@ -85,10 +85,15 @@ async def admin_create_creator_code(
     creator_email = (payload.creator_email or "").strip().lower()
     creator = await db.users.find_one(
         {"email": creator_email},
-        {"_id": 0, "user_id": 1, "name": 1, "email": 1},
+        {"_id": 0, "user_id": 1, "name": 1, "email": 1, "is_influencer": 1},
     )
     if not creator:
         raise HTTPException(status_code=404, detail=f"No user found with email {creator_email}")
+    if not creator.get("is_influencer"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{creator_email} hasn't enrolled as a creator yet. Ask them to enable creator mode first.",
+        )
 
     # Codes are unique per organizer (existing constraint) — block duplicates.
     if await db.discount_codes.find_one({"code": code, "created_by": ev["organizer_id"]}):
@@ -171,8 +176,13 @@ async def admin_deactivate_creator_code(
 
 @router.get("/creator-codes/users-search")
 async def admin_search_users(q: str = Query(..., min_length=2), user: dict = Depends(get_current_user)):
-    """Tiny autocomplete for the 'Pick a creator' modal. Matches name OR email
-    prefix. Returns up to 10 results.
+    """Autocomplete for the 'Pick a creator' modal.
+
+    Only surfaces users who have ALREADY enrolled in the creator/influencer
+    program (`users.is_influencer = true`, set via `POST /api/influencer/enable`).
+    This prevents admins from accidentally attaching a code to a random
+    attendee — codes only make sense for users who've actively opted in,
+    completed their public creator profile, and connected Stripe for payout.
     """
     _admin_only(user)
     needle = q.strip()
@@ -180,11 +190,33 @@ async def admin_search_users(q: str = Query(..., min_length=2), user: dict = Dep
         return {"items": []}
     pattern = re.escape(needle)
     cur = db.users.find(
-        {"$or": [{"email": {"$regex": pattern, "$options": "i"}},
-                 {"name": {"$regex": pattern, "$options": "i"}}]},
+        {
+            "is_influencer": True,
+            "$or": [
+                {"email": {"$regex": pattern, "$options": "i"}},
+                {"name": {"$regex": pattern, "$options": "i"}},
+            ],
+        },
         {"_id": 0, "user_id": 1, "email": 1, "name": 1, "role": 1},
     ).limit(10)
-    return {"items": [u async for u in cur]}
+    users = [u async for u in cur]
+
+    # Enrich with the influencer's chosen display name + follower count so
+    # the admin sees who they're actually picking.
+    if users:
+        user_ids = [u["user_id"] for u in users]
+        infl_map: dict = {}
+        async for prof in db.influencers.find(
+            {"user_id": {"$in": user_ids}, "is_active": True},
+            {"_id": 0, "user_id": 1, "display_name": 1, "follower_count_total": 1, "categories": 1},
+        ):
+            infl_map[prof["user_id"]] = prof
+        for u in users:
+            prof = infl_map.get(u["user_id"]) or {}
+            u["display_name"] = prof.get("display_name") or u.get("name")
+            u["follower_count"] = prof.get("follower_count_total") or 0
+            u["categories"] = prof.get("categories") or []
+    return {"items": users}
 
 
 # -----------------------------------------------------------------------------

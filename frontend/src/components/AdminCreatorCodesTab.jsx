@@ -294,7 +294,7 @@ function AddCreatorCodeModal({ event, onClose, onCreated }) {
             />
           </Field>
 
-          <Field label="Creator (email or name)">
+          <Field label="Creator (only enrolled creators shown)">
             <input
               value={form.creator_email || creatorSearch}
               onChange={(e) => { setCreatorSearch(e.target.value); update("creator_email", e.target.value); }}
@@ -303,8 +303,13 @@ function AddCreatorCodeModal({ event, onClose, onCreated }) {
               style={{ borderColor: "var(--border)", background: "transparent", color: "var(--text)" }}
               data-testid="creator-email-input"
             />
+            {creatorSearch.trim().length >= 2 && creatorSuggestions.length === 0 && (
+              <p className="text-[10px] mt-1" style={{ color: "var(--text-dim)" }}>
+                No enrolled creator matches. They must first enable creator mode via /influencer/onboarding.
+              </p>
+            )}
             {creatorSuggestions.length > 0 && (
-              <div className="mt-1 rounded-md border max-h-40 overflow-y-auto" style={{ borderColor: "var(--border)", background: "var(--bg, #0f0f12)" }}>
+              <div className="mt-1 rounded-md border max-h-44 overflow-y-auto" style={{ borderColor: "var(--border)", background: "var(--bg, #0f0f12)" }}>
                 {creatorSuggestions.map((u) => (
                   <button
                     key={u.user_id}
@@ -314,8 +319,16 @@ function AddCreatorCodeModal({ event, onClose, onCreated }) {
                     style={{ color: "var(--text)" }}
                     data-testid={`creator-suggestion-${u.user_id}`}
                   >
-                    <div className="text-xs font-medium">{u.name || u.email}</div>
-                    <div className="text-[10px]" style={{ color: "var(--text-dim)" }}>{u.email} · {u.role}</div>
+                    <div className="text-xs font-medium">{u.display_name || u.name || u.email}</div>
+                    <div className="text-[10px]" style={{ color: "var(--text-dim)" }}>
+                      {u.email}
+                      {u.follower_count > 0 && (
+                        <span> · {u.follower_count.toLocaleString()} followers</span>
+                      )}
+                      {u.categories && u.categories.length > 0 && (
+                        <span> · {u.categories.slice(0, 2).join(", ")}</span>
+                      )}
+                    </div>
                   </button>
                 ))}
               </div>
