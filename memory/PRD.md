@@ -31,6 +31,14 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Creator profile photos + admin-assigned codes auto-show in creator account (NEW)**:
+  1. **Avatar upload on `/influencer/onboarding`** — `ImageUploader` integrated at top of the form with a live circular preview. `avatar_url` round-trips through `POST /api/influencer/enable` → `GET /api/influencer/me`.
+  2. **`GET /api/influencer/my-codes`** — new endpoint in `routers/influencers.py` returns all admin-assigned `discount_codes` where `creator_id == me`, enriched with event, bookings stats, and creator-earnings ledger (paid/unpaid totals).
+  3. **"Your promo codes" on `/influencer`** — InfluencerHub.jsx rewritten with header avatar, an "Edit profile" button, a "Pending payout" stat that sums campaign + code earnings, and a code-by-code grid (code, event, discount, commission, uses, tickets, revenue, earnings) with Copy code + Copy share link + View buttons.
+  4. **Homepage Creator Spotlight** — new `components/CreatorSpotlight.jsx` (rendered from `Landing.jsx`) showcases the top 6 enrolled creators with avatars/categories and a "Become a creator" CTA, plus an empty-state recruit panel before the first creator enrols.
+  5. **Honest fee copy on `/become-organizer`** — removed hardcoded "8% platform commission + $0.50 per ticket"; perks card + What-changes list now pull live values from `useFeeSettings()` (5% + $0.30) and frame the fee as "added on top, paid by buyers — you keep 100% of your ticket price."
+  - **Backend tests** at `/app/backend/tests/test_iter23_creator_features.py` — 7/7 pass.
+
 - **Recruitment flyer system (NEW — 3 features)**:
   1. **Schedule for later** — `flyer_campaigns` collection + 60s `fast_loop` in `scheduler.py` picks up due campaigns and dispatches in 200-recipient chunks with atomic claim. Max 5000 recipients per scheduled campaign.
   2. **CSV import** — Drag-and-drop or file picker on the Recipients box. Regex-extracts all emails from any text/CSV file, dedupes case-insensitively, populates textarea.
@@ -49,7 +57,7 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
 
 ## Backlog
 - All current P0/P1/P2/P3 items shipped.
-- Possible future: surface aggregate unsub reasons on the admin newsletter tab UI; add gift cards self-service portal; partner application intake form.
+- Possible future: surface aggregate unsub reasons on the admin newsletter tab UI; add gift cards self-service portal; partner application intake form; AI flyer generation progress UI; reseller panel (scope TBD with user).
 
 ## Critical Notes
 - Partner login uses standard `/api/auth/login`; partner role is just `user.role="partner"` + `user.linked_partner_id`
