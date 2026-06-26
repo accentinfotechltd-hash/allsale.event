@@ -31,6 +31,12 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Bug fix: "AI unavailable" error in support chat (NEW)**:
+  - Both support-chat AI endpoints (`POST /support/faq/ask` and `POST /admin/support/suggest`) previously called `openai/gpt-5.1` directly and surfaced any transient auth/outage blip as a hard 502 to the visitor.
+  - Added a shared `_support_ai_complete()` helper with a 3-provider fallback chain (Gemini Flash → GPT-5.1 → Claude Haiku 4.5) — same pattern as `flyer_ai.py`. Auth errors short-circuit the chain to avoid 3× latency.
+  - On TOTAL failure (every provider down) both endpoints return a friendly 200 response with `degraded:true` (suggest) or `can_help:false` (FAQ auto-escalates to human) instead of a red error toast.
+  - Verified live: works on first try with key set; with key corrupted → still 200 + safe fallback text + auto-escalation; restored cleanly.
+
 - **Phone number is now mandatory for every account (NEW)**:
   - `models.RegisterIn.phone` is required (`Field(..., min_length=6, max_length=20)`).
   - `/auth/register` validates with `_PHONE_RE` (lenient international: digits + optional + / space / dash / brackets); persists to `users.phone`.

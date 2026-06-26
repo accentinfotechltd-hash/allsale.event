@@ -41,6 +41,60 @@ except Exception:  # noqa: BLE001
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["support_chat"])
 
+# Provider/model fallback chain shared by both AI endpoints below. Each AI
+# provider on the Emergent universal key has independent rate limits, transient
+# auth blips, and outages — chaining 3 across vendors means the support bot
+# stays alive even when OpenAI is mid-incident.
+#   Primary:   Gemini Flash  — fast + cheap + great recall, robust uptime.
+#   Fallback:  GPT-5.1       — broadly available, what the bot was originally on.
+#   Last hope: Claude Haiku  — different infra entirely, covers a Google outage.
+SUPPORT_AI_MODEL_CHAIN = [
+    ("gemini", "gemini-2.5-flash"),
+    ("openai", "gpt-5.1"),
+    ("anthropic", "claude-haiku-4-5-20251001"),
+]
+
+
+async def _support_ai_complete(system_message: str, user_text: str, session_tag: str) -> str | None:
+    """Run an LLM completion with provider/model fallback.
+
+    Returns the raw text response, or None if EVERY provider failed (auth,
+    outage, rate limit). Callers are expected to gracefully degrade rather
+    than blow up the support chat UI.
+    """
+    if LlmChat is None or UserMessage is None:
+        logger.error("[support-ai] emergentintegrations not available")
+        return None
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key:
+        logger.error("[support-ai] EMERGENT_LLM_KEY not set")
+        return None
+    last_err: Exception | None = None
+    for provider, model in SUPPORT_AI_MODEL_CHAIN:
+        try:
+            chat = LlmChat(
+                api_key=api_key,
+                session_id=f"{session_tag}-{uuid.uuid4().hex[:6]}",
+                system_message=system_message,
+            ).with_model(provider, model)
+            resp = await chat.send_message(UserMessage(text=user_text))
+            return (resp or "").strip().strip('"').strip("'") or None
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            exc_str = (str(exc) + " " + type(exc).__name__).lower()
+            logger.warning("[support-ai] %s/%s failed: %s", provider, model, str(exc)[:200])
+            # Auth failures hit every model identically (we share one Emergent
+            # universal key) — short-circuit instead of burning 3x latency.
+            if any(s in exc_str for s in (
+                "authenticationerror", "invalid api key", "incorrect api key",
+                "unauthorized", "invalid_api_key",
+            )):
+                logger.error("[support-ai] auth error — abandoning chain")
+                break
+            continue
+    logger.error("[support-ai] all providers failed: %s", last_err)
+    return None
+
 # Throttle the "new visitor message" admin email so a rapid-fire visitor
 # (sending 6 quick lines) only produces ONE email per 5-minute window.
 NEW_MSG_EMAIL_THROTTLE_MIN = int(os.environ.get("SUPPORT_EMAIL_THROTTLE_MIN", "5"))
@@ -548,24 +602,23 @@ async def ai_suggest_reply(payload: SuggestIn, user: dict = Depends(get_current_
         f"{m.get('sender','?').upper()}: {m.get('text') or '[attachment]'}"
         for m in msgs if m.get("sender") in ("visitor", "admin")
     )
-    try:
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=f"suggest-{uuid.uuid4().hex[:8]}",
-            system_message=(
-                "You are a helpful support agent at Allsale Events (NZ ticketing platform). "
-                "Given the thread below, write the next ADMIN reply. "
-                "Be empathetic, concise (2-3 sentences max), and end with a clear next step "
-                "(e.g. 'send me your booking ID', 'I'll resend your e-ticket', etc.). "
-                "Return ONLY the reply text — no preamble, no quotes, no JSON."
-            ),
-        ).with_model("openai", "gpt-5.1")
-        resp = await chat.send_message(UserMessage(text=transcript))
-        suggestion = resp.strip().strip('"').strip("'")
-        return {"suggestion": suggestion}
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("AI suggest failed")
-        raise HTTPException(status_code=502, detail=f"AI unavailable: {exc}") from exc
+    system_message = (
+        "You are a helpful support agent at Allsale Events (NZ ticketing platform). "
+        "Given the thread below, write the next ADMIN reply. "
+        "Be empathetic, concise (2-3 sentences max), and end with a clear next step "
+        "(e.g. 'send me your booking ID', 'I'll resend your e-ticket', etc.). "
+        "Return ONLY the reply text — no preamble, no quotes, no JSON."
+    )
+    suggestion = await _support_ai_complete(system_message, transcript, "suggest")
+    if not suggestion:
+        # Graceful fallback so the admin UI doesn't show a red error toast every
+        # time the LLM has a hiccup — better to show a polite generic prompt
+        # the admin can edit than no reply at all.
+        return {
+            "suggestion": "Thanks for reaching out — can you share your booking ID so I can look into this for you?",
+            "degraded": True,
+        }
+    return {"suggestion": suggestion}
 
 
 class RatingIn(BaseModel):
@@ -754,17 +807,14 @@ async def faq_ask(payload: FaqAskIn, request: Request):
         f"PRIOR CONVERSATION:\n{transcript}"
     )
 
-    try:
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=f"faq-{session_id[:12]}-{uuid.uuid4().hex[:6]}",
-            system_message=system_msg,
-        ).with_model("openai", "gpt-5.1")
-        resp = await chat.send_message(UserMessage(text=question))
-        answer_raw = (resp or "").strip().strip('"').strip("'")
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("FAQ ask failed")
-        raise HTTPException(status_code=502, detail=f"AI unavailable: {exc}") from exc
+    answer_raw = await _support_ai_complete(system_msg, question, f"faq-{session_id[:12]}")
+    if answer_raw is None:
+        # All providers down — escalate so a human picks it up, rather than
+        # leaving the visitor staring at a red error toast.
+        answer_raw = (
+            "I'm having trouble looking that up right now. A human agent will "
+            "jump in shortly — feel free to share more context in the meantime. <ESCALATE>"
+        )
 
     escalate = "<ESCALATE>" in answer_raw
     answer = answer_raw.replace("<ESCALATE>", "").strip()
