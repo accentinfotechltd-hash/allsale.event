@@ -9,14 +9,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useFeeSettings } from "@/lib/fees";
 import { Sparkles, BarChart3, ScanLine, Wallet, ArrowRight, CheckCircle2 } from "lucide-react";
-
-const PERKS = [
-  { icon: BarChart3, title: "Real-time analytics", body: "Track sales, attribution, and revenue by tier across every event." },
-  { icon: ScanLine, title: "QR check-in scanner", body: "Built-in door scanner with idempotent check-ins and attendance CSV exports." },
-  { icon: Wallet, title: "Transparent payouts", body: "8% platform commission + $0.50 per ticket. Net balance visible in real time." },
-  { icon: Sparkles, title: "Power tools", body: "Custom seat maps, discount codes, surge pricing, and waitlists out of the box." },
-];
 
 export default function BecomeOrganizer() {
   const { user, setUser } = useAuth();
@@ -25,6 +19,21 @@ export default function BecomeOrganizer() {
   const redirect = params.get("redirect") || "/organizer";
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const fees = useFeeSettings();
+
+  const platformPct = fees?.platformPct ?? 5;
+  const platformFlat = fees?.platformFlat ?? 0.3;
+
+  const PERKS = [
+    { icon: BarChart3, title: "Real-time analytics", body: "Track sales, attribution, and revenue by tier across every event." },
+    { icon: ScanLine, title: "QR check-in scanner", body: "Built-in door scanner with idempotent check-ins and attendance CSV exports." },
+    {
+      icon: Wallet,
+      title: "You keep 100% of ticket price",
+      body: `Platform fee is added on top — paid by buyers (${platformPct}% + $${platformFlat.toFixed(2)} per ticket). Your face value lands in your account in full.`,
+    },
+    { icon: Sparkles, title: "Power tools", body: "Custom seat maps, discount codes, surge pricing, and waitlists out of the box." },
+  ];
 
   if (!user) {
     nav(`/login?redirect=${encodeURIComponent(`/become-organizer?redirect=${redirect}`)}`);
@@ -62,7 +71,7 @@ export default function BecomeOrganizer() {
       <div className="text-xs uppercase tracking-[0.3em] mb-3" style={{ color: "var(--accent)" }}>For creators</div>
       <h1 className="serif text-5xl mb-4" data-testid="become-organizer-headline">Host events on Allsale Events</h1>
       <p className="text-lg mb-12 max-w-2xl" style={{ color: "var(--text-muted)" }}>
-        Switch on the organizer tools. Free to set up — we only charge a small commission when you sell a ticket.
+        Switch on the organizer tools. Free to set up — you keep 100% of your ticket price. The platform fee is added on top and paid by buyers.
       </p>
 
       <div className="grid sm:grid-cols-2 gap-5 mb-12">
@@ -80,7 +89,8 @@ export default function BecomeOrganizer() {
         <ul className="space-y-2 text-sm" style={{ color: "var(--text-muted)" }}>
           <li>• Your account keeps everything you've booked — no data loss.</li>
           <li>• You get access to <code style={{ color: "var(--text)" }}>/organizer</code>: dashboards, analytics, payouts, discount codes.</li>
-          <li>• 8% platform commission + $0.50 per ticket sold. Net payouts processed weekly on request.</li>
+          <li>• <strong style={{ color: "var(--text)" }}>You keep 100% of your ticket price.</strong> Platform fee ({platformPct}% + ${platformFlat.toFixed(2)} per ticket) is added on top at checkout and paid by buyers.</li>
+          <li>• Net payouts processed weekly on request — straight to your Stripe account.</li>
           <li>• You can request payouts whenever your balance ≥ $0.</li>
         </ul>
       </div>
@@ -93,7 +103,7 @@ export default function BecomeOrganizer() {
           data-testid="agree-terms-checkbox"
         />
         <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-          I understand the commission structure and agree to Allsale Events' <span style={{ color: "var(--accent)" }}>Organizer Terms</span> (no spam, no fraud, valid events only).
+          I understand the fee structure (platform fee is added on top and paid by buyers) and agree to Allsale Events' <span style={{ color: "var(--accent)" }}>Organizer Terms</span> (no spam, no fraud, valid events only).
         </span>
       </label>
 

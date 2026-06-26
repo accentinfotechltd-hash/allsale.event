@@ -1,0 +1,36 @@
+{
+  "summary": "Iteration 23 — tested 4 new/changed surfaces: (1) GET /api/influencer/my-codes returns full schema for orgtester (3 admin-assigned codes AB/TST585CF2/QA_CHLOE15 on evt_656b89734cd7) with all required fields and a summary block, and returns items=[] for a fresh user with no codes. (2) /api/fees/public-settings returns platform_pct + platform_flat_per_ticket without auth. (3) POST /api/influencer/enable correctly persists avatar_url — round-trip via GET /api/influencer/me verified. (4) Regression: /influencer/me, /influencer/dashboard, admin GET /admin/events/{event_id}/creator-codes all still work. ALL 7 PYTEST TESTS PASS. Frontend: homepage renders CreatorSpotlight (creator-spotlight + spotlight-cta-primary 'Become a creator' + 6 spotlight-creator-* cards). InfluencerHub at /influencer (logged in as orgtester) shows hub title, stat-pending '$0.00', my-codes-section with all 3 expected mycode-* rows plus working Copy code buttons. /influencer/onboarding shows 'Profile photo' label, fallback initial-letter circle (no avatar set), onboard-avatar-btn 'Upload your photo', plus an onboard-avatar-paste-url input for URL paste. /become-organizer (logged in as a fresh attendee created via POST /api/auth/register) shows the required perk card 'You keep 100% of ticket price' with body mentioning 'added on top — paid by buyers (5% + $0.30 per ticket)', and 'What changes for you' includes 'You keep 100% of your ticket price' + 'Platform fee (5% + $0.30 per ticket) is added on top at checkout and paid by buyers.' — NO '8%' anywhere on the page. All flows working.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Global (after orgtester login)", "issues": ["Minor React hydration warning in console: '<span> cannot be a child of <option>'. Not a functional bug but worth fixing in a select/option component to keep console clean."]},
+      {"screen": "Login page (post-register)", "issues": ["A WelcomeModal can overlay the login submit button and intercept clicks for newly-registered users. Test had to force-click. Consider showing modal only after first successful login, or set lower z-index/pointer-events while login form is in focus."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter23_creator_features.py",
+    "/app/test_reports/pytest/iter23_creator_features.xml"
+  ],
+  "action_items": [
+    "(Optional) Fix React hydration warning: '<span> cannot be a child of <option>' surfaced when navigating logged-in pages. Find the offending <select>…<option><span>…</span></option> nesting (likely a category/discount dropdown).",
+    "(Optional) WelcomeModal z-index intercepts login submit button on fresh signup → login flow. Either delay modal until after navigating away from /login, or keep welcome-modal pointer-events:none on the login route.",
+    "Note for spec: the spec wording 'spotlight-creator-' card test expectation is satisfied (6 cards rendered). The 'onboard-avatar-preview' testid is conditional (only renders when avatar_url is set). The fallback initial-letter circle is rendered when there's no avatar — which matches the spec's '(a) avatar circle preview OR a fallback initial-letter circle'. Both branches verified."
+  ],
+  "critical_code_review_comments": [
+    "/api/influencer/my-codes does an N+1 aggregation per code (events.find_one + bookings.aggregate + creator_earnings.aggregate). Fine at current scale (3-10 codes per creator) but consider $lookup or batched queries when creators have >50 codes.",
+    "InfluencerHub.jsx swallows /influencer/my-codes errors silently with .catch(() => default). This is the right default-empty behaviour for UX, but no observability — log to console.warn or send to Sentry-equivalent so silent failures don't hide bugs.",
+    "BecomeOrganizer.jsx uses fees from useFeeSettings() with fallback defaults 5 / 0.3 — when the API is slow, the page initially shows the fallback. Considered acceptable since the values match the current platform defaults, but if fees ever diverge we'd flash wrong copy. Add a small skeleton or hide the perk card body until fees load.",
+    "CreatorSpotlight.jsx silently shows the empty 'Be the first creator on Allsale' state to enrolled creators (because !isEnrolledCreator branch) — but the visit-side condition `if (creators.length === 0 && isEnrolledCreator) return null;` correctly hides for them. Good.",
+    "influencer/enable trims social handles by stripping leading '@' which is great, but the empty form's untouched fields ('') become null on save — which means we lose distinction between 'never filled' vs 'cleared'. Low priority.",
+    "GET /api/influencer/my-codes returns event=None for codes whose event is missing. Frontend handles ev.title fallback to 'Event', but cover_image_url defaults to a calendar icon. Could be cleaner if backend filtered out orphan codes — currently they're shown as 'Event' with no context."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter23_creator_features.py"],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "100% (4/4 scenarios)"},
+  "test_credentials": "admin@allsale.events/admin123, orgtester@allsale.events/orgtest123 (from /app/memory/test_credentials.md). Plus an auto-generated fresh attendee TEST_attendee_<uuid>@example.com / testpass123 created via POST /api/auth/register for the /become-organizer flow.",
+  "seed_data_creation": "Created one TEST_attendee_<uuid>@example.com user per fresh-attendee test (also flips them into influencer mode in the avatar persistence test). Records are harmless; if cleanup needed, delete from users + influencers where email matches 'TEST_attendee_%'.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests live at /app/backend/tests/test_iter23_creator_features.py — re-runnable, idempotent (uses uuid per run for fresh attendee). Note: /api/auth/signup is NOT a route — the registration endpoint is /api/auth/register. Frontend tests confirmed CreatorSpotlight + InfluencerHub + InfluencerOnboarding + BecomeOrganizer flows all green. The only visible issues are (1) a minor React hydration warning about <span> in <option>, and (2) the WelcomeModal overlaying login submit for newly registered users."
+}

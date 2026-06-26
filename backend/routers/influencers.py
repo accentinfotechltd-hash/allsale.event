@@ -328,6 +328,75 @@ async def join_campaign(payload: JoinCampaignIn, user: dict = Depends(get_curren
 
 
 # ---------------------------------------------------------------------------
+# Creator promo codes assigned by admin (read-only, surfaces in /influencer hub)
+# ---------------------------------------------------------------------------
+
+@router.get("/influencer/my-codes")
+async def my_creator_codes(user: dict = Depends(get_current_user)):
+    """All admin-assigned creator promo codes for the signed-in creator.
+
+    Lists every `discount_codes` row where `creator_id == me`, with the
+    related event's title + cover, the code's discount/commission terms,
+    usage stats, and the creator's running earnings (paid + unpaid).
+    """
+    items: list[dict] = []
+    total_paid = 0.0
+    total_unpaid = 0.0
+    cur = db.discount_codes.find(
+        {"creator_id": user["user_id"]},
+        {"_id": 0},
+    ).sort("created_at", -1)
+    async for code in cur:
+        ev = await db.events.find_one(
+            {"event_id": code.get("event_id")},
+            {"_id": 0, "event_id": 1, "title": 1, "cover_image_url": 1, "starts_at": 1, "city": 1, "venue": 1},
+        )
+        bookings_agg = await db.bookings.aggregate([
+            {"$match": {
+                "discount_code": code["code"],
+                "event_id": code.get("event_id"),
+                "status": {"$in": ["paid", "confirmed"]},
+            }},
+            {"$group": {"_id": None, "count": {"$sum": 1}, "tickets": {"$sum": "$quantity"}, "revenue": {"$sum": "$amount"}}},
+        ]).to_list(1)
+        bk = bookings_agg[0] if bookings_agg else {}
+        earn_agg = await db.creator_earnings.aggregate([
+            {"$match": {"code_id": code["code_id"], "creator_id": user["user_id"]}},
+            {"$group": {"_id": "$status", "amount": {"$sum": "$earning_amount"}}},
+        ]).to_list(5)
+        paid_amt = round(sum(e["amount"] for e in earn_agg if e["_id"] == "paid"), 2)
+        unpaid_amt = round(sum(e["amount"] for e in earn_agg if e["_id"] == "unpaid"), 2)
+        total_paid += paid_amt
+        total_unpaid += unpaid_amt
+        items.append({
+            "code_id": code["code_id"],
+            "code": code["code"],
+            "kind": code.get("kind", "percent"),
+            "value": code.get("value"),
+            "commission_percent": code.get("commission_percent"),
+            "active": bool(code.get("active", True)),
+            "max_uses": code.get("max_uses"),
+            "uses_count": int(code.get("uses_count") or 0),
+            "expires_at": code.get("expires_at"),
+            "created_at": code.get("created_at"),
+            "event": ev,
+            "paid_bookings": int(bk.get("count") or 0),
+            "tickets_sold": int(bk.get("tickets") or 0),
+            "revenue": round(float(bk.get("revenue") or 0), 2),
+            "earnings_paid": paid_amt,
+            "earnings_unpaid": unpaid_amt,
+        })
+    return {
+        "items": items,
+        "summary": {
+            "codes_total": len(items),
+            "earnings_paid_total": round(total_paid, 2),
+            "earnings_unpaid_total": round(total_unpaid, 2),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # Payouts
 # ---------------------------------------------------------------------------
 

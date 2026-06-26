@@ -4,6 +4,7 @@ import { Sparkles, Instagram, Music, Twitter, Youtube, Facebook } from "lucide-r
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import ImageUploader from "@/components/ImageUploader";
 
 const CATEGORY_OPTIONS = ["music", "comedy", "sports", "tech", "food", "art", "fitness", "nightlife", "family"];
 
@@ -18,6 +19,7 @@ export default function InfluencerOnboarding() {
     follower_count_total: "",
     city: "",
     categories: [],
+    avatar_url: "",
     social_handles: { instagram: "", tiktok: "", twitter: "", youtube: "", facebook: "" },
   });
 
@@ -35,6 +37,7 @@ export default function InfluencerOnboarding() {
             follower_count_total: data.follower_count_total || "",
             city: data.city || "",
             categories: data.categories || [],
+            avatar_url: data.avatar_url || "",
             social_handles: {
               instagram: data.social_handles?.instagram || "",
               tiktok: data.social_handles?.tiktok || "",
@@ -44,7 +47,7 @@ export default function InfluencerOnboarding() {
             },
           });
         } else {
-          setForm((f) => ({ ...f, display_name: user.name || "" }));
+          setForm((f) => ({ ...f, display_name: user.name || "", avatar_url: user.picture || "" }));
         }
       } catch {
         setForm((f) => ({ ...f, display_name: user?.name || "" }));
@@ -93,6 +96,33 @@ export default function InfluencerOnboarding() {
       </p>
 
       <form onSubmit={submit} className="space-y-5">
+        <div>
+          <label className="text-sm opacity-80 block mb-2">Profile photo</label>
+          <div className="flex items-start gap-4 flex-wrap">
+            <div className="w-28 h-28 rounded-full overflow-hidden border flex-shrink-0" style={{ borderColor: "var(--border)", background: "var(--bg-elev)" }}>
+              {form.avatar_url ? (
+                <img src={form.avatar_url} alt="" className="w-full h-full object-cover" data-testid="onboard-avatar-preview" />
+              ) : (
+                <div className="w-full h-full grid place-items-center text-3xl font-medium" style={{ background: "var(--accent)", color: "#000" }}>
+                  {(form.display_name || user?.name || "?")[0]?.toUpperCase()}
+                </div>
+              )}
+            </div>
+            <div className="flex-1 min-w-[240px] max-w-md">
+              <ImageUploader
+                value={form.avatar_url}
+                onUploaded={(url) => setForm((f) => ({ ...f, avatar_url: url || "" }))}
+                label="Upload your photo"
+                aspect="1/1"
+                testid="onboard-avatar"
+              />
+              <p className="text-xs opacity-60 mt-2">
+                Square images look best. JPG, PNG, WEBP — max 5MB.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div>
           <label className="text-sm opacity-80 block mb-1">Display name *</label>
           <input

@@ -4,6 +4,7 @@ import api from "@/lib/api";
 import EventCard from "@/components/EventCard";
 import FeatureShowcase from "@/components/FeatureShowcase";
 import TrendingCarousel from "@/components/TrendingCarousel";
+import CreatorSpotlight from "@/components/CreatorSpotlight";
 import { useAuth } from "@/lib/auth";
 import { ArrowRight, Search, Calendar, Zap, Award, Sparkles, Ticket, ScanLine, DollarSign, ShieldCheck, Smartphone, Megaphone, Users } from "lucide-react";
 
@@ -320,9 +321,11 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* CREATOR SPOTLIGHT — recruit + showcase enrolled creators */}
+      <CreatorSpotlight />
+
       {/* WHY ORGANIZERS — comparison strip */}
-      <section className="max-w-7xl mx-auto px-6 pb-16" data-testid="why-organizers">
-        <div className="text-xs uppercase tracking-[0.3em] mb-2 text-center" style={{ color: "var(--accent)" }}>Why promoters move to Allsale</div>
+      <section className="max-w-7xl mx-auto px-6 pb-16" data-testid="why-organizers">        <div className="text-xs uppercase tracking-[0.3em] mb-2 text-center" style={{ color: "var(--accent)" }}>Why promoters move to Allsale</div>
         <h2 className="serif text-4xl text-center mb-3">Price the show. Keep the show.</h2>
         <p className="text-sm text-center max-w-xl mx-auto mb-10" style={{ color: "var(--text)" }}>
           Built in Aotearoa for promoters tired of giving away 15-20% to platforms that don&apos;t lift a finger past launch day.
