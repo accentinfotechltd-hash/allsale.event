@@ -31,6 +31,13 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Creator codes: discount is now OPTIONAL (NEW)**:
+  - `routers/creator_codes.py` — `value` is `Optional[float]` (defaults to 0); backend rejects a code only when BOTH discount and commission are absent ("a code with neither has no effect").
+  - `AdminCreatorCodesTab.jsx` — discount field labelled "% off (optional)" with `0 = no discount` placeholder + "Leave blank for a commission-only code." helper. Validation only blocks when both discount AND commission are empty.
+  - `InfluencerHub.jsx` — commission-only codes render "Commission-only (no buyer discount) · X% commission to you".
+  - Creator hub now shows the **"Your promo codes"** section with a clear empty state even when the creator has zero codes (so they know where assigned codes will appear). Mobile "Creator" nav link is now always visible.
+  - **Backend tests:** 3 new pytest cases in `test_iter23_creator_features.py` for commission-only / discount-only / neither — 10/10 pass.
+
 - **Creator profile photos + admin-assigned codes auto-show in creator account (NEW)**:
   1. **Avatar upload on `/influencer/onboarding`** — `ImageUploader` integrated at top of the form with a live circular preview. `avatar_url` round-trips through `POST /api/influencer/enable` → `GET /api/influencer/me`.
   2. **`GET /api/influencer/my-codes`** — new endpoint in `routers/influencers.py` returns all admin-assigned `discount_codes` where `creator_id == me`, enriched with event, bookings stats, and creator-earnings ledger (paid/unpaid totals).

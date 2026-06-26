@@ -122,16 +122,16 @@ export default function InfluencerHub() {
         </div>
       )}
 
-      {/* Admin-assigned promo codes — show only if the creator has any */}
-      {myCodes.items.length > 0 && (
-        <section className="mb-10" data-testid="my-codes-section">
-          <div className="flex items-end justify-between mb-4 flex-wrap gap-2">
-            <div>
-              <h2 className="serif text-2xl">Your promo codes</h2>
-              <p className="text-sm opacity-70 mt-1">
-                Codes the Allsale team has set up for you. Share them — buyers get a discount, you earn commission.
-              </p>
-            </div>
+      {/* Admin-assigned promo codes section — always render so creators know where to look */}
+      <section className="mb-10" data-testid="my-codes-section">
+        <div className="flex items-end justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <h2 className="serif text-2xl">Your promo codes</h2>
+            <p className="text-sm opacity-70 mt-1">
+              Codes the Allsale team or an organizer has set up for you. Share them — buyers get a discount and you earn commission.
+            </p>
+          </div>
+          {myCodes.items.length > 0 && (
             <div className="text-sm opacity-80 flex items-center gap-2">
               <Wallet size={14} style={{ color: "var(--accent)" }} />
               <span>
@@ -141,12 +141,28 @@ export default function InfluencerHub() {
                 </strong>
               </span>
             </div>
+          )}
+        </div>
+        {myCodes.items.length === 0 ? (
+          <div
+            className="rounded-xl border p-8 text-center"
+            style={{ background: "var(--surface)", borderColor: "var(--border)" }}
+            data-testid="my-codes-empty"
+          >
+            <Tag size={28} className="mx-auto opacity-50 mb-3" />
+            <div className="font-medium mb-1">No promo codes yet</div>
+            <p className="text-sm opacity-70 max-w-md mx-auto">
+              When an organizer or the Allsale team attaches a promo code to you for an event,
+              it&apos;ll show up here automatically — with the event details, discount, your commission %,
+              and live earnings.
+            </p>
           </div>
+        ) : (
           <div className="space-y-3">
             {myCodes.items.map((c) => <CreatorCodeRow key={c.code_id} code={c} />)}
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
       <h2 className="serif text-2xl mb-4">Your campaigns</h2>
       {dash.campaigns.length === 0 ? (
@@ -207,9 +223,10 @@ function CampaignRow({ campaign }) {
 function CreatorCodeRow({ code }) {
   const [copied, setCopied] = useState(false);
   const ev = code.event || {};
-  const discountLabel = code.kind === "flat"
-    ? `$${Number(code.value || 0).toFixed(2)} off`
-    : `${Number(code.value || 0)}% off`;
+  const discountVal = Number(code.value || 0);
+  const discountLabel = discountVal > 0
+    ? (code.kind === "flat" ? `$${discountVal.toFixed(2)} off` : `${discountVal}% off`)
+    : "Commission-only (no buyer discount)";
   const usesLabel = code.max_uses ? `${code.uses_count} / ${code.max_uses}` : `${code.uses_count}`;
   const inactive = !code.active;
   const eventUrl = ev.event_id
@@ -242,7 +259,7 @@ function CreatorCodeRow({ code }) {
           <Tag size={12} />
           <span className="font-mono font-semibold" style={{ color: "var(--accent)" }}>{code.code}</span>
           <span>·</span>
-          <span>{discountLabel} for buyers</span>
+          <span>{discountLabel}{discountVal > 0 ? " for buyers" : ""}</span>
           {Number(code.commission_percent) > 0 && (
             <>
               <span>·</span>

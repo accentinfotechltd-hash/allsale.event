@@ -129,11 +129,12 @@ export default function Layout({ children }) {
                 </Link>
                 <Link
                   to={user.is_influencer ? "/influencer" : "/influencer/onboarding"}
-                  className="px-2 md:px-3 py-2 text-sm hidden md:inline-flex items-center gap-1.5"
-                  style={{ color: "var(--text-muted)" }}
+                  className="px-2 md:px-3 py-2 text-sm inline-flex items-center gap-1.5"
+                  style={{ color: user.is_influencer ? "var(--accent)" : "var(--text-muted)" }}
                   data-testid="nav-creator-link"
+                  title={user.is_influencer ? "Creator hub — your codes, campaigns, payouts" : "Become a creator"}
                 >
-                  <Sparkles className="w-4 h-4" /> Creator
+                  <Sparkles className="w-4 h-4" /> <span className="hidden md:inline">Creator</span>
                 </Link>
                 <button onClick={logout} className="p-2 text-sm" style={{ color: "var(--text-dim)" }} data-testid="nav-logout-btn" title="Log out">
                   <LogOut className="w-4 h-4" />

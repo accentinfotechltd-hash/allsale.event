@@ -137,3 +137,75 @@ def test_admin_creator_codes_regression():
     items = body if isinstance(body, list) else body.get("items", [])
     assert isinstance(items, list)
     assert len(items) >= 1
+
+
+# ----- iter-24: optional-discount creator codes -----
+def _admin_session():
+    s, _ = _login("admin@allsale.events", "admin123")
+    return s
+
+
+# Use a stable event known to exist in dev: DHARPAKAD — Auckland (07 June Show)
+_DHARPAKAD_EVENT_ID = "evt_396bf50315b9"
+
+
+def _delete_test_code(admin_s, code_str):
+    """Best-effort cleanup so the unique-code constraint doesn't trip subsequent runs."""
+    r = admin_s.get(f"{API}/admin/events/{_DHARPAKAD_EVENT_ID}/creator-codes", timeout=15)
+    if r.status_code != 200:
+        return
+    items = r.json() if isinstance(r.json(), list) else r.json().get("items", [])
+    for c in items:
+        if c.get("code") == code_str:
+            admin_s.delete(f"{API}/admin/events/{_DHARPAKAD_EVENT_ID}/creator-codes/{c['code_id']}", timeout=15)
+
+
+def test_creator_code_commission_only_no_discount():
+    admin = _admin_session()
+    code_str = f"AUTOTEST_C{uuid.uuid4().hex[:4].upper()}"
+    _delete_test_code(admin, code_str)
+    payload = {
+        "code": code_str,
+        "creator_email": "orgtester@allsale.events",
+        "kind": "percent",
+        "commission_percent": 8,
+        # NB: NO `value` field — pure commission code
+    }
+    r = admin.post(f"{API}/admin/events/{_DHARPAKAD_EVENT_ID}/creator-codes", json=payload, timeout=20)
+    assert r.status_code == 200, r.text
+    doc = r.json()
+    assert doc["value"] == 0.0
+    assert doc["commission_percent"] == 8.0
+    _delete_test_code(admin, code_str)
+
+
+def test_creator_code_blocks_no_discount_and_no_commission():
+    admin = _admin_session()
+    code_str = f"AUTOTEST_N{uuid.uuid4().hex[:4].upper()}"
+    payload = {
+        "code": code_str,
+        "creator_email": "orgtester@allsale.events",
+        "kind": "percent",
+    }
+    r = admin.post(f"{API}/admin/events/{_DHARPAKAD_EVENT_ID}/creator-codes", json=payload, timeout=20)
+    assert r.status_code == 400
+    assert "code with neither has no effect" in r.json().get("detail", "").lower() or \
+           "discount value" in r.json().get("detail", "").lower()
+
+
+def test_creator_code_discount_only_no_commission():
+    admin = _admin_session()
+    code_str = f"AUTOTEST_D{uuid.uuid4().hex[:4].upper()}"
+    _delete_test_code(admin, code_str)
+    payload = {
+        "code": code_str,
+        "creator_email": "orgtester@allsale.events",
+        "kind": "percent",
+        "value": 12,
+    }
+    r = admin.post(f"{API}/admin/events/{_DHARPAKAD_EVENT_ID}/creator-codes", json=payload, timeout=20)
+    assert r.status_code == 200, r.text
+    doc = r.json()
+    assert doc["value"] == 12.0
+    assert doc.get("commission_percent") in (None, 0, 0.0)
+    _delete_test_code(admin, code_str)

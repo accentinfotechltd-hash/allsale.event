@@ -177,7 +177,9 @@ export default function AdminCreatorCodesTab() {
                           <div className="text-[10px]" style={{ color: "var(--text-dim)" }}>{c.creator_email}</div>
                         </td>
                         <td className="px-2 py-3 text-right" style={{ color: "var(--text)" }}>
-                          {c.kind === "percent" ? `${c.value}%` : `$${c.value}`}
+                          {Number(c.value) > 0
+                            ? (c.kind === "percent" ? `${c.value}%` : `$${c.value}`)
+                            : "—"}
                         </td>
                         <td className="px-2 py-3 text-right" style={{ color: "var(--text)" }}>
                           {c.commission_percent != null ? `${c.commission_percent}%` : "—"}
@@ -235,12 +237,12 @@ function AddCreatorCodeModal({ event, code, onClose, onCreated }) {
   const isEdit = !!code;
   const [form, setForm] = useState(() => isEdit ? {
     code: code.code, creator_email: code.creator_email,
-    kind: code.kind || "percent", value: code.value,
+    kind: code.kind || "percent", value: code.value ?? "",
     commission_percent: code.commission_percent ?? "",
     max_uses: code.max_uses ?? "",
     expires_at: code.expires_at ? code.expires_at.slice(0, 16) : "",
   } : {
-    code: "", creator_email: "", kind: "percent", value: 15,
+    code: "", creator_email: "", kind: "percent", value: "",
     commission_percent: "", max_uses: "", expires_at: "",
   });
   const [submitting, setSubmitting] = useState(false);
@@ -267,14 +269,20 @@ function AddCreatorCodeModal({ event, code, onClose, onCreated }) {
     e.preventDefault();
     if (!isEdit && !form.code.trim()) { toast.error("Code is required"); return; }
     if (!isEdit && !form.creator_email.trim()) { toast.error("Pick a creator"); return; }
-    if (!form.value || Number(form.value) <= 0) { toast.error("Discount value must be positive"); return; }
+    const numValue = form.value === "" || form.value === null ? 0 : Number(form.value);
+    if (Number.isNaN(numValue) || numValue < 0) { toast.error("Discount value must be 0 or more"); return; }
+    const numCommission = form.commission_percent === "" || form.commission_percent === null ? 0 : Number(form.commission_percent);
+    if (numValue === 0 && numCommission === 0) {
+      toast.error("Set a discount, a commission %, or both — otherwise the code has no effect.");
+      return;
+    }
     setSubmitting(true);
     try {
       if (isEdit) {
         const payload = {
           kind: form.kind,
-          value: Number(form.value),
-          commission_percent: form.commission_percent === "" ? 0 : Number(form.commission_percent),
+          value: numValue,
+          commission_percent: numCommission,
           max_uses: form.max_uses ? Number(form.max_uses) : null,
           expires_at: form.expires_at ? new Date(form.expires_at).toISOString() : null,
         };
@@ -285,8 +293,8 @@ function AddCreatorCodeModal({ event, code, onClose, onCreated }) {
           code: form.code.trim().toUpperCase(),
           creator_email: form.creator_email,
           kind: form.kind,
-          value: Number(form.value),
-          commission_percent: form.commission_percent ? Number(form.commission_percent) : null,
+          value: numValue,
+          commission_percent: numCommission > 0 ? numCommission : null,
           max_uses: form.max_uses ? Number(form.max_uses) : null,
           expires_at: form.expires_at ? new Date(form.expires_at).toISOString() : null,
         };
@@ -393,14 +401,15 @@ function AddCreatorCodeModal({ event, code, onClose, onCreated }) {
                 <option value="flat">$ off</option>
               </select>
             </Field>
-            <Field label={form.kind === "percent" ? "% off" : "$ off"}>
+            <Field label={`${form.kind === "percent" ? "% off" : "$ off"} (optional)`} help="Leave blank for a commission-only code.">
               <input
                 type="number"
                 step="0.01"
                 value={form.value}
                 onChange={(e) => update("value", e.target.value)}
-                min={0.01}
+                min={0}
                 max={form.kind === "percent" ? 100 : undefined}
+                placeholder="0 = no discount"
                 className="w-full px-3 py-2 rounded-md border text-sm"
                 style={{ borderColor: "var(--border)", background: "transparent", color: "var(--text)" }}
                 data-testid="creator-code-value"

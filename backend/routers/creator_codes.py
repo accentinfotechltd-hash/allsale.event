@@ -52,7 +52,10 @@ class CreatorCodeIn(BaseModel):
     code: str  # case-insensitive; we uppercase + strip
     creator_email: str  # who gets credit + earnings (we'll resolve to user_id)
     kind: str = "percent"  # "percent" or "flat"
-    value: float = Field(..., gt=0)
+    # Discount is OPTIONAL. Leave blank/None/0 to create a pure-commission /
+    # attribution code where the buyer pays full price but the creator still
+    # earns their commission on each redemption.
+    value: Optional[float] = Field(None, ge=0)
     commission_percent: Optional[float] = Field(
         None, ge=0, le=100,
         description="If set, creator earns this % on each paid booking using the code.",
@@ -75,8 +78,17 @@ async def admin_create_creator_code(
         raise HTTPException(status_code=400, detail="Code must be 2-24 chars A-Z, 0-9, _ or -")
     if payload.kind not in ("percent", "flat"):
         raise HTTPException(status_code=400, detail="Kind must be 'percent' or 'flat'")
-    if payload.kind == "percent" and payload.value > 100:
+    discount_value = float(payload.value) if payload.value is not None else 0.0
+    if payload.kind == "percent" and discount_value > 100:
         raise HTTPException(status_code=400, detail="Percent cannot exceed 100")
+    # Either give the buyer a discount, OR the creator a commission — a code
+    # with neither does nothing.
+    commission_pct = float(payload.commission_percent) if payload.commission_percent else 0.0
+    if discount_value <= 0 and commission_pct <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Set a discount value, a creator commission %, or both — a code with neither has no effect.",
+        )
 
     ev = await db.events.find_one({"event_id": event_id}, {"_id": 0, "organizer_id": 1, "title": 1, "currency": 1})
     if not ev:
@@ -103,7 +115,7 @@ async def admin_create_creator_code(
         "code_id": f"dc_{uuid.uuid4().hex[:12]}",
         "code": code,
         "kind": payload.kind,
-        "value": float(payload.value),
+        "value": discount_value,
         "event_id": event_id,
         "max_uses": payload.max_uses,
         "uses_count": 0,
@@ -115,7 +127,7 @@ async def admin_create_creator_code(
         "creator_id": creator["user_id"],
         "creator_email": creator["email"],
         "creator_name": creator.get("name"),
-        "commission_percent": payload.commission_percent,
+        "commission_percent": (commission_pct if commission_pct > 0 else None),
         "admin_created_by": user["user_id"],
         "auto_generated": False,
         "kind_tag": "creator_promo",
@@ -176,7 +188,8 @@ async def admin_deactivate_creator_code(
 
 class CreatorCodeEdit(BaseModel):
     # All optional — only the fields admin actually changed are sent.
-    value: Optional[float] = Field(None, gt=0)
+    # value=0 / None means "no buyer discount" (pure-commission code).
+    value: Optional[float] = Field(None, ge=0)
     kind: Optional[str] = None
     commission_percent: Optional[float] = Field(None, ge=0, le=100)
     max_uses: Optional[int] = Field(None, ge=1)
