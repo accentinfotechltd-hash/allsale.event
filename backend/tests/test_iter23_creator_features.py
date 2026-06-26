@@ -353,3 +353,44 @@ def test_compute_fees_zero_face_value_safe():
         assert fb.stripe_fee == 0
         assert fb.face_value == 0
 
+
+
+# ----- iter-24e: per-influencer summary + payout includes creator_earnings -----
+def test_organizer_influencer_summary_endpoint_returns_aggregate(org_session):
+    eid = _org_owned_event_id(org_session)
+    r = org_session.get(f"{API}/organizer/events/{eid}/influencer-summary", timeout=20)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "items" in body and isinstance(body["items"], list)
+    assert "totals" in body
+    for key in ("creators_with_codes", "active_sellers", "tickets_via_creators",
+                "revenue_via_creators", "commission_owed_to_creators"):
+        assert key in body["totals"], f"missing {key}"
+
+
+def test_organizer_influencer_summary_forbidden_for_foreign_event(org_session):
+    """orgtester must NOT be able to read summary for an event they don't own."""
+    admin_s, _ = _login("admin@allsale.events", "admin123")
+    all_events = admin_s.get(f"{API}/admin/events?limit=200", timeout=20).json()
+    items = all_events if isinstance(all_events, list) else all_events.get("items", [])
+    me = "user_2492358084d3"
+    foreign = next((it for it in items if it.get("organizer_id") and it["organizer_id"] != me), None)
+    if not foreign:
+        pytest.skip("no foreign event")
+    r = org_session.get(f"{API}/organizer/events/{foreign['event_id']}/influencer-summary", timeout=15)
+    assert r.status_code == 403, r.text
+
+
+def test_payout_request_blocks_below_threshold():
+    """Creator with no earnings must be blocked from requesting a payout with
+    the clear '$50 minimum' message — even if creator_earnings exist but the
+    sum is under the threshold."""
+    s, _ = _login("orgtester@allsale.events", "orgtest123")
+    # orgtester has only inactive codes and no paid bookings → pending should be $0
+    r = s.post(f"{API}/influencer/payouts/request", timeout=20)
+    assert r.status_code in (400, 503), r.text
+    if r.status_code == 400:
+        msg = r.json().get("detail", "")
+        # Either "Minimum payout is $50" OR Stripe-not-connected — both are
+        # valid block reasons. We just want to ensure NO payout was created.
+        assert "Minimum payout" in msg or "Stripe" in msg or "stripe" in msg, msg

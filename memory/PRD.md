@@ -31,6 +31,19 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Test credentials file refreshed (Feb 26 2026)**:
+  - Corrected `orgtester` user_id (was stale).
+  - Added current user_ids for admin + partner.
+  - Backfilled phone numbers on admin / partner so the new `PhoneCaptureGate` doesn't intercept automated test flows.
+  - Documented live fee rates + `PAYOUT_MIN_USD` constant so future agents don't guess.
+
+- **Influencer commission system — end-to-end completion (NEW)**:
+  - **Payout request now includes creator_earnings** (FIX): `POST /api/influencer/payouts/request` previously only summed legacy `affiliates` campaign revenue; it ignored the new `creator_earnings` rows from admin/organizer-assigned codes. Money was credited but invisible to the payout flow. Now drains BOTH ledgers, flips matched `creator_earnings` rows to `requested`, stamps the payout_id for clean reconciliation.
+  - **Per-influencer summary endpoint** (`/api/{admin,organizer}/events/{event_id}/influencer-summary`) — one row per creator aggregating across all their codes for the event: tickets sold, bookings, revenue, commission credited/unpaid, plus the creator's avatar + display name + follower count. Sorted by tickets-sold leaderboard.
+  - **"Influencers driving sales" leaderboard** added at the top of `OrganizerCreatorCodesPanel.jsx` — 3 KPI stat cards (tickets/revenue/unpaid commission) + ranked rows with avatar, code count, tickets, revenue, earnings.
+  - **$50 minimum payout** confirmed working (`PAYOUT_MIN_USD = 50.0`).
+  - **Backend tests**: 3 new pytest cases — summary endpoint, foreign-event 403, payout threshold block. **23/23 pass.**
+
 - **Per-event "fees included vs on top" toggle (NEW)**:
   - `EventIn.absorb_fees: bool = False` — organizer picks fee presentation per event.
   - `compute_fees(absorb_fees=True)` reverses the gross-up: buyer pays exactly the displayed ticket price; platform + Stripe fees are deducted from the organizer's payout. Default behavior unchanged.

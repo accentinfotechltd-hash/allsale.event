@@ -201,6 +201,109 @@ async def organizer_list_creator_codes(event_id: str, user: dict = Depends(get_c
     return await _list_creator_codes(event_id)
 
 
+@router.get("/events/{event_id}/influencer-summary")
+async def admin_influencer_summary(event_id: str, user: dict = Depends(get_current_user)):
+    """Per-influencer aggregate: who sold how many tickets and earned how much."""
+    _admin_only(user)
+    return await _influencer_summary(event_id)
+
+
+@organizer_router.get("/events/{event_id}/influencer-summary")
+async def organizer_influencer_summary(event_id: str, user: dict = Depends(get_current_user)):
+    """Same summary, scoped to the calling organizer's own event."""
+    await _ensure_can_manage_event(user, event_id)
+    return await _influencer_summary(event_id)
+
+
+async def _influencer_summary(event_id: str) -> dict:
+    """One row per influencer driving sales on this event.
+
+    Aggregates across ALL of a creator's codes for the event (they may have
+    multiple — e.g. a 10% discount + a 20% special). Lets the organizer see
+    which influencers actually move tickets vs. just hold a code.
+    """
+    by_creator: dict[str, dict] = {}
+
+    # Walk every creator code on this event and bucket by creator_id.
+    async for code in db.discount_codes.find(
+        {"event_id": event_id, "creator_id": {"$exists": True, "$ne": None}},
+        {"_id": 0},
+    ):
+        cid = code["creator_id"]
+        bk_agg = await db.bookings.aggregate([
+            {"$match": {
+                "discount_code": code["code"],
+                "event_id": event_id,
+                "status": {"$in": ["paid", "confirmed"]},
+            }},
+            {"$group": {"_id": None,
+                        "bookings": {"$sum": 1},
+                        "tickets": {"$sum": "$quantity"},
+                        "revenue": {"$sum": "$amount"}}},
+        ]).to_list(1)
+        bk = bk_agg[0] if bk_agg else {}
+        earn_agg = await db.creator_earnings.aggregate([
+            {"$match": {"code_id": code["code_id"]}},
+            {"$group": {"_id": "$status", "amount": {"$sum": "$earning_amount"}}},
+        ]).to_list(5)
+        slot = by_creator.setdefault(cid, {
+            "creator_id": cid,
+            "creator_name": code.get("creator_name"),
+            "creator_email": code.get("creator_email"),
+            "codes_count": 0,
+            "active_codes": 0,
+            "tickets_sold": 0,
+            "bookings": 0,
+            "revenue": 0.0,
+            "commission_credited": 0.0,
+            "commission_unpaid": 0.0,
+        })
+        slot["codes_count"] += 1
+        if code.get("active"):
+            slot["active_codes"] += 1
+        slot["tickets_sold"] += int(bk.get("tickets") or 0)
+        slot["bookings"] += int(bk.get("bookings") or 0)
+        slot["revenue"] += float(bk.get("revenue") or 0)
+        slot["commission_credited"] += sum(e["amount"] for e in earn_agg)
+        slot["commission_unpaid"] += sum(e["amount"] for e in earn_agg if e["_id"] == "unpaid")
+
+    # Enrich with avatar + display_name from `influencers` collection so the
+    # organizer can recognise the human behind the email.
+    creator_ids = list(by_creator.keys())
+    if creator_ids:
+        async for prof in db.influencers.find(
+            {"user_id": {"$in": creator_ids}},
+            {"_id": 0, "user_id": 1, "display_name": 1, "avatar_url": 1, "follower_count_total": 1},
+        ):
+            uid = prof["user_id"]
+            if uid in by_creator:
+                by_creator[uid]["display_name"] = prof.get("display_name") or by_creator[uid].get("creator_name")
+                by_creator[uid]["avatar_url"] = prof.get("avatar_url")
+                by_creator[uid]["follower_count"] = prof.get("follower_count_total") or 0
+
+    # Rank by tickets sold (then revenue) so the leaderboard puts active
+    # sellers on top and dormant code-holders at the bottom.
+    items = sorted(
+        by_creator.values(),
+        key=lambda r: (r["tickets_sold"], r["revenue"]),
+        reverse=True,
+    )
+    # Round monetary fields to cents for clean display.
+    for r in items:
+        for k in ("revenue", "commission_credited", "commission_unpaid"):
+            r[k] = round(r[k], 2)
+    return {
+        "items": items,
+        "totals": {
+            "creators_with_codes": len(items),
+            "active_sellers": sum(1 for r in items if r["tickets_sold"] > 0),
+            "tickets_via_creators": sum(r["tickets_sold"] for r in items),
+            "revenue_via_creators": round(sum(r["revenue"] for r in items), 2),
+            "commission_owed_to_creators": round(sum(r["commission_unpaid"] for r in items), 2),
+        },
+    }
+
+
 async def _list_creator_codes(event_id: str) -> dict:
     cur = db.discount_codes.find(
         {"event_id": event_id, "creator_id": {"$exists": True, "$ne": None}},

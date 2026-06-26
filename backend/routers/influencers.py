@@ -410,13 +410,24 @@ async def list_payouts(user: dict = Depends(get_current_user)):
 
 @router.post("/influencer/payouts/request")
 async def request_payout(user: dict = Depends(get_current_user)):
+    """Compute current pending balance (campaign affiliates + creator codes)
+    and create a payout request row when over the per-creator minimum threshold.
+
+    Earnings come from TWO independent ledgers and the request must drain
+    both — otherwise creators with only admin-assigned codes (no
+    self-joined campaigns) would never see their money.
+       1. `affiliates` → bookings.affiliate_code → rev × commission_pct
+       2. `creator_earnings` (status='unpaid') → already-credited rows from
+          /payments.py when a paid booking used an admin/organizer-assigned
+          creator code.
+    """
     prof = await db.influencers.find_one({"user_id": user["user_id"]}, {"_id": 0})
     if not prof:
         raise HTTPException(status_code=404, detail="Enable influencer mode first")
     if not user.get("stripe_payouts_enabled"):
         raise HTTPException(status_code=400, detail="Connect your Stripe account first to receive payouts")
 
-    # Compute current pending balance
+    # 1) Legacy: self-joined affiliate campaigns.
     total_commission = 0.0
     async for a in db.affiliates.find({"influencer_id": user["user_id"]}, {"_id": 0, "code": 1, "commission_pct": 1}):
         agg = await db.bookings.aggregate([
@@ -425,25 +436,46 @@ async def request_payout(user: dict = Depends(get_current_user)):
         ]).to_list(1)
         if agg:
             total_commission += agg[0]["rev"] * float(a.get("commission_pct", 0)) / 100
+
+    # 2) Creator codes: admin/organizer assigned codes credit a row in
+    #    `creator_earnings` on every paid booking. Sum the unpaid rows.
+    code_agg = await db.creator_earnings.aggregate([
+        {"$match": {"creator_id": user["user_id"], "status": "unpaid"}},
+        {"$group": {"_id": None, "total": {"$sum": "$earning_amount"}}},
+    ]).to_list(1)
+    code_earnings = round(code_agg[0]["total"], 2) if code_agg else 0
+
     paid_agg = await db.influencer_payouts.aggregate([
         {"$match": {"influencer_id": user["user_id"], "status": {"$in": ["pending", "approved", "paid"]}}},
         {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
     ]).to_list(1)
     already_requested = paid_agg[0]["total"] if paid_agg else 0
-    pending = round(total_commission - already_requested, 2)
+    pending = round(total_commission + code_earnings - already_requested, 2)
 
     threshold = prof.get("payout_threshold", PAYOUT_MIN_USD)
     if pending < threshold:
         raise HTTPException(status_code=400, detail=f"Minimum payout is ${threshold:.2f}. Current pending: ${pending:.2f}")
 
+    # Flip every unpaid creator_earnings row into 'requested' state so it
+    # doesn't get double-counted in the next request. Admin payout settlement
+    # flips them to 'paid' (or back to 'unpaid' on reject).
+    payout_id = f"ipo_{uuid.uuid4().hex[:12]}"
+    await db.creator_earnings.update_many(
+        {"creator_id": user["user_id"], "status": "unpaid"},
+        {"$set": {"status": "requested", "payout_id": payout_id, "requested_at": utc_now().isoformat()}},
+    )
+
     doc = {
-        "payout_id": f"ipo_{uuid.uuid4().hex[:12]}",
+        "payout_id": payout_id,
         "influencer_id": user["user_id"],
         "amount": pending,
         "status": "pending",
         "stripe_transfer_id": None,
         "requested_at": utc_now().isoformat(),
         "notes": None,
+        # Bookkeeping: which sources made up this payout.
+        "from_affiliate_campaigns": round(total_commission, 2),
+        "from_creator_codes": code_earnings,
     }
     await db.influencer_payouts.insert_one(doc)
     doc.pop("_id", None)

@@ -14,7 +14,7 @@
  *   GET    /api/organizer/creator-codes/users-search?q=
  */
 import { useEffect, useState, useCallback } from "react";
-import { Tag, Plus, Trash2, Loader2, X as XIcon, TrendingUp, Pencil } from "lucide-react";
+import { Tag, Plus, Trash2, Loader2, X as XIcon, TrendingUp, Pencil, Users, Trophy, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 
@@ -22,6 +22,7 @@ const BASE = "/organizer";
 
 export default function OrganizerCreatorCodesPanel({ eventId, eventTitle }) {
   const [codes, setCodes] = useState([]);
+  const [summary, setSummary] = useState({ items: [], totals: {} });
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCode, setEditingCode] = useState(null);
@@ -30,15 +31,15 @@ export default function OrganizerCreatorCodesPanel({ eventId, eventTitle }) {
     if (!eventId) return;
     setLoading(true);
     try {
-      const r = await api.get(`${BASE}/events/${eventId}/creator-codes`);
-      setCodes(r.data?.items || []);
-    } catch (err) {
-      // 403 = not your event (shouldn't reach here normally); silent log.
-      if (err?.response?.status === 403) {
-        setCodes([]);
-      } else {
-        setCodes([]);
-      }
+      const [codesRes, sumRes] = await Promise.all([
+        api.get(`${BASE}/events/${eventId}/creator-codes`),
+        api.get(`${BASE}/events/${eventId}/influencer-summary`).catch(() => ({ data: { items: [], totals: {} } })),
+      ]);
+      setCodes(codesRes.data?.items || []);
+      setSummary(sumRes.data || { items: [], totals: {} });
+    } catch {
+      setCodes([]);
+      setSummary({ items: [], totals: {} });
     } finally {
       setLoading(false);
     }
@@ -79,6 +80,67 @@ export default function OrganizerCreatorCodesPanel({ eventId, eventTitle }) {
         </button>
       </div>
 
+      {summary.items && summary.items.length > 0 && (
+        <div className="mb-5" data-testid="org-influencer-leaderboard">
+          <div className="flex items-center gap-2 mb-2 text-xs uppercase tracking-widest" style={{ color: "var(--accent)" }}>
+            <Trophy size={12} /> Influencers driving sales · {summary.totals?.active_sellers || 0} active / {summary.totals?.creators_with_codes || 0} total
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3 text-xs">
+            <Stat icon={Users} label="Tickets sold via creators" value={summary.totals?.tickets_via_creators || 0} />
+            <Stat icon={DollarSign} label="Revenue via creators" value={`$${(summary.totals?.revenue_via_creators || 0).toFixed(2)}`} />
+            <Stat icon={TrendingUp} label="Commission owed (unpaid)" value={`$${(summary.totals?.commission_owed_to_creators || 0).toFixed(2)}`} accent />
+          </div>
+          <div className="space-y-1.5">
+            {summary.items.slice(0, 5).map((c, i) => (
+              <div
+                key={c.creator_id}
+                className="rounded-lg border p-2.5 flex items-center gap-3"
+                style={{ borderColor: "var(--border)", background: "var(--bg-elev)" }}
+                data-testid={`org-influencer-row-${c.creator_id}`}
+              >
+                <div className="text-[10px] font-bold w-5 text-center" style={{ color: "var(--text-dim)" }}>#{i + 1}</div>
+                {c.avatar_url ? (
+                  <img src={c.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover flex-shrink-0" />
+                ) : (
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 text-sm font-medium" style={{ background: "var(--accent)", color: "#000" }}>
+                    {(c.display_name || c.creator_name || c.creator_email || "?")[0]?.toUpperCase()}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate" style={{ color: "var(--text)" }}>
+                    {c.display_name || c.creator_name || c.creator_email}
+                  </div>
+                  <div className="text-[10px] truncate" style={{ color: "var(--text-dim)" }}>
+                    {c.codes_count} code{c.codes_count === 1 ? "" : "s"} · {c.creator_email}
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className="text-xs" style={{ color: "var(--text)" }}>
+                    <strong>{c.tickets_sold}</strong> tickets
+                  </div>
+                  <div className="text-[10px]" style={{ color: "var(--text-dim)" }}>
+                    ${c.revenue.toFixed(2)} revenue
+                  </div>
+                </div>
+                <div className="text-right flex-shrink-0 w-24">
+                  <div className="text-xs" style={{ color: "var(--accent)" }} data-testid={`org-influencer-${c.creator_id}-commission`}>
+                    <strong>${c.commission_credited.toFixed(2)}</strong>
+                  </div>
+                  <div className="text-[10px]" style={{ color: "var(--text-dim)" }}>
+                    earned
+                  </div>
+                </div>
+              </div>
+            ))}
+            {summary.items.length > 5 && (
+              <div className="text-[11px] text-center pt-1" style={{ color: "var(--text-dim)" }}>
+                + {summary.items.length - 5} more — scroll the codes table below for the full list.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -92,8 +154,7 @@ export default function OrganizerCreatorCodesPanel({ eventId, eventTitle }) {
               <th className="text-right px-2 py-2">Credited</th>
               <th className="text-right px-2 py-2"></th>
             </tr>
-          </thead>
-          <tbody>
+          </thead>          <tbody>
             {loading && (
               <tr><td colSpan={8} className="text-center py-4"><Loader2 className="inline animate-spin" size={16} /></td></tr>
             )}
@@ -415,6 +476,17 @@ function Field({ label, help, children }) {
       <label className="block text-xs mb-1" style={{ color: "var(--text-dim)" }}>{label}</label>
       {children}
       {help && <p className="text-[10px] mt-1" style={{ color: "var(--text-dim)" }}>{help}</p>}
+    </div>
+  );
+}
+
+function Stat({ icon: Icon, label, value, accent }) {
+  return (
+    <div className="rounded-md border px-3 py-2" style={{ borderColor: "var(--border)" }}>
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider" style={{ color: "var(--text-dim)" }}>
+        {Icon ? <Icon size={11} /> : null}{label}
+      </div>
+      <div className="text-base mt-0.5" style={{ color: accent ? "var(--accent)" : "var(--text)" }}>{value}</div>
     </div>
   );
 }
