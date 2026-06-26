@@ -31,6 +31,13 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Bug fix: PhoneCaptureGate kept re-asking for a phone even after the user had saved one (Feb 26 2026)**:
+  - User reported: "make sure mobile number once they added do not ask every time." Reproduced live — the gate showed for the admin account even though admin had `+64 21 555 0001` in the DB.
+  - **RCA:** All four auth endpoints (`POST /auth/login`, `/register`, `/google-code`, `/google-session`) returned a user dict **without `phone`**. Frontend `setUser(data)` overwrote the auth-context user with a phone-less object → `PhoneCaptureGate`'s `!user.phone` check fired immediately after every login. `GET /auth/me` (called separately) did return phone, but the login response always raced ahead.
+  - **Fix:** All four auth endpoints now echo `phone` in their response. Google endpoints re-read the user doc so they pick up phones saved during a prior session.
+  - **Tests:** 4 new pytest cases in `test_auth_phone_in_response.py` pin the response contract. **All 57 auth + creator + partner tests still pass.**
+  - **Verified live:** logged in as admin in the browser → no gate appears, user lands on `/admin` with phone persisted in context.
+
 - **Bug fix: booking-confirmation e-tickets were silently failing (Feb 26 2026)**:
   - Buyers reported they never received their PDF tickets after paying. `email_logs` showed every `booking_confirmation` row as `status='failed', reason='Object of type bytes is not JSON serializable'`.
   - **RCA:** Resend Python SDK v2.30.1 requires attachment `content` to be a base64 string or `list[int]`. `routers/payments._send_booking_confirmation_email` was passing the raw `bytes` returned by `ticket_pdf.build_ticket_pdf` straight through. Resend's `json.dumps` choked on bytes; the helper's broad `except` swallowed it so checkout looked fine and the buyer got nothing.

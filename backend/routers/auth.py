@@ -109,7 +109,7 @@ async def register(payload: RegisterIn, response: Response):
     set_jwt_cookie(response, token)
     return {
         "user_id": user_id, "email": email, "name": payload.name,
-        "role": payload.role, "picture": None, "token": token,
+        "role": payload.role, "picture": None, "phone": phone, "token": token,
     }
 
 
@@ -125,7 +125,8 @@ async def login(payload: LoginIn, response: Response):
     set_jwt_cookie(response, token)
     return {
         "user_id": user["user_id"], "email": user["email"], "name": user["name"],
-        "role": user["role"], "picture": user.get("picture"), "token": token,
+        "role": user["role"], "picture": user.get("picture"),
+        "phone": user.get("phone"), "token": token,
     }
 
 
@@ -400,9 +401,13 @@ async def google_code(payload: GoogleCodeIn, response: Response):
     # Also mint a JWT for the API client to put in Authorization headers
     jwt_token = create_access_token(user_id, email)
     set_jwt_cookie(response, jwt_token)
+    # Re-read the user to pick up `phone` (and any other PATCHed fields) so
+    # PhoneCaptureGate doesn't immediately re-prompt users who already saved
+    # their number during a previous session.
+    refreshed = await db.users.find_one({"user_id": user_id}, {"_id": 0})
     return {
         "user_id": user_id, "email": email, "name": name, "picture": picture,
-        "role": role, "token": jwt_token,
+        "role": role, "phone": (refreshed or {}).get("phone"), "token": jwt_token,
     }
 
 
@@ -456,7 +461,13 @@ async def google_session(payload: GoogleSessionIn, response: Response):
         "created_at": utc_now().isoformat(),
     })
     set_session_cookie(response, session_token)
-    return {"user_id": user_id, "email": email, "name": name, "picture": picture, "role": role}
+    # Re-read to surface `phone` so PhoneCaptureGate doesn't re-prompt users
+    # who already saved their number during a previous session.
+    refreshed = await db.users.find_one({"user_id": user_id}, {"_id": 0})
+    return {
+        "user_id": user_id, "email": email, "name": name, "picture": picture,
+        "role": role, "phone": (refreshed or {}).get("phone"),
+    }
 
 
 @router.post("/become-organizer")
