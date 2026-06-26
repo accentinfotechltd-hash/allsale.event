@@ -234,6 +234,23 @@ export default function Landing() {
         </div>
       </section>
 
+      {/* FEATURED EVENTS — promoted to right under the hero so the first thing
+          visitors do AFTER reading the pitch is see real events on sale. */}
+      <section className="max-w-7xl mx-auto px-6 pb-16" data-testid="landing-featured-events">
+        <div className="flex items-end justify-between mb-8">
+          <div>
+            <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>On sale now</div>
+            <h2 className="serif text-4xl">Featured events</h2>
+          </div>
+          <Link to="/events" className="hidden md:inline-flex items-center gap-2 text-sm hover:opacity-80" style={{ color: "var(--text)" }}>
+            See all <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {(Array.isArray(featured) ? featured : []).slice(0, 8).map((e, i) => <EventCard key={e.event_id} event={e} index={i} />)}
+        </div>
+      </section>
+
       {/* PREMIUM FEATURE SHOWCASE — moved to top so visitors see Allsale's full power immediately */}
       <FeatureShowcase />
 
@@ -304,22 +321,6 @@ export default function Landing() {
           )}
         </section>
       )}
-
-      {/* FEATURED EVENTS */}
-      <section className="max-w-7xl mx-auto px-6 pb-16">
-        <div className="flex items-end justify-between mb-8">
-          <div>
-            <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>Curated this week</div>
-            <h2 className="serif text-4xl">Hand-picked headliners</h2>
-          </div>
-          <Link to="/events" className="hidden md:inline-flex items-center gap-2 text-sm hover:opacity-80" style={{ color: "var(--text)" }}>
-            See all <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          {(Array.isArray(featured) ? featured : []).slice(0, 8).map((e, i) => <EventCard key={e.event_id} event={e} index={i} />)}
-        </div>
-      </section>
 
       {/* CREATOR SPOTLIGHT — recruit + showcase enrolled creators */}
       <CreatorSpotlight />
