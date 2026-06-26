@@ -1,0 +1,36 @@
+{
+  "summary": "Bug-fix validation for booking-confirmation email PDF attachment (Resend SDK v2 bytes-not-JSON-serialisable). Ran the 8 new unit tests at /app/backend/tests/test_email_attachment_bytes.py (all pass) AND added 6 HTTP-level integration tests at /app/backend/tests/test_iter24_email_resend_api.py exercising the live admin endpoint. POST /api/admin/email/resend-booking with booking_id=bk_partner_test_001 returns 200, writes an email_logs row with status='sent' and a real Resend UUID (e.g. b5d138fd-907e-4b36-a2ea-f34c67f36455) for buyer@test.com. Multiple resends across 3 paid bookings (bk_partner_test_001, bk_proto_demo_1/2/3) produce zero new 'Object of type bytes is not JSON serializable' rows (count remained at the single historical row from 2026-06-22 06:45, before the fix). The /admin/email/send-test smoke path still works. The normaliser handles bytes/bytearray/memoryview → base64, passes through str+list[int], drops unsupported types, and the real ticket_pdf.build_ticket_pdf bytes flow through unchanged. Fix is verified end-to-end via the admin API.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/email/resend-booking", "issue": "Hammering the endpoint can trip Resend's 2 req/s free-tier rate-limit, which surfaces in email_logs as status='failed' reason='Too many requests'. Not the bytes bug — but admin support staff resending several confirmations quickly will see misleading 'failed' rows. Consider an in-process queue / 0.6s spacing or a UI cooldown."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_email_attachment_bytes.py",
+    "/app/backend/tests/test_iter24_email_resend_api.py",
+    "/app/test_reports/pytest/iter24_email_attachment.xml",
+    "/app/test_reports/pytest/iter24_email_resend_api.xml",
+    "/app/test_reports/pytest/iter24_combined.xml"
+  ],
+  "action_items": [
+    "(Optional, low priority) Throttle Resend calls on the backend (e.g. 500-700ms between sends or a small async semaphore) so admin bulk-resends don't generate misleading 'failed' rows for rate-limit hits. Distinct issue from the bytes bug.",
+    "(Optional, observability) When a booking_confirmation log writes status='failed' with reason starting with 'Too many requests', auto-retry once after a 1.5s backoff instead of leaving the email lost."
+  ],
+  "critical_code_review_comments": [
+    "_normalize_attachments correctly handles bytes/bytearray/memoryview → base64 and passes through str+list[int]. Solid choice to log+drop unsupported types instead of raising — a single bad attachment never blocks the email.",
+    "send_template still doesn't retry on transient Resend errors (e.g. 429 Too Many Requests). Each resend that gets rate-limited writes 'failed' to email_logs and the buyer never gets the ticket. Consider tenacity-style retry with exponential backoff on 429.",
+    "email_logs rows for booking_confirmation don't appear to consistently carry booking_id (the helper logs by `to` only). For support ops, adding booking_id to the log row would make resend traceability much easier."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter24_email_resend_api.py (NEW — 6 HTTP integration tests)"
+  ],
+  "success_rate": {"backend": "100% (14/14: 8 unit + 6 HTTP integration)", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "admin@allsale.events / admin123 (from /app/memory/test_credentials.md). Used to obtain bearer token for the admin endpoints.",
+  "seed_data_creation": "No new seed data. Used existing booking_id=bk_partner_test_001 + bk_proto_demo_1/2/3 (all paid, valid user_email).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The booking-confirmation email bug is FIXED and verified end-to-end. New regression suite lives at /app/backend/tests/test_iter24_email_resend_api.py (HTTP) + /app/backend/tests/test_email_attachment_bytes.py (unit) — keep both. The only post-fix email failures observed in email_logs are Resend's 2 req/s rate-limit hits — that's a separate, lower-priority issue. The historical bytes-bug row from 2026-06-22 06:45 was kept intentionally to prove the fix doesn't retroactively rewrite history; new resends never produce that reason. Test isolation: tests respect Resend rate-limit with 1.2s+ sleeps between resends + retry-on-rate-limit on the critical 'sent' assertion.",
+  "rca of the issue": "RCA: Resend Python SDK v2.30.1 serialises request params with stdlib json which cannot encode bytes (`Object of type bytes is not JSON serializable`). routers/payments._send_booking_confirmation_email built the e-ticket via ticket_pdf.build_ticket_pdf() (returns raw bytes) and passed them as attachment content directly. Every booking confirmation silently logged status='failed' in email_logs with the bytes reason, but the booking flow swallowed the exception so checkout succeeded — buyers got no e-ticket. Fix: _normalize_attachments() in emails.py base64-encodes bytes/bytearray/memoryview before forwarding to Resend (Resend's Attachment TypedDict accepts Union[str, List[int]]). Verified: 6+ resends across 4 different paid bookings now produce status='sent' rows with real Resend UUIDs; bytes-bug count stays flat at the single pre-fix row."
+}

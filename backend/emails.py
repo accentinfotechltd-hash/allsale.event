@@ -10,6 +10,7 @@ with inline styles so they survive Gmail / Outlook / Apple Mail rendering.
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import os
 from datetime import datetime, timezone
@@ -1606,6 +1607,41 @@ def _t_organizer_stripe_setup_nudge(ctx: Dict[str, Any]) -> tuple[str, str, str]
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+def _normalize_attachments(attachments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Coerce attachment `content` into a JSON-safe form for Resend.
+
+    Resend SDK >=2.x serialises params with the stdlib `json` module which
+    cannot encode `bytes`. The Attachment TypedDict requires
+    `Union[List[int], str]` (base64). Callers in this codebase still pass
+    raw bytes (e.g. PDF buffers from `ticket_pdf.build_ticket_pdf`), so we
+    normalise here.
+
+    - bytes / bytearray / memoryview → base64-encoded str
+    - str (assumed already base64) / list[int] → passed through
+    - Anything else → dropped from the attachment (logged) so a single bad
+      attachment never blocks the rest of the email send.
+    """
+    out: List[Dict[str, Any]] = []
+    for att in attachments or []:
+        if not isinstance(att, dict):
+            continue
+        copy = dict(att)
+        content = copy.get("content")
+        if isinstance(content, (bytes, bytearray, memoryview)):
+            copy["content"] = base64.b64encode(bytes(content)).decode("ascii")
+        elif isinstance(content, (str, list)) or content is None:
+            # already base64 / list[int] / remote attachment (no content)
+            pass
+        else:
+            logger.warning(
+                f"[email] dropping attachment '{copy.get('filename')}' — "
+                f"unsupported content type {type(content).__name__}"
+            )
+            copy.pop("content", None)
+        out.append(copy)
+    return out
+
+
 async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None, attachments: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     """Render and dispatch a template. Always returns a result dict; never raises.
 
@@ -1615,9 +1651,9 @@ async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None, at
     transparently re-routed to that address (the original `to` is recorded
     on the log as `to_requested` for auditability).
 
-    :param attachments: Optional list of dicts with keys `content` (bytes or
-        base64 str) and `filename` (str). Forwarded to Resend's attachments
-        API verbatim. Used to attach the booking-confirmation ticket PDF.
+    :param attachments: Optional list of dicts with keys `content` (bytes,
+        base64 str, or list[int]) and `filename` (str). Bytes are
+        auto-base64-encoded before being forwarded to Resend.
     """
     log_id = uuid4().hex[:16]
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -1670,11 +1706,13 @@ async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None, at
         # targets. Lets us send FROM a verified domain while keeping support
         # in a shared Gmail inbox.
         params["reply_to"] = [REPLY_TO_EMAIL]
-    # Forward attachments to Resend. Each attachment dict needs `content` and
-    # `filename`. Resend accepts raw bytes (which get auto-base64'd by the
-    # `resend` SDK) — so we just pass through whatever the caller hands us.
+    # Forward attachments to Resend. Resend SDK v2.x requires `content` to be
+    # either a base64-encoded string or a list[int] — raw `bytes` blow up the
+    # JSON serializer ("Object of type bytes is not JSON serializable"), which
+    # was silently killing every booking-confirmation email that carried a PDF
+    # ticket. Normalise here so callers can keep passing raw bytes.
     if attachments:
-        params["attachments"] = attachments
+        params["attachments"] = _normalize_attachments(attachments)
 
     try:
         result = await asyncio.to_thread(resend.Emails.send, params)
