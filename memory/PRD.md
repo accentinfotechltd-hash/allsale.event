@@ -31,7 +31,13 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
-- **Commission single-source-of-truth + featured-on-top + organizer/creator faces on event cards (NEW)**:
+- **Bug fix: booking-confirmation e-tickets were silently failing (Feb 26 2026)**:
+  - Buyers reported they never received their PDF tickets after paying. `email_logs` showed every `booking_confirmation` row as `status='failed', reason='Object of type bytes is not JSON serializable'`.
+  - **RCA:** Resend Python SDK v2.30.1 requires attachment `content` to be a base64 string or `list[int]`. `routers/payments._send_booking_confirmation_email` was passing the raw `bytes` returned by `ticket_pdf.build_ticket_pdf` straight through. Resend's `json.dumps` choked on bytes; the helper's broad `except` swallowed it so checkout looked fine and the buyer got nothing.
+  - **Fix:** `emails._normalize_attachments()` (new helper) base64-encodes bytes/bytearray/memoryview before passing to Resend; passes through str + list[int]; drops + logs anything else so a single bad attachment never blocks the send. Called once in `send_template()` — all current and future callers benefit.
+  - **Tests:** 8 new unit tests in `test_email_attachment_bytes.py` + 6 new HTTP integration tests in `test_iter24_email_resend_api.py`. 14/14 pass. Verified end-to-end via testing_agent_v3_fork: real resends produce `status='sent'` rows with real Resend UUIDs; bytes-bug error count stays flat at the single pre-fix historical row.
+
+
   - **Bug fix: payout double-counting** — `payouts.py` (`/organizer/payouts/balance` and `/payouts/request`) now uses `sum(b.face_value)` instead of `sum(b.amount)` + second commission deduction. The platform fee was already routed at checkout via `compute_fees()`; deducting it again at payout was inflating the organizer's payout (~$51 instead of $50) and starving Allsale's margin. Fix: net = gross = sum(face_value). Works correctly in both exclusive AND absorb fee modes.
   - **Featured events sort first** — `/api/events` now ranks `featured` → `is_boosted` → date asc. Admin-curated picks land at the top of the discovery feed without manual rearrangement.
   - **Event cards now show organizer logo + creator avatar strip** — `events.py._attach_face_avatars()` batches both lookups (no N+1). `EventCard.jsx` renders the organizer's picture + name on a dedicated footer row, plus an avatar stack of up to 3 active creators promoting the event. `Featured` badge added on the cover.
@@ -109,8 +115,14 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
 - **Opt-out survey on `/blog/unsubscribe` (NEW)**: After successful unsubscribe, show optional 5-option radio survey (Too many emails / Not relevant / Never signed up / Found better / Other) with comment textarea for "Other". POST `/api/blog/unsubscribe/reason` stamps `unsubscribe_reason`, `unsubscribe_comment`, `unsubscribe_feedback_at` on subscriber doc. Admin aggregate at GET `/api/admin/newsletter/unsubscribe-reasons` returns counts + recent comments. Fixed cramped layout by overriding global `input { width:100% }` for the radio buttons.
 
 ## Backlog
-- All current P0/P1/P2/P3 items shipped.
-- Possible future: surface aggregate unsub reasons on the admin newsletter tab UI; add gift cards self-service portal; partner application intake form; AI flyer generation progress UI; reseller panel (scope TBD with user).
+- AI flyer generation progress UI (P1 — 15-20s wait, looks broken).
+- Twilio/WhatsApp utility notifications (P1 — awaiting user's Option A vs B + Twilio account decision).
+- Admin newsletter dashboard widget — surface `/api/admin/newsletter/unsubscribe-reasons` aggregate counts.
+- Public "Become a partner" application form (self-serve intake).
+- Reseller panel — scope TBD with user.
+- Email-confirmation alert on partner password change.
+- Gift cards self-service portal (linked in footer; needs implementation).
+- (Low priority, from iter_24 review) Retry transient Resend 429s with backoff; include booking_id on email_logs rows for support traceability.
 
 ## Critical Notes
 - Partner login uses standard `/api/auth/login`; partner role is just `user.role="partner"` + `user.linked_partner_id`
