@@ -6,9 +6,25 @@ import { flagForCountry } from "@/lib/countries";
 export default function EventCard({ event, index = 0 }) {
   const date = new Date(event.date);
   const dateStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  const minPrice = event.has_seatmap
-    ? event.seat_price
-    : Math.min(...(event.tiers || []).map((t) => t.price));
+  // Compute the lowest VALID positive price for the badge. We deliberately
+  // separate three cases here:
+  //   - At least one positive tier/seat price → show "from $X"
+  //   - Every configured price is exactly 0      → show "Free" (organizer's choice)
+  //   - No tiers configured AND no seat price   → show "TBA" (price not set yet)
+  // The old code conflated the last two and made unfinished events look free.
+  const seatPrice = Number(event.seat_price);
+  const tierPrices = (event.tiers || [])
+    .map((t) => Number(t.price))
+    .filter((p) => !Number.isNaN(p));
+  const configuredPrices = event.has_seatmap
+    ? (Number.isFinite(seatPrice) ? [seatPrice] : [])
+    : tierPrices;
+  const positivePrices = configuredPrices.filter((p) => p > 0);
+  const minPrice = positivePrices.length > 0 ? Math.min(...positivePrices) : 0;
+  const priceState =
+    positivePrices.length > 0 ? "price"
+    : configuredPrices.length > 0 ? "free"
+    : "tba";
   const currency = event.currency || "NZD";
 
   return (
@@ -86,16 +102,37 @@ export default function EventCard({ event, index = 0 }) {
             <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>{dateStr}</div>
           </div>
           <div className="text-right">
-            {minPrice > 0 && (
-              <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>from</div>
+            {priceState === "price" && (
+              <>
+                <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>from</div>
+                <div
+                  className="serif text-2xl leading-none"
+                  style={{ color: "var(--accent)" }}
+                  data-testid={`event-card-price-${event.event_id}`}
+                >
+                  {formatMoney(minPrice, currency, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </div>
+              </>
             )}
-            <div
-              className="serif text-2xl leading-none"
-              style={{ color: "var(--accent)" }}
-              data-testid={`event-card-price-${event.event_id}`}
-            >
-              {formatMoney(minPrice, currency, { minimumFractionDigits: 0, maximumFractionDigits: 0, free: true })}
-            </div>
+            {priceState === "free" && (
+              <div
+                className="serif text-2xl leading-none"
+                style={{ color: "var(--accent)" }}
+                data-testid={`event-card-price-${event.event_id}`}
+              >
+                Free
+              </div>
+            )}
+            {priceState === "tba" && (
+              <div
+                className="serif text-xl leading-none opacity-80"
+                style={{ color: "var(--text-muted)" }}
+                data-testid={`event-card-price-${event.event_id}`}
+                title="Tickets not yet on sale"
+              >
+                TBA
+              </div>
+            )}
           </div>
         </div>
       </div>
