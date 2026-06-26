@@ -394,3 +394,59 @@ def test_payout_request_blocks_below_threshold():
         # Either "Minimum payout is $50" OR Stripe-not-connected — both are
         # valid block reasons. We just want to ensure NO payout was created.
         assert "Minimum payout" in msg or "Stripe" in msg or "stripe" in msg, msg
+
+
+# ----- iter-24f: featured sort + face avatars + payout single-source -----
+def test_browse_events_sorts_featured_first():
+    """`/api/events` must put featured events before non-featured (ties on date)."""
+    r = requests.get(f"{API}/events?limit=10", timeout=15)
+    assert r.status_code == 200
+    items = r.json()
+    if not items:
+        pytest.skip("no public events on this preview")
+    saw_unfeatured = False
+    for ev in items:
+        if not ev.get("featured"):
+            saw_unfeatured = True
+        elif saw_unfeatured:
+            pytest.fail(f"featured event '{ev['title']}' came AFTER an unfeatured one in /events")
+
+
+def test_browse_events_attaches_organizer_picture_when_available():
+    """When an organizer has a `picture`, the listing endpoint must surface it."""
+    r = requests.get(f"{API}/events?limit=10", timeout=15)
+    assert r.status_code == 200
+    items = r.json()
+    has_pic = [ev for ev in items if ev.get("organizer_picture")]
+    if not has_pic:
+        pytest.skip("no organizer has a picture in this preview's data")
+    assert isinstance(has_pic[0]["organizer_picture"], str)
+    assert has_pic[0]["organizer_picture"].startswith(("http://", "https://"))
+
+
+def test_browse_events_attaches_featured_creators_when_active_codes_exist():
+    """When a creator has an ACTIVE code on an event, they show in `featured_creators`."""
+    r = requests.get(f"{API}/events?limit=10", timeout=15)
+    items = r.json()
+    enriched = [ev for ev in items if ev.get("featured_creators")]
+    if not enriched:
+        pytest.skip("no event has active creator codes in this preview")
+    fc = enriched[0]["featured_creators"]
+    assert isinstance(fc, list) and len(fc) <= 3
+    assert "creator_id" in fc[0]
+    assert fc[0].get("avatar_url") or fc[0].get("display_name")
+
+
+def test_organizer_balance_uses_face_value_no_double_deduction():
+    """Payout balance must equal sum(face_value) — no second commission deduction.
+
+    Regression guard for the double-counting fix.
+    """
+    s, _ = _login("orgtester@allsale.events", "orgtest123")
+    r = s.get(f"{API}/organizer/payouts/balance", timeout=20)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    avail = body.get("available", {})
+    assert avail.get("commission") == 0
+    assert avail.get("flat_fees") == 0
+    assert avail.get("net") == avail.get("gross"), f"net != gross: {avail}"

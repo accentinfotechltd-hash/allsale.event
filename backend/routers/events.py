@@ -32,6 +32,82 @@ def _is_event_past(event_date: Optional[str]) -> bool:
     return event_date < _event_finished_cutoff_iso()
 
 
+async def _attach_face_avatars(items: list[dict]) -> None:
+    """Decorate each event with `organizer_picture` and `featured_creators`.
+
+    Buyers trust events more when they can see "who's running this" (the
+    organizer logo) and "who's promoting it" (a small avatar strip of the
+    creators driving sales via promo codes). This batches BOTH lookups into
+    single queries so the listing endpoint stays cheap regardless of how many
+    events come back.
+
+    Mutates `items` in place. Safe to call with an empty list.
+    """
+    if not items:
+        return
+
+    # 1) Organizer avatars (one users.find for ALL events at once)
+    organizer_ids = list({ev["organizer_id"] for ev in items if ev.get("organizer_id")})
+    if organizer_ids:
+        org_map: dict[str, str] = {}
+        async for u in db.users.find(
+            {"user_id": {"$in": organizer_ids}}, {"_id": 0, "user_id": 1, "picture": 1},
+        ):
+            if u.get("picture"):
+                org_map[u["user_id"]] = u["picture"]
+        for ev in items:
+            pic = org_map.get(ev.get("organizer_id"))
+            if pic:
+                ev["organizer_picture"] = pic
+
+    # 2) Up to 3 featured creators per event (creators with an active code)
+    event_ids = [ev["event_id"] for ev in items]
+    # Step 2a: pull active creator_id sets per event in one query
+    code_pipeline = db.discount_codes.aggregate([
+        {"$match": {
+            "event_id": {"$in": event_ids},
+            "creator_id": {"$exists": True, "$ne": None},
+            "active": True,
+        }},
+        {"$group": {"_id": "$event_id", "creators": {"$addToSet": "$creator_id"}}},
+    ])
+    creators_by_event: dict[str, list[str]] = {}
+    all_creator_ids: set[str] = set()
+    async for row in code_pipeline:
+        eid = row["_id"]
+        cids = list(row.get("creators") or [])[:3]
+        creators_by_event[eid] = cids
+        all_creator_ids.update(cids)
+
+    # Step 2b: fetch their avatars + display names (one query)
+    creator_meta: dict[str, dict] = {}
+    if all_creator_ids:
+        async for prof in db.influencers.find(
+            {"user_id": {"$in": list(all_creator_ids)}, "is_active": True},
+            {"_id": 0, "user_id": 1, "display_name": 1, "avatar_url": 1},
+        ):
+            creator_meta[prof["user_id"]] = {
+                "display_name": prof.get("display_name"),
+                "avatar_url": prof.get("avatar_url"),
+            }
+
+    for ev in items:
+        cids = creators_by_event.get(ev["event_id"]) or []
+        if not cids:
+            continue
+        strip = []
+        for cid in cids:
+            meta = creator_meta.get(cid) or {}
+            if meta.get("avatar_url") or meta.get("display_name"):
+                strip.append({
+                    "creator_id": cid,
+                    "display_name": meta.get("display_name"),
+                    "avatar_url": meta.get("avatar_url"),
+                })
+        if strip:
+            ev["featured_creators"] = strip
+
+
 @router.get("/events")
 async def list_events(
     q: Optional[str] = None,
@@ -101,10 +177,21 @@ async def list_events(
     for e in items:
         bu = e.get("boosted_until")
         e["is_boosted"] = bool(bu and bu > now_iso)
-    # Sort upcoming list to put currently-boosted events first (preserves the
-    # ascending-date secondary sort the cursor already applied).
+
+    # Enrich each event with the organizer's avatar URL and a tiny strip of
+    # featured-creator avatars (the influencers actively promoting it via a
+    # creator code). Both are batched 1-query operations — no N+1.
+    await _attach_face_avatars(items)
+    # Sort upcoming list to put featured/boosted events first, then by date.
+    # `featured` and `is_boosted` are independent flags — featured is curated
+    # by admins (long-term spotlight), boosted is purchased by the organizer
+    # (short-term). Both ranked above unmarked events; ties break on date asc.
     if not past:
-        items.sort(key=lambda x: (not x.get("is_boosted", False), x.get("date") or ""))
+        items.sort(key=lambda x: (
+            not x.get("featured", False),    # featured first (False sorts before True)
+            not x.get("is_boosted", False),  # then boosted
+            x.get("date") or "",             # then chronological
+        ))
     return items
 
 
@@ -130,6 +217,7 @@ async def trending_events(limit: int = 12):
         public = event_to_public(e)
         public["is_boosted"] = True
         items.append(public)
+    await _attach_face_avatars(items)
     return items
 
 
@@ -145,6 +233,7 @@ async def featured_events():
     if not items:
         cursor = db.events.find(base_q, {"_id": 0}).sort("date", 1).limit(6)
         items = [event_to_public(e) async for e in cursor]
+    await _attach_face_avatars(items)
     return items
 
 

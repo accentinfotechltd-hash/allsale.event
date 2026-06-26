@@ -131,13 +131,21 @@ async def organizer_balance(user: dict = Depends(get_current_user)):
     await require_role(user, "organizer", "admin")
     settings = await get_commission_settings()
     bookings = await _eligible_bookings_for_payout(user["user_id"])
-    gross = round(sum(b.get("amount", 0) for b in bookings), 2)
+    # SINGLE SOURCE OF TRUTH: `b.face_value` is what the organizer earns on
+    # each booking (set by `compute_fees()` in routers/bookings.py). In
+    # exclusive mode it equals the ticket price; in absorb mode it equals
+    # ticket_price minus platform + Stripe fees. NO second commission
+    # deduction at payout time — the platform fee was already routed to
+    # Allsale via compute_fees at checkout. Fixes the double-counting bug
+    # where the org was getting MORE than their face value.
+    gross = round(sum(b.get("face_value", b.get("amount", 0)) for b in bookings), 2)
     tickets = sum(b.get("quantity", 0) for b in bookings)
-    commission, flat_fees, net = _compute_commission(
-        gross, tickets,
-        settings["commission_percent"],
-        settings["commission_flat_fee_per_ticket"],
-    )
+    # Kept the variables for backwards-compatibility with the frontend payload
+    # but they're now informational (always 0 — surfacing them lets the UI
+    # render a clean "no further deductions" hint).
+    commission = 0.0
+    flat_fees = 0.0
+    net = gross
 
     # Lifetime totals across all of this organizer's payouts (paid + requested + rejected)
     pipeline_paid = {"organizer_id": user["user_id"], "status": "paid"}
@@ -182,13 +190,12 @@ async def organizer_request_payout(payload: PayoutRequestIn, user: dict = Depend
         raise HTTPException(status_code=400, detail="No eligible earnings to request")
 
     settings = await get_commission_settings()
-    gross = round(sum(b.get("amount", 0) for b in bookings), 2)
+    # SINGLE SOURCE OF TRUTH (see comment in /balance above).
+    gross = round(sum(b.get("face_value", b.get("amount", 0)) for b in bookings), 2)
     tickets = sum(b.get("quantity", 0) for b in bookings)
-    commission, flat_fees, net = _compute_commission(
-        gross, tickets,
-        settings["commission_percent"],
-        settings["commission_flat_fee_per_ticket"],
-    )
+    commission = 0.0
+    flat_fees = 0.0
+    net = gross
 
     payout_id = "pyt_" + uuid4().hex[:12]
     booking_ids = [b["booking_id"] for b in bookings]

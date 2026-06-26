@@ -31,6 +31,12 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Commission single-source-of-truth + featured-on-top + organizer/creator faces on event cards (NEW)**:
+  - **Bug fix: payout double-counting** — `payouts.py` (`/organizer/payouts/balance` and `/payouts/request`) now uses `sum(b.face_value)` instead of `sum(b.amount)` + second commission deduction. The platform fee was already routed at checkout via `compute_fees()`; deducting it again at payout was inflating the organizer's payout (~$51 instead of $50) and starving Allsale's margin. Fix: net = gross = sum(face_value). Works correctly in both exclusive AND absorb fee modes.
+  - **Featured events sort first** — `/api/events` now ranks `featured` → `is_boosted` → date asc. Admin-curated picks land at the top of the discovery feed without manual rearrangement.
+  - **Event cards now show organizer logo + creator avatar strip** — `events.py._attach_face_avatars()` batches both lookups (no N+1). `EventCard.jsx` renders the organizer's picture + name on a dedicated footer row, plus an avatar stack of up to 3 active creators promoting the event. `Featured` badge added on the cover.
+  - **Backend tests:** 4 new pytest cases — featured-first sort, organizer_picture present, featured_creators present, payout balance no-double-deduction. **27/27 pass.**
+
 - **Test credentials file refreshed (Feb 26 2026)**:
   - Corrected `orgtester` user_id (was stale).
   - Added current user_ids for admin + partner.

@@ -48,6 +48,17 @@ export default function EventCard({ event, index = 0 }) {
               Trending
             </span>
           )}
+          {event.featured && (
+            <span
+              data-testid={`featured-badge-${event.event_id}`}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-medium backdrop-blur-md"
+              style={{ background: "rgba(255,255,255,0.95)", color: "#111" }}
+              title="Featured — handpicked by Allsale"
+            >
+              <Star className="w-2.5 h-2.5 fill-current" />
+              Featured
+            </span>
+          )}
           {!event.is_past && event.waitlist_count > 0 && (
             <span
               data-testid={`waitlist-count-${event.event_id}`}
@@ -97,6 +108,49 @@ export default function EventCard({ event, index = 0 }) {
             <span className="ml-1" title={event.country} data-testid={`event-flag-${event.event_id}`}>{flagForCountry(event.country)}</span>
           )}
         </div>
+
+        {(event.organizer_name || (event.featured_creators && event.featured_creators.length > 0)) && (
+          <div className="mt-3 pt-3 border-t flex items-center justify-between gap-2" style={{ borderColor: "var(--border)" }} data-testid={`event-card-faces-${event.event_id}`}>
+            {event.organizer_name && (
+              <div className="flex items-center gap-1.5 min-w-0">
+                {event.organizer_picture ? (
+                  <img
+                    src={event.organizer_picture}
+                    alt={event.organizer_name}
+                    className="w-5 h-5 rounded-full object-cover flex-shrink-0"
+                    onError={(e) => { e.currentTarget.style.display = "none"; }}
+                  />
+                ) : (
+                  <div className="w-5 h-5 rounded-full grid place-items-center text-[10px] font-medium flex-shrink-0" style={{ background: "var(--accent)", color: "#000" }}>
+                    {event.organizer_name[0]?.toUpperCase()}
+                  </div>
+                )}
+                <span className="text-[11px] truncate" style={{ color: "var(--text-muted)" }} title={`Organized by ${event.organizer_name}`}>
+                  {event.organizer_name}
+                </span>
+              </div>
+            )}
+            {event.featured_creators && event.featured_creators.length > 0 && (
+              <div className="flex items-center -space-x-2 flex-shrink-0" title={`Promoted by ${event.featured_creators.map(c => c.display_name).filter(Boolean).join(", ")}`} data-testid={`event-card-creators-${event.event_id}`}>
+                {event.featured_creators.slice(0, 3).map((c) => (
+                  <div
+                    key={c.creator_id}
+                    className="w-5 h-5 rounded-full border-2 overflow-hidden flex-shrink-0"
+                    style={{ borderColor: "var(--bg-card, #111)", background: "var(--accent)" }}
+                  >
+                    {c.avatar_url ? (
+                      <img src={c.avatar_url} alt={c.display_name || ""} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                    ) : (
+                      <div className="w-full h-full grid place-items-center text-[9px] font-semibold" style={{ color: "#000" }}>
+                        {(c.display_name || "?")[0]?.toUpperCase()}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </Link>
   );
