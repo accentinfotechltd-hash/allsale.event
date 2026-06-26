@@ -174,6 +174,69 @@ async def admin_deactivate_creator_code(
     return {"deactivated": code_id}
 
 
+class CreatorCodeEdit(BaseModel):
+    # All optional — only the fields admin actually changed are sent.
+    value: Optional[float] = Field(None, gt=0)
+    kind: Optional[str] = None
+    commission_percent: Optional[float] = Field(None, ge=0, le=100)
+    max_uses: Optional[int] = Field(None, ge=1)
+    expires_at: Optional[str] = None
+    restricted_tiers: Optional[List[str]] = None
+    active: Optional[bool] = None  # reactivate or deactivate via PATCH
+
+
+@router.patch("/events/{event_id}/creator-codes/{code_id}")
+async def admin_edit_creator_code(
+    event_id: str,
+    code_id: str,
+    payload: CreatorCodeEdit,
+    user: dict = Depends(get_current_user),
+):
+    """Edit an existing creator promo code. Code string and creator are
+    immutable (changing either should be done via a new code so historical
+    attribution stays clean). Everything else is editable.
+    """
+    _admin_only(user)
+    set_ops: dict = {}
+    if payload.kind is not None:
+        if payload.kind not in ("percent", "flat"):
+            raise HTTPException(status_code=400, detail="Kind must be 'percent' or 'flat'")
+        set_ops["kind"] = payload.kind
+    if payload.value is not None:
+        # If kind is being set in the same call use the new kind, else look up the existing one.
+        kind_for_check = payload.kind or (await db.discount_codes.find_one({"code_id": code_id}, {"_id": 0, "kind": 1}) or {}).get("kind")
+        if kind_for_check == "percent" and payload.value > 100:
+            raise HTTPException(status_code=400, detail="Percent cannot exceed 100")
+        set_ops["value"] = float(payload.value)
+    if payload.commission_percent is not None:
+        # Treat 0 as "discount-only" (no commission) for clarity in DB.
+        set_ops["commission_percent"] = float(payload.commission_percent) if payload.commission_percent > 0 else None
+    if payload.max_uses is not None:
+        set_ops["max_uses"] = int(payload.max_uses)
+    if payload.expires_at is not None:
+        set_ops["expires_at"] = payload.expires_at or None
+    if payload.restricted_tiers is not None:
+        set_ops["restricted_tiers"] = payload.restricted_tiers
+    if payload.active is not None:
+        set_ops["active"] = bool(payload.active)
+        if payload.active:
+            set_ops["deactivated_at"] = None
+
+    if not set_ops:
+        raise HTTPException(status_code=400, detail="No editable fields supplied")
+    set_ops["updated_at"] = utc_now().isoformat()
+    set_ops["updated_by"] = user["user_id"]
+
+    res = await db.discount_codes.update_one(
+        {"code_id": code_id, "event_id": event_id, "creator_id": {"$exists": True}},
+        {"$set": set_ops},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Creator code not found")
+    updated = await db.discount_codes.find_one({"code_id": code_id}, {"_id": 0})
+    return updated
+
+
 @router.get("/creator-codes/users-search")
 async def admin_search_users(q: str = Query(..., min_length=2), user: dict = Depends(get_current_user)):
     """Autocomplete for the 'Pick a creator' modal.

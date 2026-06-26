@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Tag, Plus, Search, Trash2, Loader2, X as XIcon, TrendingUp } from "lucide-react";
+import { Tag, Plus, Search, Trash2, Loader2, X as XIcon, TrendingUp, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 
@@ -20,6 +20,8 @@ export default function AdminCreatorCodesTab() {
   const [codes, setCodes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  // null = create mode, otherwise the code being edited
+  const [editingCode, setEditingCode] = useState(null);
 
   // Load admin event list once.
   useEffect(() => {
@@ -135,7 +137,7 @@ export default function AdminCreatorCodesTab() {
                   <div className="text-xs" style={{ color: "var(--text-dim)" }}>{selectedEvent.event_id}</div>
                 </div>
                 <button
-                  onClick={() => setModalOpen(true)}
+                  onClick={() => { setEditingCode(null); setModalOpen(true); }}
                   className="btn-primary text-sm inline-flex items-center gap-1.5"
                   data-testid="creator-codes-add-btn"
                 >
@@ -191,11 +193,21 @@ export default function AdminCreatorCodesTab() {
                           )}
                         </td>
                         <td className="px-2 py-3 text-right">
-                          {c.active && (
-                            <button onClick={() => deactivate(c.code_id)} className="text-xs inline-flex items-center gap-1" style={{ color: "#E74C3C" }} data-testid={`deactivate-code-${c.code_id}`}>
-                              <Trash2 size={11} /> Deactivate
+                          <div className="inline-flex items-center gap-2">
+                            <button
+                              onClick={() => { setEditingCode(c); setModalOpen(true); }}
+                              className="text-xs inline-flex items-center gap-1"
+                              style={{ color: "var(--accent)" }}
+                              data-testid={`edit-code-${c.code_id}`}
+                            >
+                              <Pencil size={11} /> Edit
                             </button>
-                          )}
+                            {c.active && (
+                              <button onClick={() => deactivate(c.code_id)} className="text-xs inline-flex items-center gap-1" style={{ color: "#E74C3C" }} data-testid={`deactivate-code-${c.code_id}`}>
+                                <Trash2 size={11} /> Deactivate
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -210,16 +222,24 @@ export default function AdminCreatorCodesTab() {
       {modalOpen && selectedEvent && (
         <AddCreatorCodeModal
           event={selectedEvent}
-          onClose={() => setModalOpen(false)}
-          onCreated={() => { setModalOpen(false); refreshCodes(selectedEvent.event_id); }}
+          code={editingCode}
+          onClose={() => { setModalOpen(false); setEditingCode(null); }}
+          onCreated={() => { setModalOpen(false); setEditingCode(null); refreshCodes(selectedEvent.event_id); }}
         />
       )}
     </div>
   );
 }
 
-function AddCreatorCodeModal({ event, onClose, onCreated }) {
-  const [form, setForm] = useState({
+function AddCreatorCodeModal({ event, code, onClose, onCreated }) {
+  const isEdit = !!code;
+  const [form, setForm] = useState(() => isEdit ? {
+    code: code.code, creator_email: code.creator_email,
+    kind: code.kind || "percent", value: code.value,
+    commission_percent: code.commission_percent ?? "",
+    max_uses: code.max_uses ?? "",
+    expires_at: code.expires_at ? code.expires_at.slice(0, 16) : "",
+  } : {
     code: "", creator_email: "", kind: "percent", value: 15,
     commission_percent: "", max_uses: "", expires_at: "",
   });
@@ -228,6 +248,7 @@ function AddCreatorCodeModal({ event, onClose, onCreated }) {
   const [creatorSuggestions, setCreatorSuggestions] = useState([]);
 
   useEffect(() => {
+    if (isEdit) return; // creator is immutable in edit mode
     if (creatorSearch.trim().length < 2) { setCreatorSuggestions([]); return; }
     const t = setTimeout(async () => {
       try {
@@ -238,31 +259,43 @@ function AddCreatorCodeModal({ event, onClose, onCreated }) {
       }
     }, 250);
     return () => clearTimeout(t);
-  }, [creatorSearch]);
+  }, [creatorSearch, isEdit]);
 
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!form.code.trim()) { toast.error("Code is required"); return; }
-    if (!form.creator_email.trim()) { toast.error("Pick a creator"); return; }
+    if (!isEdit && !form.code.trim()) { toast.error("Code is required"); return; }
+    if (!isEdit && !form.creator_email.trim()) { toast.error("Pick a creator"); return; }
     if (!form.value || Number(form.value) <= 0) { toast.error("Discount value must be positive"); return; }
     setSubmitting(true);
     try {
-      const payload = {
-        code: form.code.trim().toUpperCase(),
-        creator_email: form.creator_email,
-        kind: form.kind,
-        value: Number(form.value),
-        commission_percent: form.commission_percent ? Number(form.commission_percent) : null,
-        max_uses: form.max_uses ? Number(form.max_uses) : null,
-        expires_at: form.expires_at ? new Date(form.expires_at).toISOString() : null,
-      };
-      await api.post(`/admin/events/${event.event_id}/creator-codes`, payload);
-      toast.success("Creator code created");
+      if (isEdit) {
+        const payload = {
+          kind: form.kind,
+          value: Number(form.value),
+          commission_percent: form.commission_percent === "" ? 0 : Number(form.commission_percent),
+          max_uses: form.max_uses ? Number(form.max_uses) : null,
+          expires_at: form.expires_at ? new Date(form.expires_at).toISOString() : null,
+        };
+        await api.patch(`/admin/events/${event.event_id}/creator-codes/${code.code_id}`, payload);
+        toast.success("Creator code updated");
+      } else {
+        const payload = {
+          code: form.code.trim().toUpperCase(),
+          creator_email: form.creator_email,
+          kind: form.kind,
+          value: Number(form.value),
+          commission_percent: form.commission_percent ? Number(form.commission_percent) : null,
+          max_uses: form.max_uses ? Number(form.max_uses) : null,
+          expires_at: form.expires_at ? new Date(form.expires_at).toISOString() : null,
+        };
+        await api.post(`/admin/events/${event.event_id}/creator-codes`, payload);
+        toast.success("Creator code created");
+      }
       onCreated();
     } catch (ex) {
-      toast.error(ex?.response?.data?.detail || "Couldn't create code");
+      toast.error(ex?.response?.data?.detail || "Couldn't save code");
     } finally {
       setSubmitting(false);
     }
@@ -277,63 +310,75 @@ function AddCreatorCodeModal({ event, onClose, onCreated }) {
     >
       <div className="rounded-2xl border w-full max-w-md p-5" style={{ background: "var(--bg, #0f0f12)", borderColor: "var(--border)" }}>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-serif text-lg" style={{ color: "var(--text)" }}>New creator code</h3>
+          <h3 className="font-serif text-lg" style={{ color: "var(--text)" }}>
+            {isEdit ? `Edit ${code.code}` : "New creator code"}
+          </h3>
           <button onClick={onClose} className="p-1" style={{ color: "var(--text-dim)" }}><XIcon size={16} /></button>
         </div>
 
         <form onSubmit={submit} className="space-y-3">
-          <Field label="Promo code">
-            <input
-              value={form.code}
-              onChange={(e) => update("code", e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ""))}
-              placeholder="CHLOE15"
-              className="w-full px-3 py-2 rounded-md border text-sm font-mono"
-              style={{ borderColor: "var(--border)", background: "transparent", color: "var(--text)" }}
-              maxLength={24}
-              data-testid="creator-code-input"
-            />
-          </Field>
+          {!isEdit && (
+            <Field label="Promo code">
+              <input
+                value={form.code}
+                onChange={(e) => update("code", e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ""))}
+                placeholder="CHLOE15"
+                className="w-full px-3 py-2 rounded-md border text-sm font-mono"
+                style={{ borderColor: "var(--border)", background: "transparent", color: "var(--text)" }}
+                maxLength={24}
+                data-testid="creator-code-input"
+              />
+            </Field>
+          )}
 
-          <Field label="Creator (only enrolled creators shown)">
-            <input
-              value={form.creator_email || creatorSearch}
-              onChange={(e) => { setCreatorSearch(e.target.value); update("creator_email", e.target.value); }}
-              placeholder="Search by name or email…"
-              className="w-full px-3 py-2 rounded-md border text-sm"
-              style={{ borderColor: "var(--border)", background: "transparent", color: "var(--text)" }}
-              data-testid="creator-email-input"
-            />
-            {creatorSearch.trim().length >= 2 && creatorSuggestions.length === 0 && (
-              <p className="text-[10px] mt-1" style={{ color: "var(--text-dim)" }}>
-                No enrolled creator matches. They must first enable creator mode via /influencer/onboarding.
-              </p>
-            )}
-            {creatorSuggestions.length > 0 && (
-              <div className="mt-1 rounded-md border max-h-44 overflow-y-auto" style={{ borderColor: "var(--border)", background: "var(--bg, #0f0f12)" }}>
-                {creatorSuggestions.map((u) => (
-                  <button
-                    key={u.user_id}
-                    type="button"
-                    onClick={() => { update("creator_email", u.email); setCreatorSearch(""); setCreatorSuggestions([]); }}
-                    className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
-                    style={{ color: "var(--text)" }}
-                    data-testid={`creator-suggestion-${u.user_id}`}
-                  >
-                    <div className="text-xs font-medium">{u.display_name || u.name || u.email}</div>
-                    <div className="text-[10px]" style={{ color: "var(--text-dim)" }}>
-                      {u.email}
-                      {u.follower_count > 0 && (
-                        <span> · {u.follower_count.toLocaleString()} followers</span>
-                      )}
-                      {u.categories && u.categories.length > 0 && (
-                        <span> · {u.categories.slice(0, 2).join(", ")}</span>
-                      )}
-                    </div>
-                  </button>
-                ))}
+          {isEdit ? (
+            <Field label="Creator (immutable)">
+              <div className="px-3 py-2 rounded-md border text-sm" style={{ borderColor: "var(--border)", color: "var(--text-dim)", background: "rgba(255,255,255,0.02)" }}>
+                {code.creator_name || code.creator_email} <span className="text-[10px]">· {code.creator_email}</span>
               </div>
-            )}
-          </Field>
+            </Field>
+          ) : (
+            <Field label="Creator (only enrolled creators shown)">
+              <input
+                value={form.creator_email || creatorSearch}
+                onChange={(e) => { setCreatorSearch(e.target.value); update("creator_email", e.target.value); }}
+                placeholder="Search by name or email…"
+                className="w-full px-3 py-2 rounded-md border text-sm"
+                style={{ borderColor: "var(--border)", background: "transparent", color: "var(--text)" }}
+                data-testid="creator-email-input"
+              />
+              {creatorSearch.trim().length >= 2 && creatorSuggestions.length === 0 && (
+                <p className="text-[10px] mt-1" style={{ color: "var(--text-dim)" }}>
+                  No enrolled creator matches. They must first enable creator mode via /influencer/onboarding.
+                </p>
+              )}
+              {creatorSuggestions.length > 0 && (
+                <div className="mt-1 rounded-md border max-h-44 overflow-y-auto" style={{ borderColor: "var(--border)", background: "var(--bg, #0f0f12)" }}>
+                  {creatorSuggestions.map((u) => (
+                    <button
+                      key={u.user_id}
+                      type="button"
+                      onClick={() => { update("creator_email", u.email); setCreatorSearch(""); setCreatorSuggestions([]); }}
+                      className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
+                      style={{ color: "var(--text)" }}
+                      data-testid={`creator-suggestion-${u.user_id}`}
+                    >
+                      <div className="text-xs font-medium">{u.display_name || u.name || u.email}</div>
+                      <div className="text-[10px]" style={{ color: "var(--text-dim)" }}>
+                        {u.email}
+                        {u.follower_count > 0 && (
+                          <span> · {u.follower_count.toLocaleString()} followers</span>
+                        )}
+                        {u.categories && u.categories.length > 0 && (
+                          <span> · {u.categories.slice(0, 2).join(", ")}</span>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </Field>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Discount kind">
@@ -411,7 +456,7 @@ function AddCreatorCodeModal({ event, onClose, onCreated }) {
 
           <div className="flex gap-2 pt-2">
             <button type="submit" disabled={submitting} className="btn-primary flex-1 text-sm justify-center" data-testid="creator-code-submit-btn">
-              {submitting ? "Creating…" : "Create code"}
+              {submitting ? "Saving…" : isEdit ? "Save changes" : "Create code"}
             </button>
             <button type="button" onClick={onClose} className="btn-ghost text-sm">Cancel</button>
           </div>
