@@ -315,3 +315,41 @@ def test_register_with_valid_phone_persists():
     e = dotenv_values("/app/backend/.env")
     MongoClient(e["MONGO_URL"])[e["DB_NAME"]].users.delete_one({"email": email})
 
+
+# ----- iter-24d: absorb_fees presentation mode -----
+def test_compute_fees_exclusive_default_unchanged():
+    """Regression guard — the default 'fees on top' math must not change."""
+    from fees import compute_fees
+    fb = compute_fees(50.0, "NZD", platform_pct=5.0, stripe_flat=0.30)
+    assert fb.face_value == 50.0
+    assert fb.platform_fee > 0
+    assert fb.buyer_total > 50.0  # grossed up
+    assert fb.stripe_fee > 0
+    # face_value + platform_fee + stripe_fee should ≈ buyer_total (rounding tolerance)
+    assert abs((fb.face_value + fb.platform_fee + fb.stripe_fee) - fb.buyer_total) < 0.01
+
+
+def test_compute_fees_absorb_mode_buyer_pays_exactly_displayed_price():
+    """In absorb mode the buyer pays exactly the displayed price; fees come out of the organizer."""
+    from fees import compute_fees
+    fb = compute_fees(50.0, "NZD", platform_pct=5.0, stripe_flat=0.30, absorb_fees=True)
+    assert fb.buyer_total == 50.0
+    assert fb.platform_fee > 0
+    assert fb.stripe_fee > 0
+    # Organizer NET = buyer_total - platform - stripe
+    expected_net = 50.0 - fb.platform_fee - fb.stripe_fee
+    assert abs(fb.face_value - expected_net) < 0.01
+    # Sanity: organizer net is LESS than displayed price (they absorbed fees)
+    assert fb.face_value < 50.0
+
+
+def test_compute_fees_zero_face_value_safe():
+    """Comp tickets ($0) — both modes must return zeros without dividing by anything."""
+    from fees import compute_fees
+    for mode in (True, False):
+        fb = compute_fees(0, "NZD", absorb_fees=mode)
+        assert fb.buyer_total == 0
+        assert fb.platform_fee == 0
+        assert fb.stripe_fee == 0
+        assert fb.face_value == 0
+

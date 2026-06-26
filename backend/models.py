@@ -100,6 +100,15 @@ class EventIn(BaseModel):
     # of the caller. Silently ignored when the caller isn't an admin. Enables
     # admins to set up events on behalf of an organizer who can't or won't.
     on_behalf_of_organizer_id: Optional[str] = None
+    # Fee presentation mode.
+    #   False (default): "fees on top" — buyer sees ticket_price + service_fee
+    #                    as separate line items, organizer keeps face value.
+    #   True ("absorb"): the ticket_price the organizer enters is what the
+    #                    buyer pays in total; the platform + Stripe fees are
+    #                    deducted from the organizer's payout instead.
+    # This is purely a per-event preference; admin-level fee % stays
+    # the source of truth for the actual numbers.
+    absorb_fees: bool = False
 
 
 class HoldIn(BaseModel):

@@ -71,11 +71,22 @@ def compute_fees(
     currency: str = "NZD",
     platform_pct: float | None = None,
     stripe_flat: float | None = None,
+    absorb_fees: bool = False,
 ) -> FeeBreakdown:
-    """Gross-up `face_value` into a buyer_total that covers all fees.
+    """Compute the buyer charge + fee breakdown for `face_value`.
 
-    `face_value` is the organizer's net revenue base — i.e. the displayed
-    ticket price × quantity, after any discount codes have been applied.
+    Two modes, controlled per-event by `event.absorb_fees`:
+
+    *Exclusive* (`absorb_fees=False`, current default) — the buyer-pays-fees
+    model. We gross up `face_value` so that after Stripe takes their cut the
+    remainder still covers face_value + platform_fee. Buyer sees the breakup.
+
+    *Inclusive* (`absorb_fees=True`) — the organizer-absorbs-fees model. The
+    organizer's "ticket price" IS what the buyer pays (no `+ fees` line at
+    checkout); the platform fee + Stripe fee come out of the organizer's
+    payout. The returned `face_value` field reflects the organizer's actual
+    net (i.e. what hits their connected account), not the input arg.
+
     Returns 0s across the board if face_value <= 0 (e.g. comp tickets) so
     we never charge Stripe for a free transaction.
 
@@ -89,8 +100,30 @@ def compute_fees(
 
     plat_pct = (PLATFORM_FEE_BPS / 10000.0) if platform_pct is None else float(platform_pct) / 100.0
     flat = STRIPE_FEE_FLAT if stripe_flat is None else float(stripe_flat)
-    platform = face_value * plat_pct
     stripe_pct = STRIPE_FEE_BPS / 10000.0
+
+    if absorb_fees:
+        # Inclusive: buyer pays exactly the displayed `face_value`. Allsale's
+        # cut is computed off the displayed price; Stripe's cut is computed
+        # off the buyer total (which equals the displayed price in this mode).
+        buyer_total = face_value
+        platform = face_value * plat_pct
+        stripe_fee = face_value * stripe_pct + flat
+        # `face_value` returned to the caller is the organizer's NET — i.e.
+        # what reaches their balance after platform + Stripe take their cut.
+        organizer_net = max(0.0, face_value - platform - stripe_fee)
+        service_fee = platform + stripe_fee  # hidden from buyer in this mode
+        return FeeBreakdown(
+            face_value=organizer_net,
+            platform_fee=platform,
+            stripe_fee=stripe_fee,
+            service_fee=service_fee,
+            buyer_total=buyer_total,
+            currency=(currency or "NZD").upper(),
+        )
+
+    # Exclusive (default): gross up `face_value` so the buyer covers all fees.
+    platform = face_value * plat_pct
     # Avoid div-by-zero (would only happen if STRIPE_FEE_BPS=10000, i.e. 100%).
     denom = max(1e-6, 1 - stripe_pct)
     buyer_total = (face_value + platform + flat) / denom

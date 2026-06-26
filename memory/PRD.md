@@ -31,6 +31,14 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Per-event "fees included vs on top" toggle (NEW)**:
+  - `EventIn.absorb_fees: bool = False` — organizer picks fee presentation per event.
+  - `compute_fees(absorb_fees=True)` reverses the gross-up: buyer pays exactly the displayed ticket price; platform + Stripe fees are deducted from the organizer's payout. Default behavior unchanged.
+  - `bookings.py` passes `event.absorb_fees` through to `compute_fees` and persists the flag on each booking for downstream reporting.
+  - `FeePresentationToggle.jsx` — new 2-card radio in `CreateEvent.jsx` with live preview (sample ticket price → Buyer pays / You receive in both modes).
+  - `EventDetail.jsx` — when `event.absorb_fees=true`, the per-tier card shows **"all fees included"** instead of "$X + $Y fees", and the Total line uses the displayed price.
+  - **Backend tests:** 3 new pytest cases — exclusive regression, absorb math, $0 comp safety. **20/20 pass.**
+
 - **Bug fix: "AI unavailable" error in support chat (NEW)**:
   - Both support-chat AI endpoints (`POST /support/faq/ask` and `POST /admin/support/suggest`) previously called `openai/gpt-5.1` directly and surfaced any transient auth/outage blip as a hard 502 to the visitor.
   - Added a shared `_support_ai_complete()` helper with a 3-provider fallback chain (Gemini Flash → GPT-5.1 → Claude Haiku 4.5) — same pattern as `flyer_ai.py`. Auth errors short-circuit the chain to avoid 3× latency.

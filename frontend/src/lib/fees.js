@@ -21,15 +21,30 @@ const DEFAULT_STRIPE_PCT = 2.7;        // 2.7 %  (NZ domestic card)
 const TICKET_PROTECTION_BPS = 650;     // 6.5 %
 
 export function estimateBuyerFees(faceValue, opts = {}) {
-  if (!faceValue || faceValue <= 0) return { fees: 0, total: 0 };
+  if (!faceValue || faceValue <= 0) return { fees: 0, total: 0, organizerNet: 0 };
   const platformPct = (opts.platformPct ?? DEFAULT_PLATFORM_PCT) / 100;
   const platformFlat = opts.platformFlat ?? DEFAULT_PLATFORM_FLAT;
   const stripePct = (opts.stripePct ?? DEFAULT_STRIPE_PCT) / 100;
 
+  if (opts.absorbFees) {
+    // Inclusive mode — buyer pays exactly `faceValue`; fees come out of the
+    // organizer's payout instead. We return fees=0 so checkout UI hides the
+    // "+ fees" line, plus `organizerNet` for the organizer-facing preview.
+    const platform = faceValue * platformPct;
+    const stripeFee = faceValue * stripePct + platformFlat;
+    return {
+      fees: 0,
+      total: round2(faceValue),
+      organizerNet: round2(Math.max(0, faceValue - platform - stripeFee)),
+      absorbedFees: round2(platform + stripeFee),
+    };
+  }
+
+  // Exclusive (default) — gross-up so buyer covers all fees.
   const platform = faceValue * platformPct;
   const total = (faceValue + platform + platformFlat) / Math.max(1e-6, 1 - stripePct);
   const fees = total - faceValue;
-  return { fees: round2(fees), total: round2(total) };
+  return { fees: round2(fees), total: round2(total), organizerNet: round2(faceValue) };
 }
 
 export function estimateTicketProtection(subtotal) {

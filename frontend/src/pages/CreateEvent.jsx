@@ -10,6 +10,7 @@ import { SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, currencySymbol } from "@/lib/cu
 import { COUNTRIES, DEFAULT_COUNTRY, currencyForCountry, timezoneForCountry } from "@/lib/countries";
 import { useAuth } from "@/lib/auth";
 import RichTextEditor from "@/components/RichTextEditor";
+import FeePresentationToggle from "@/components/FeePresentationToggle";
 
 const CATEGORIES = [
   { id: "movies", name: "Movies" },
@@ -66,6 +67,10 @@ export default function CreateEvent() {
     seatmap_category_prices: {},
     seatmap_row_offsets: {},
     seatmap_custom_labels: {},
+    // Fee presentation. False (default) = "fees on top" — buyer sees ticket
+    // price + service fee separately. True = "fees included" — buyer sees one
+    // clean number; platform + Stripe fees come out of the organizer's payout.
+    absorb_fees: false,
   });
   const [tiers, setTiers] = useState([{ name: "General", price: 50.0, capacity: 200 }]);
   const [submitting, setSubmitting] = useState(false);
@@ -119,6 +124,7 @@ export default function CreateEvent() {
           seatmap_custom_labels: data.seatmap_custom_labels || {},
           group_discount_min_qty: data?.group_discount?.min_qty || 0,
           group_discount_pct_off: data?.group_discount?.pct_off || 0,
+          absorb_fees: !!data.absorb_fees,
         });
         if (Array.isArray(data.tiers) && data.tiers.length) setTiers(data.tiers);
       } catch {
@@ -771,6 +777,17 @@ export default function CreateEvent() {
             )}
           </div>
         )}
+
+        <FeePresentationToggle
+          value={form.absorb_fees}
+          onChange={(v) => update("absorb_fees", v)}
+          samplePrice={
+            form.has_seatmap
+              ? Number(form.seat_price) || 0
+              : Number(tiers[0]?.price) || 0
+          }
+          currency={form.currency}
+        />
 
         <div data-testid="group-discount-section">
           <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>

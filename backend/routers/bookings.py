@@ -223,6 +223,7 @@ async def create_hold(payload: HoldIn, request: Request, user: dict = Depends(ge
         booking_doc["currency"],
         platform_pct=admin_pct,
         stripe_flat=admin_flat,
+        absorb_fees=bool(event.get("absorb_fees")),
     )
     buyer_total = round(fee_breakdown.buyer_total, 2)
     # Apply optional gift card AFTER fees so the buyer sees the dollar
@@ -250,6 +251,9 @@ async def create_hold(payload: HoldIn, request: Request, user: dict = Depends(ge
         "amount": buyer_total,
         "gift_card_code": gift_card_code,
         "gift_card_amount": gift_card_amount,
+        # Persist the fee-presentation mode so refunds + reporting know
+        # whether the buyer ever saw a "+ fees" line at checkout.
+        "absorb_fees": bool(event.get("absorb_fees")),
     })
 
     # Ticket Protection upgrade — opt-in surcharge tacked onto the buyer
