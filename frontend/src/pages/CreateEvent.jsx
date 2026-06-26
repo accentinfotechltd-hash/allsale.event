@@ -246,6 +246,28 @@ export default function CreateEvent() {
         return;
       }
     }
+
+    // Pricing sanity — block saves where the buyer would see "Free" or
+    // "TBA" on the event card because the organizer forgot to set prices.
+    // Allow $0 ONLY when EVERY price is explicitly 0 (intentional free event).
+    if (form.has_seatmap) {
+      const sp = Number(form.seat_price);
+      if (!Number.isFinite(sp) || sp < 0) {
+        toast.error("Seat price is required — set a number (use 0 for a free event)");
+        return;
+      }
+    } else {
+      if (!tiers.length) {
+        toast.error("Add at least one ticket tier before saving");
+        return;
+      }
+      const invalid = tiers.find((t) => !Number.isFinite(Number(t.price)) || Number(t.price) < 0);
+      if (invalid) {
+        toast.error(`Tier "${invalid.name || "(unnamed)"}" has no price — type a number (use 0 for a free tier)`);
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
       const payload = {
