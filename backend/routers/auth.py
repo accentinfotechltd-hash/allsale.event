@@ -1,4 +1,5 @@
 """Auth endpoints: register, login, logout, me, google session."""
+import re
 import uuid
 from datetime import timedelta
 
@@ -13,6 +14,11 @@ from core import (
 from models import RegisterIn, LoginIn, GoogleSessionIn
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Lenient international phone format: digits, optional + prefix, spaces,
+# dashes, and brackets. Same regex used by PATCH /auth/me so the DB stays
+# consistent regardless of which endpoint saved the number.
+_PHONE_RE = re.compile(r"^[+0-9 ()\-]{6,20}$")
 
 
 
@@ -58,11 +64,20 @@ async def register(payload: RegisterIn, response: Response):
         raise HTTPException(status_code=400, detail="Email already registered")
     if payload.role not in ("attendee", "organizer"):
         raise HTTPException(status_code=400, detail="Invalid role")
+    # Phone format check — same regex used by PATCH /auth/me so the DB stays
+    # consistent regardless of which endpoint saved the number.
+    phone = (payload.phone or "").strip()
+    if not _PHONE_RE.match(phone):
+        raise HTTPException(
+            status_code=400,
+            detail="Phone number looks invalid. Use digits with optional +, spaces, dashes or brackets.",
+        )
     user_id = f"user_{uuid.uuid4().hex[:12]}"
     doc = {
         "user_id": user_id,
         "email": email,
         "name": payload.name,
+        "phone": phone,
         "role": payload.role,
         "password_hash": hash_password(payload.password),
         "picture": None,
@@ -211,7 +226,6 @@ async def me(user: dict = Depends(get_current_user)):
 
 # ---------- Profile editing ----------
 from pydantic import EmailStr
-import re
 
 
 class ProfileUpdateIn(BaseModel):
@@ -220,9 +234,6 @@ class ProfileUpdateIn(BaseModel):
     phone: str | None = None
     picture: str | None = None  # data URL or hosted URL
     notification_prefs: dict | None = None
-
-
-_PHONE_RE = re.compile(r"^[+0-9 ()\-]{6,20}$")
 
 
 @router.patch("/me")

@@ -31,6 +31,13 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Phone number is now mandatory for every account (NEW)**:
+  - `models.RegisterIn.phone` is required (`Field(..., min_length=6, max_length=20)`).
+  - `/auth/register` validates with `_PHONE_RE` (lenient international: digits + optional + / space / dash / brackets); persists to `users.phone`.
+  - `Signup.jsx` adds a phone input between email and password with the `Phone` lucid icon.
+  - `PhoneCaptureGate.jsx` — non-dismissible app-wide modal rendered from `Layout.jsx` that intercepts any logged-in user whose `phone` is missing (Google OAuth signups + pre-existing accounts). PATCHes `/auth/me` and re-syncs `useAuth().user` on save.
+  - **Backend tests:** 3 new pytest cases — missing-phone 422, invalid-phone 400, valid-phone persists. Existing `fresh_attendee_session` fixture updated to send phone. **17/17 pass.**
+
 - **Organizers can self-manage creator codes (NEW)**:
   - 5 new `/api/organizer/events/{event_id}/creator-codes` endpoints (POST/GET/PATCH/DELETE + `/organizer/creator-codes/users-search`) mirror the admin set and share the same internal handlers; auth check is `_ensure_can_manage_event(user, event_id)` which lets admins through and 403s when an organizer doesn't own the event.
   - `OrganizerCreatorCodesPanel.jsx` — new panel rendered inside `OrganizerEvent.jsx` (between Influencer marketplace and UTM link generator). Lets the event's organizer view code, creator, discount %, commission %, uses, revenue, credited earnings; Add / Edit / Deactivate inline; uses the same modal UX as admin tab.

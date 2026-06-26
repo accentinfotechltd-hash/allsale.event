@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import Logo from "@/components/Logo";
 import PwaInstallBanner from "@/components/PwaInstallBanner";
 import WelcomeModal from "@/components/WelcomeModal";
+import PhoneCaptureGate from "@/components/PhoneCaptureGate";
 
 /**
  * Site shell with a fully responsive header.
@@ -247,6 +248,7 @@ export default function Layout({ children }) {
         </div>
       </footer>
       <WelcomeModal />
+      <PhoneCaptureGate />
     </div>
   );
 }

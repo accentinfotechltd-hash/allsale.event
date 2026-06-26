@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { trackSignup } from "@/lib/analytics";
-import { Mail, Lock, User, ArrowRight, Sparkles } from "lucide-react";
+import { Mail, Lock, User, Phone, ArrowRight, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import Logo from "@/components/Logo";
 
@@ -12,7 +12,7 @@ export default function Signup() {
   const nav = useNavigate();
   const [params] = useSearchParams();
   const refCode = (params.get("ref") || "").trim().toLowerCase();
-  const [form, setForm] = useState({ name: "", email: "", password: "", role: "attendee" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", password: "", role: "attendee" });
   const [loading, setLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
 
@@ -116,6 +116,7 @@ export default function Signup() {
             </div>
             <Field icon={<User className="w-4 h-4" />} placeholder="Full name" value={form.name} onChange={(v) => update("name", v)} testid="signup-name-input" />
             <Field icon={<Mail className="w-4 h-4" />} type="email" placeholder="you@example.com" value={form.email} onChange={(v) => update("email", v)} testid="signup-email-input" />
+            <Field icon={<Phone className="w-4 h-4" />} type="tel" placeholder="Phone (e.g. +64 21 555 1234)" value={form.phone} onChange={(v) => update("phone", v)} testid="signup-phone-input" />
             <Field icon={<Lock className="w-4 h-4" />} type="password" placeholder="Password (8+ chars)" value={form.password} onChange={(v) => update("password", v)} testid="signup-password-input" />
 
             <label className="flex items-start gap-2.5 text-xs cursor-pointer pt-1" style={{ color: "var(--text-muted)" }}>

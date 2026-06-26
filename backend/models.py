@@ -8,6 +8,9 @@ class RegisterIn(BaseModel):
     email: EmailStr
     password: str
     role: str = "attendee"  # attendee | organizer
+    # Phone is required for all new accounts (operational + safety + WhatsApp).
+    # Validation is intentionally lenient — international numbers, no E.164 enforcement.
+    phone: str = Field(..., min_length=6, max_length=20)
 
 
 class LoginIn(BaseModel):

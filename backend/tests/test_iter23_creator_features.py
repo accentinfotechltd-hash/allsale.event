@@ -27,7 +27,7 @@ def org_session():
 def fresh_attendee_session():
     email = f"TEST_attendee_{uuid.uuid4().hex[:8]}@example.com"
     pwd = "testpass123"
-    r = requests.post(f"{API}/auth/register", json={"email": email, "password": pwd, "name": "Test Attendee"}, timeout=20)
+    r = requests.post(f"{API}/auth/register", json={"email": email, "password": pwd, "name": "Test Attendee", "phone": "+64 21 555 1111"}, timeout=20)
     assert r.status_code in (200, 201), f"signup: {r.status_code} {r.text}"
     s = requests.Session()
     r2 = s.post(f"{API}/auth/login", json={"email": email, "password": pwd}, timeout=20)
@@ -272,3 +272,46 @@ def test_organizer_blocked_from_other_organizers_event(org_session):
         pytest.skip("no foreign event to test cross-owner protection")
     r = org_session.get(f"{API}/organizer/events/{foreign['event_id']}/creator-codes", timeout=15)
     assert r.status_code == 403, r.text
+
+# ----- iter-24c: phone-required-on-register -----
+def test_register_missing_phone_rejected():
+    email = f"phonetest_{uuid.uuid4().hex[:8]}@example.com"
+    r = requests.post(
+        f"{API}/auth/register",
+        json={"name": "NoPhone", "email": email, "password": "pwpwpwpw", "role": "attendee"},
+        timeout=15,
+    )
+    assert r.status_code == 422, r.text  # Pydantic-level missing-field rejection
+    assert "phone" in r.text.lower()
+
+
+def test_register_invalid_phone_rejected():
+    email = f"phonetest_{uuid.uuid4().hex[:8]}@example.com"
+    r = requests.post(
+        f"{API}/auth/register",
+        json={"name": "BadPhone", "email": email, "password": "pwpwpwpw", "role": "attendee", "phone": "abcdefghij"},
+        timeout=15,
+    )
+    assert r.status_code == 400, r.text  # explicit 400 from our regex check
+    assert "phone" in r.text.lower()
+
+
+def test_register_with_valid_phone_persists():
+    email = f"phonetest_{uuid.uuid4().hex[:8]}@example.com"
+    r = requests.post(
+        f"{API}/auth/register",
+        json={"name": "Phoner", "email": email, "password": "pwpwpwpw", "role": "attendee", "phone": "+64 21 555 1234"},
+        timeout=15,
+    )
+    assert r.status_code == 200, r.text
+    token = r.json().get("token")
+    assert token, "no token returned on register"
+    me = requests.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {token}"}, timeout=15)
+    assert me.status_code == 200
+    assert me.json().get("phone") == "+64 21 555 1234"
+    # Cleanup
+    from pymongo import MongoClient
+    from dotenv import dotenv_values
+    e = dotenv_values("/app/backend/.env")
+    MongoClient(e["MONGO_URL"])[e["DB_NAME"]].users.delete_one({"email": email})
+
