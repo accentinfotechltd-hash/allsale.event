@@ -31,6 +31,12 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Organizers can self-manage creator codes (NEW)**:
+  - 5 new `/api/organizer/events/{event_id}/creator-codes` endpoints (POST/GET/PATCH/DELETE + `/organizer/creator-codes/users-search`) mirror the admin set and share the same internal handlers; auth check is `_ensure_can_manage_event(user, event_id)` which lets admins through and 403s when an organizer doesn't own the event.
+  - `OrganizerCreatorCodesPanel.jsx` — new panel rendered inside `OrganizerEvent.jsx` (between Influencer marketplace and UTM link generator). Lets the event's organizer view code, creator, discount %, commission %, uses, revenue, credited earnings; Add / Edit / Deactivate inline; uses the same modal UX as admin tab.
+  - Server explicitly mounts the additional `organizer_router` from `creator_codes.py` so the auto-loader's "one router per module" convention still holds for everything else.
+  - **Backend tests:** 4 new pytest cases — list/search/CRUD + cross-owner 403. **14/14 pass.**
+
 - **Creator codes: discount is now OPTIONAL (NEW)**:
   - `routers/creator_codes.py` — `value` is `Optional[float]` (defaults to 0); backend rejects a code only when BOTH discount and commission are absent ("a code with neither has no effect").
   - `AdminCreatorCodesTab.jsx` — discount field labelled "% off (optional)" with `0 = no discount` placeholder + "Leave blank for a commission-only code." helper. Validation only blocks when both discount AND commission are empty.

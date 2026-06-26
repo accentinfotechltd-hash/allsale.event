@@ -14,6 +14,7 @@ import RefundPolicyPanel from "@/components/RefundPolicyPanel";
 import AffiliatesPanel from "@/components/AffiliatesPanel";
 import UtmLinkGenerator from "@/components/UtmLinkGenerator";
 import InfluencerProgramPanel from "@/components/InfluencerProgramPanel";
+import OrganizerCreatorCodesPanel from "@/components/OrganizerCreatorCodesPanel";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
@@ -167,6 +168,8 @@ export default function OrganizerEvent() {
       <AffiliatesPanel eventId={eventId} />
 
       <InfluencerProgramPanel event={event} />
+
+      <OrganizerCreatorCodesPanel eventId={eventId} eventTitle={event?.title} />
 
       <div className="mb-8" data-testid="utm-section">
         <UtmLinkGenerator event={event} affiliateCodes={[]} />

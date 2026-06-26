@@ -209,3 +209,66 @@ def test_creator_code_discount_only_no_commission():
     assert doc["value"] == 12.0
     assert doc.get("commission_percent") in (None, 0, 0.0)
     _delete_test_code(admin, code_str)
+
+
+# ----- iter-24b: organizer-scoped creator-code endpoints -----
+# orgtester is both an organizer and an enrolled creator; they own at least one event.
+def _org_owned_event_id(org_s):
+    r = org_s.get(f"{API}/organizer/events", timeout=15)
+    assert r.status_code == 200, r.text
+    items = r.json() if isinstance(r.json(), list) else r.json().get("items", [])
+    assert items, "no events owned by orgtester — seed fixture mismatch"
+    return items[0]["event_id"]
+
+
+def test_organizer_can_list_creator_codes_on_own_event(org_session):
+    eid = _org_owned_event_id(org_session)
+    r = org_session.get(f"{API}/organizer/events/{eid}/creator-codes", timeout=20)
+    assert r.status_code == 200, r.text
+    assert "items" in r.json()
+
+
+def test_organizer_can_search_creators(org_session):
+    r = org_session.get(f"{API}/organizer/creator-codes/users-search?q=org", timeout=15)
+    assert r.status_code == 200, r.text
+    assert "items" in r.json()
+
+
+def test_organizer_can_crud_creator_code_on_own_event(org_session):
+    eid = _org_owned_event_id(org_session)
+    code_str = f"ORGTST_{uuid.uuid4().hex[:5].upper()}"
+    # Create
+    create = org_session.post(
+        f"{API}/organizer/events/{eid}/creator-codes",
+        json={"code": code_str, "creator_email": "orgtester@allsale.events",
+              "kind": "percent", "value": 15, "commission_percent": 7},
+        timeout=20,
+    )
+    assert create.status_code == 200, create.text
+    code_id = create.json()["code_id"]
+    # Edit
+    edit = org_session.patch(
+        f"{API}/organizer/events/{eid}/creator-codes/{code_id}",
+        json={"value": 22, "commission_percent": 10},
+        timeout=20,
+    )
+    assert edit.status_code == 200, edit.text
+    assert edit.json()["value"] == 22.0
+    assert edit.json()["commission_percent"] == 10.0
+    # Deactivate
+    delr = org_session.delete(f"{API}/organizer/events/{eid}/creator-codes/{code_id}", timeout=15)
+    assert delr.status_code == 200, delr.text
+    assert delr.json().get("deactivated") == code_id
+
+
+def test_organizer_blocked_from_other_organizers_event(org_session):
+    """orgtester must NOT be able to list/manage creator codes on an event they don't own."""
+    admin_s, _ = _login("admin@allsale.events", "admin123")
+    all_events = admin_s.get(f"{API}/admin/events?limit=200", timeout=20).json()
+    items = all_events if isinstance(all_events, list) else all_events.get("items", [])
+    me_user_id = "user_2492358084d3"  # orgtester
+    foreign = next((it for it in items if it.get("organizer_id") and it["organizer_id"] != me_user_id), None)
+    if not foreign:
+        pytest.skip("no foreign event to test cross-owner protection")
+    r = org_session.get(f"{API}/organizer/events/{foreign['event_id']}/creator-codes", timeout=15)
+    assert r.status_code == 403, r.text

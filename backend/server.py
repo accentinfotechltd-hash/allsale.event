@@ -84,6 +84,13 @@ api = APIRouter(prefix="/api")
 for _r in _routers.values():
     api.include_router(_r)
 
+# Some modules expose more than one APIRouter — mount the extras explicitly so
+# we don't have to break the auto-loader's "one router per module" convention.
+_extra_routers, _ = _safe_import_router("routers.creator_codes", attr="organizer_router")
+if _extra_routers is not None:
+    api.include_router(_extra_routers)
+    logger.info("[boot] router loaded: creator_codes.organizer_router")
+
 
 @api.get("/")
 async def root():

@@ -1,9 +1,10 @@
-"""Admin-managed creator promo codes.
+"""Admin- and organizer-managed creator promo codes.
 
-Admins attach a discount code to a specific creator/influencer for a given
-event. Buyers get the discount, and (if a `commission_percent` is set on the
-code) the creator earns a commission credited to their `creator_earnings`
-ledger on every paid booking that used the code.
+Admins or the event's organizer attach a discount code to a specific
+creator/influencer for a given event. Buyers get the discount, and (if a
+`commission_percent` is set on the code) the creator earns a commission
+credited to their `creator_earnings` ledger on every paid booking that used
+the code.
 
 How this fits with existing systems:
   • Codes live in the SAME `discount_codes` collection used by the organizer
@@ -19,11 +20,17 @@ How this fits with existing systems:
     `booking_paid` hook, alongside the existing marketing-partner credit.
     Idempotent via a unique `(creator_id, booking_id)` compound index.
 
-Endpoints (admin only):
-  POST   /api/admin/events/{event_id}/creator-codes   create
-  GET    /api/admin/events/{event_id}/creator-codes   list (+ usage stats)
-  DELETE /api/admin/events/{event_id}/creator-codes/{code_id}   deactivate
-  GET    /api/admin/creator-codes/users-search?q=     autocomplete users
+Endpoints (admin OR the event's organizer):
+  POST   /api/admin/events/{event_id}/creator-codes        admin: create
+  POST   /api/organizer/events/{event_id}/creator-codes    organizer: create
+  GET    /api/admin/events/{event_id}/creator-codes        admin: list
+  GET    /api/organizer/events/{event_id}/creator-codes    organizer: list
+  PATCH  /api/admin/events/{event_id}/creator-codes/{id}   admin: edit
+  PATCH  /api/organizer/events/{event_id}/creator-codes/{id}  organizer: edit
+  DELETE /api/admin/events/{event_id}/creator-codes/{id}   admin: deactivate
+  DELETE /api/organizer/events/{event_id}/creator-codes/{id}  organizer: deactivate
+  GET    /api/admin/creator-codes/users-search?q=          autocomplete users
+  GET    /api/organizer/creator-codes/users-search?q=      autocomplete users
 """
 from __future__ import annotations
 
@@ -39,6 +46,8 @@ from core import db, get_current_user, utc_now
 
 logger = logging.getLogger("aura.creator_codes")
 router = APIRouter(prefix="/admin", tags=["admin-creator-codes"])
+# Organizer-facing mirror: same handlers, different auth (must own the event).
+organizer_router = APIRouter(prefix="/organizer", tags=["organizer-creator-codes"])
 
 CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{1,23}$")
 
@@ -46,6 +55,27 @@ CODE_RE = re.compile(r"^[A-Z0-9][A-Z0-9_-]{1,23}$")
 def _admin_only(user: dict) -> None:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
+
+
+async def _ensure_can_manage_event(user: dict, event_id: str) -> dict:
+    """Authorize the caller for creator-code operations on `event_id`.
+
+    Allowed:
+      • admin (any event)
+      • the event's organizer (their own events)
+    Returns the event document so callers don't re-fetch.
+    """
+    ev = await db.events.find_one(
+        {"event_id": event_id},
+        {"_id": 0, "organizer_id": 1, "title": 1, "currency": 1, "event_id": 1},
+    )
+    if not ev:
+        raise HTTPException(status_code=404, detail="Event not found")
+    if user.get("role") == "admin":
+        return ev
+    if user.get("user_id") == ev.get("organizer_id"):
+        return ev
+    raise HTTPException(status_code=403, detail="You don't own this event")
 
 
 class CreatorCodeIn(BaseModel):
@@ -73,6 +103,21 @@ async def admin_create_creator_code(
 ):
     """Admin attaches a promo code to a creator for a specific event."""
     _admin_only(user)
+    return await _create_creator_code(event_id, payload, user)
+
+
+@organizer_router.post("/events/{event_id}/creator-codes")
+async def organizer_create_creator_code(
+    event_id: str,
+    payload: CreatorCodeIn,
+    user: dict = Depends(get_current_user),
+):
+    """Event organizer attaches a promo code to a creator for their own event."""
+    await _ensure_can_manage_event(user, event_id)
+    return await _create_creator_code(event_id, payload, user)
+
+
+async def _create_creator_code(event_id: str, payload: CreatorCodeIn, user: dict) -> dict:
     code = (payload.code or "").strip().upper()
     if not CODE_RE.match(code):
         raise HTTPException(status_code=400, detail="Code must be 2-24 chars A-Z, 0-9, _ or -")
@@ -136,8 +181,8 @@ async def admin_create_creator_code(
     await db.discount_codes.insert_one(doc)
     doc.pop("_id", None)
     logger.info(
-        "[creator-code] admin %s created %s for creator %s on event %s",
-        user["user_id"], code, creator["user_id"], event_id,
+        "[creator-code] %s %s created %s for creator %s on event %s",
+        user.get("role", "?"), user["user_id"], code, creator["user_id"], event_id,
     )
     return doc
 
@@ -146,6 +191,17 @@ async def admin_create_creator_code(
 async def admin_list_creator_codes(event_id: str, user: dict = Depends(get_current_user)):
     """List creator promo codes attached to this event with usage + commission stats."""
     _admin_only(user)
+    return await _list_creator_codes(event_id)
+
+
+@organizer_router.get("/events/{event_id}/creator-codes")
+async def organizer_list_creator_codes(event_id: str, user: dict = Depends(get_current_user)):
+    """Same listing, but scoped to the calling organizer's own event."""
+    await _ensure_can_manage_event(user, event_id)
+    return await _list_creator_codes(event_id)
+
+
+async def _list_creator_codes(event_id: str) -> dict:
     cur = db.discount_codes.find(
         {"event_id": event_id, "creator_id": {"$exists": True, "$ne": None}},
         {"_id": 0},
@@ -177,6 +233,20 @@ async def admin_deactivate_creator_code(
 ):
     """Soft-delete: mark the code inactive. Existing earning rows stay."""
     _admin_only(user)
+    return await _deactivate_creator_code(event_id, code_id)
+
+
+@organizer_router.delete("/events/{event_id}/creator-codes/{code_id}")
+async def organizer_deactivate_creator_code(
+    event_id: str,
+    code_id: str,
+    user: dict = Depends(get_current_user),
+):
+    await _ensure_can_manage_event(user, event_id)
+    return await _deactivate_creator_code(event_id, code_id)
+
+
+async def _deactivate_creator_code(event_id: str, code_id: str) -> dict:
     res = await db.discount_codes.update_one(
         {"code_id": code_id, "event_id": event_id, "creator_id": {"$exists": True}},
         {"$set": {"active": False, "deactivated_at": utc_now().isoformat()}},
@@ -210,6 +280,22 @@ async def admin_edit_creator_code(
     attribution stays clean). Everything else is editable.
     """
     _admin_only(user)
+    return await _edit_creator_code(event_id, code_id, payload, user)
+
+
+@organizer_router.patch("/events/{event_id}/creator-codes/{code_id}")
+async def organizer_edit_creator_code(
+    event_id: str,
+    code_id: str,
+    payload: CreatorCodeEdit,
+    user: dict = Depends(get_current_user),
+):
+    """Same edit, but scoped to the calling organizer's own event."""
+    await _ensure_can_manage_event(user, event_id)
+    return await _edit_creator_code(event_id, code_id, payload, user)
+
+
+async def _edit_creator_code(event_id: str, code_id: str, payload: CreatorCodeEdit, user: dict) -> dict:
     set_ops: dict = {}
     if payload.kind is not None:
         if payload.kind not in ("percent", "flat"):
@@ -261,6 +347,18 @@ async def admin_search_users(q: str = Query(..., min_length=2), user: dict = Dep
     completed their public creator profile, and connected Stripe for payout.
     """
     _admin_only(user)
+    return await _search_enrolled_creators(q)
+
+
+@organizer_router.get("/creator-codes/users-search")
+async def organizer_search_users(q: str = Query(..., min_length=2), user: dict = Depends(get_current_user)):
+    """Same creator autocomplete, exposed to logged-in organizers."""
+    if user.get("role") not in ("organizer", "admin"):
+        raise HTTPException(status_code=403, detail="Organizer or admin only")
+    return await _search_enrolled_creators(q)
+
+
+async def _search_enrolled_creators(q: str) -> dict:
     needle = q.strip()
     if not needle:
         return {"items": []}
@@ -278,7 +376,7 @@ async def admin_search_users(q: str = Query(..., min_length=2), user: dict = Dep
     users = [u async for u in cur]
 
     # Enrich with the influencer's chosen display name + follower count so
-    # the admin sees who they're actually picking.
+    # the caller sees who they're actually picking.
     if users:
         user_ids = [u["user_id"] for u in users]
         infl_map: dict = {}
