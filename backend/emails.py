@@ -102,11 +102,27 @@ def _money(amount: float, currency: str = "NZD") -> str:
     """
     cur = (currency or "NZD").upper()
     symbols = {
-        "NZD": "NZ$", "AUD": "A$", "USD": "US$", "GBP": "£", "EUR": "€",
-        "CAD": "C$", "SGD": "S$", "HKD": "HK$", "JPY": "¥", "INR": "₹",
-        "AED": "AED ", "SAR": "SAR ", "ZAR": "R", "BRL": "R$", "MXN": "Mex$",
-        "CHF": "CHF ", "SEK": "kr", "NOK": "kr", "DKK": "kr", "MYR": "RM",
-        "THB": "฿", "IDR": "Rp", "PHP": "₱", "KRW": "₩", "CNY": "¥",
+        # Oceania
+        "NZD": "NZ$", "AUD": "A$", "FJD": "FJ$",
+        # North America
+        "USD": "US$", "CAD": "C$", "MXN": "Mex$",
+        # South America
+        "BRL": "R$", "ARS": "AR$", "CLP": "CL$", "COP": "CO$",
+        # Europe
+        "GBP": "£", "EUR": "€", "CHF": "CHF ",
+        "SEK": "kr", "NOK": "kr", "DKK": "kr",
+        "PLN": "zł", "CZK": "Kč", "TRY": "₺",
+        # Middle East
+        "AED": "AED ", "SAR": "SAR ", "QAR": "QAR ", "KWD": "KWD ",
+        "BHD": "BHD ", "OMR": "OMR ", "ILS": "₪",
+        # Asia
+        "INR": "₹", "PKR": "₨", "BDT": "৳", "LKR": "₨", "NPR": "₨",
+        "SGD": "S$", "MYR": "RM", "THB": "฿", "IDR": "Rp", "PHP": "₱",
+        "VND": "₫", "HKD": "HK$", "TWD": "NT$", "JPY": "¥", "KRW": "₩",
+        "CNY": "¥",
+        # Africa
+        "ZAR": "R", "NGN": "₦", "KES": "KSh", "EGP": "E£",
+        "MAD": "MAD ", "GHS": "₵",
     }
     sym = symbols.get(cur)
     if sym is None:

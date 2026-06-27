@@ -33,15 +33,36 @@ from emails import (  # noqa: E402
 # 1. _money() helper itself
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("currency,expected", [
+    # Oceania / North America baseline
     ("NZD", "NZ$27.29"),
     ("AUD", "A$27.29"),
     ("USD", "US$27.29"),
+    ("FJD", "FJ$27.29"),
+    # Europe
     ("GBP", "£27.29"),
     ("EUR", "€27.29"),
-    ("INR", "₹27.29"),
-    ("AED", "AED 27.29"),
     ("CHF", "CHF 27.29"),
+    ("PLN", "zł27.29"),
+    ("CZK", "Kč27.29"),
+    ("TRY", "₺27.29"),
+    # Middle East
+    ("AED", "AED 27.29"),
+    ("QAR", "QAR 27.29"),
+    ("KWD", "KWD 27.29"),
+    ("ILS", "₪27.29"),
+    # Asia
+    ("INR", "₹27.29"),
+    ("PKR", "₨27.29"),
+    ("BDT", "৳27.29"),
+    ("VND", "₫27.29"),
+    ("TWD", "NT$27.29"),
+    # Africa / South America
+    ("ZAR", "R27.29"),
+    ("NGN", "₦27.29"),
+    ("EGP", "E£27.29"),
     ("BRL", "R$27.29"),
+    ("ARS", "AR$27.29"),
+    ("CLP", "CL$27.29"),
 ])
 def test_money_uses_correct_symbol(currency: str, expected: str):
     assert _money(27.29, currency) == expected

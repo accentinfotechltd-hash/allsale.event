@@ -31,6 +31,15 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Country → local currency for invoice + frontend (Feb 26 2026)**:
+  - User reported: "make sure all country have their own currency show in invoice and frontend as well." 21+ countries (Qatar, Kuwait, Bahrain, Oman, Israel, Pakistan, Bangladesh, Sri Lanka, Nepal, Vietnam, Taiwan, Nigeria, Kenya, Egypt, Ghana, Argentina, Chile, Colombia, Turkey, Morocco, Czech Republic) wrongly defaulted to USD/EUR.
+  - **Fix:**
+    1. `frontend/src/lib/countries.js` — corrected every country's `currency` to its ISO-4217 local code (QAR, KWD, BHD, OMR, ILS, PKR, BDT, LKR, NPR, VND, TWD, NGN, KES, EGP, MAD, GHS, ARS, CLP, COP, TRY, PLN, CZK, FJD).
+    2. `frontend/src/lib/currencies.js` — added 23 new currencies with proper symbols (₪/₨/৳/₫/NT$/₦/₵/₺/zł/Kč/etc). Catalog now covers **48 currencies**.
+    3. `backend/emails.py` — `_money()` symbol map mirrored to all 48 currencies so invoices render the right symbol per country.
+  - **Tests:** 25 parametrised currency-symbol tests + 31-country pin tests + completeness test (every country's currency MUST be in `_money()` symbol map). **105/105 backend tests pass.**
+  - **Verified live:** create-event page shows 48 currencies + 58 countries; picking India → currency auto-flips to INR, Qatar → QAR, Pakistan → PKR, Vietnam → VND.
+
 - **Bug fix: invoice / booking-confirmation emails showed USD on every booking (Feb 26 2026)**:
   - User reported: "in invoice it shows USD $ change with the country." Confirmed live — a NZD booking for $200 displayed `$200.00 USD` in the email body and text fallback.
   - **RCA:** `emails._money()` defaulted to `currency="USD"` *and* every call site invoked it as `_money(ctx.get('amount', 0))` without passing the booking's currency. The `_send_booking_confirmation_email` ctx in `payments.py` also didn't include `currency` (only the PDF context did — the PDF was correct, only the email body was wrong).
