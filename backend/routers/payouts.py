@@ -345,6 +345,7 @@ async def admin_mark_paid(payout_id: str, payload: MarkPaidIn, user: dict = Depe
             "organizer_name": payout.get("organizer_name") or "organizer",
             "payout_id": payout_id,
             "amount": payout.get("net_amount", 0),
+            "currency": payout.get("currency") or "NZD",
             "bookings_count": payout.get("bookings_count", 0),
             "period": period,
         }, db)

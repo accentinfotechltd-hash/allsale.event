@@ -159,6 +159,7 @@ async def _send_booking_confirmation_email(booking_id: str) -> None:
         "tier_name": booking.get("tier_name", ""),
         "quantity": booking.get("quantity", 1),
         "amount": booking.get("amount", 0),
+        "currency": booking.get("currency") or event.get("currency") or "NZD",
     }
     # Build a print-ready PDF and attach it. Best-effort — if PDF generation
     # fails we still send the email without the attachment (the buyer can

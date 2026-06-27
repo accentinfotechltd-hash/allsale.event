@@ -92,8 +92,26 @@ def _text_fallback(lines: list[str]) -> str:
     return "\n".join(lines) + f"\n\n— Allsale Events\n{APP_PUBLIC_URL}\n"
 
 
-def _money(amount: float, currency: str = "USD") -> str:
-    return f"${amount:,.2f} {currency}"
+def _money(amount: float, currency: str = "NZD") -> str:
+    """Render a money amount with the right currency symbol.
+
+    Mirrors `frontend/src/lib/currencies.js` so the buyer sees the same
+    formatting in the confirmation email, ticket PDF, and the on-site
+    receipt. Defaults to NZD (platform's primary market). Falls back to
+    a generic `<CODE> X.XX` when we don't have a symbol mapping.
+    """
+    cur = (currency or "NZD").upper()
+    symbols = {
+        "NZD": "NZ$", "AUD": "A$", "USD": "US$", "GBP": "£", "EUR": "€",
+        "CAD": "C$", "SGD": "S$", "HKD": "HK$", "JPY": "¥", "INR": "₹",
+        "AED": "AED ", "SAR": "SAR ", "ZAR": "R", "BRL": "R$", "MXN": "Mex$",
+        "CHF": "CHF ", "SEK": "kr", "NOK": "kr", "DKK": "kr", "MYR": "RM",
+        "THB": "฿", "IDR": "Rp", "PHP": "₱", "KRW": "₩", "CNY": "¥",
+    }
+    sym = symbols.get(cur)
+    if sym is None:
+        return f"{cur} {amount:,.2f}"
+    return f"{sym}{amount:,.2f}"
 
 
 # ---------------------------------------------------------------------------
@@ -101,6 +119,7 @@ def _money(amount: float, currency: str = "USD") -> str:
 # ---------------------------------------------------------------------------
 def _t_booking_confirmation(ctx: Dict[str, Any]) -> tuple[str, str, str]:
     seats = ", ".join(ctx.get("seats") or []) if ctx.get("seats") else ctx.get("tier_name", "General")
+    cur = ctx.get("currency") or "NZD"
     body = f"""
     <p style="color:{TEXT};">Hey {ctx.get('user_name', 'there')}, your tickets are confirmed.</p>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
@@ -114,7 +133,7 @@ def _t_booking_confirmation(ctx: Dict[str, Any]) -> tuple[str, str, str]:
       <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">SEATS</td>
           <td style="text-align:right;color:{TEXT};padding-top:8px;">{seats} × {ctx.get('quantity', 1)}</td></tr>
       <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">PAID</td>
-          <td style="text-align:right;color:{BRAND_COLOR};font-weight:700;padding-top:8px;">{_money(ctx.get('amount', 0))}</td></tr>
+          <td style="text-align:right;color:{BRAND_COLOR};font-weight:700;padding-top:8px;">{_money(ctx.get('amount', 0), cur)}</td></tr>
       <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">BOOKING ID</td>
           <td style="text-align:right;color:{TEXT};font-family:Menlo,Monaco,monospace;font-size:12px;padding-top:8px;">{ctx['booking_id']}</td></tr>
     </table>
@@ -127,7 +146,7 @@ def _t_booking_confirmation(ctx: Dict[str, Any]) -> tuple[str, str, str]:
         f"When: {ctx.get('event_date','')}",
         f"Venue: {ctx.get('venue','')}, {ctx.get('city','')}",
         f"Seats: {seats} x {ctx.get('quantity', 1)}",
-        f"Paid: {_money(ctx.get('amount', 0))}",
+        f"Paid: {_money(ctx.get('amount', 0), cur)}",
         f"Booking ID: {ctx['booking_id']}",
         f"View ticket: {APP_PUBLIC_URL}/profile",
     ])
@@ -150,22 +169,23 @@ def _t_hold_expired(ctx: Dict[str, Any]) -> tuple[str, str, str]:
 
 
 def _t_refund_issued(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    cur = ctx.get("currency") or "NZD"
     body = f"""
     <p style="color:{TEXT};">Hi {ctx.get('user_name','there')}, a refund has been issued for your booking.</p>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
       style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;">
       <tr><td style="font-size:13px;color:{TEXT_MUTED};">EVENT</td><td style="text-align:right;color:{TEXT};">{ctx['event_title']}</td></tr>
       <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">BOOKING ID</td><td style="text-align:right;color:{TEXT};font-family:Menlo,Monaco,monospace;font-size:12px;padding-top:8px;">{ctx['booking_id']}</td></tr>
-      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">REFUND</td><td style="text-align:right;color:{BRAND_COLOR};font-weight:700;padding-top:8px;">{_money(ctx.get('amount', 0))}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">REFUND</td><td style="text-align:right;color:{BRAND_COLOR};font-weight:700;padding-top:8px;">{_money(ctx.get('amount', 0), cur)}</td></tr>
     </table>
     <p style="margin-top:16px;color:{TEXT_MUTED};">Funds typically settle in 5–10 business days depending on your bank.</p>
     """
     subject = f"Refund issued — {ctx['event_title']}"
-    html = _layout("Refund issued", f"{_money(ctx.get('amount', 0))} refunded", body)
+    html = _layout("Refund issued", f"{_money(ctx.get('amount', 0), cur)} refunded", body)
     text = _text_fallback([
         f"Refund issued for {ctx['event_title']}",
         f"Booking: {ctx['booking_id']}",
-        f"Amount: {_money(ctx.get('amount', 0))}",
+        f"Amount: {_money(ctx.get('amount', 0), cur)}",
         "Funds typically settle in 5–10 business days.",
     ])
     return subject, html, text
@@ -187,21 +207,22 @@ def _t_organizer_event_approved(ctx: Dict[str, Any]) -> tuple[str, str, str]:
 
 
 def _t_organizer_payout_issued(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    cur = ctx.get("currency") or "NZD"
     body = f"""
     <p style="color:{TEXT};">Hi {ctx.get('organizer_name','organizer')}, a payout has been wired to you.</p>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
       style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;">
-      <tr><td style="font-size:13px;color:{TEXT_MUTED};">AMOUNT</td><td style="text-align:right;color:{BRAND_COLOR};font-weight:700;">{_money(ctx.get('amount', 0))}</td></tr>
+      <tr><td style="font-size:13px;color:{TEXT_MUTED};">AMOUNT</td><td style="text-align:right;color:{BRAND_COLOR};font-weight:700;">{_money(ctx.get('amount', 0), cur)}</td></tr>
       <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">REFERENCE</td><td style="text-align:right;color:{TEXT};font-family:Menlo,Monaco,monospace;font-size:12px;padding-top:8px;">{ctx.get('payout_id','')}</td></tr>
       <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">PERIOD</td><td style="text-align:right;color:{TEXT};padding-top:8px;">{ctx.get('period','')}</td></tr>
       <tr><td style="font-size:13px;color:{TEXT_MUTED};padding-top:8px;">BOOKINGS</td><td style="text-align:right;color:{TEXT};padding-top:8px;">{ctx.get('bookings_count', 0)}</td></tr>
     </table>
     <p style="margin-top:16px;color:{TEXT_MUTED};">Net of platform commission and processing fees. See dashboard for the full breakdown.</p>
     """
-    subject = f"Payout sent: {_money(ctx.get('amount', 0))}"
-    html = _layout("Payout sent", f"{_money(ctx.get('amount', 0))} on the way", body, "Open payouts dashboard", f"{APP_PUBLIC_URL}/organizer/payouts")
+    subject = f"Payout sent: {_money(ctx.get('amount', 0), cur)}"
+    html = _layout("Payout sent", f"{_money(ctx.get('amount', 0), cur)} on the way", body, "Open payouts dashboard", f"{APP_PUBLIC_URL}/organizer/payouts")
     text = _text_fallback([
-        f"Payout sent: {_money(ctx.get('amount', 0))}",
+        f"Payout sent: {_money(ctx.get('amount', 0), cur)}",
         f"Reference: {ctx.get('payout_id','')}",
         f"Period: {ctx.get('period','')}",
         f"Bookings: {ctx.get('bookings_count', 0)}",

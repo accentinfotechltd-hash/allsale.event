@@ -31,6 +31,13 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Bug fix: invoice / booking-confirmation emails showed USD on every booking (Feb 26 2026)**:
+  - User reported: "in invoice it shows USD $ change with the country." Confirmed live — a NZD booking for $200 displayed `$200.00 USD` in the email body and text fallback.
+  - **RCA:** `emails._money()` defaulted to `currency="USD"` *and* every call site invoked it as `_money(ctx.get('amount', 0))` without passing the booking's currency. The `_send_booking_confirmation_email` ctx in `payments.py` also didn't include `currency` (only the PDF context did — the PDF was correct, only the email body was wrong).
+  - **Fix:** `_money()` now defaults to NZD and renders the correct symbol per ISO-4217 code (NZ$/A$/US$/£/€/₹/AED/CHF/R$/etc — full mirror of `frontend/src/lib/currencies.js`). All 9 call sites (booking-confirmation, refund-issued, organizer-payout) now pass `ctx.get('currency')`. `payments.py` and `payouts.py` include `currency` in the email ctx so the right value flows through.
+  - **Tests:** 14 new pytest cases in `test_email_currency.py` cover 9 currency codes, default fallback, missing-currency fallback, and the three live templates. **30/30 email + auth tests pass.**
+  - **Verified live:** triggered admin resend on the $200 NZD booking → Resend log shows `currency: NZD`, status `sent`, resend_id `343ecb0f...`. Buyer's email now reads **NZ$200.00**, not "$200.00 USD".
+
 - **Bug fix: PhoneCaptureGate kept re-asking for a phone even after the user had saved one (Feb 26 2026)**:
   - User reported: "make sure mobile number once they added do not ask every time." Reproduced live — the gate showed for the admin account even though admin had `+64 21 555 0001` in the DB.
   - **RCA:** All four auth endpoints (`POST /auth/login`, `/register`, `/google-code`, `/google-session`) returned a user dict **without `phone`**. Frontend `setUser(data)` overwrote the auth-context user with a phone-less object → `PhoneCaptureGate`'s `!user.phone` check fired immediately after every login. `GET /auth/me` (called separately) did return phone, but the login response always raced ahead.
