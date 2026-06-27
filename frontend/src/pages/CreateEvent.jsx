@@ -76,6 +76,52 @@ export default function CreateEvent() {
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(isEdit);
 
+  // Stripe Connect status — organizer MUST have payouts enabled before
+  // they can publish a PAID event (free events skip this check). Admins
+  // are exempt server-side, so we only fetch when the caller is not admin.
+  const [stripeConnect, setStripeConnect] = useState(null); // null = loading
+  useEffect(() => {
+    if (isAdmin) return; // admins bypass the gate
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get("/stripe/connect/status");
+        if (!cancelled) setStripeConnect(data);
+      } catch {
+        // 503 / network — treat as not-connected; the server will still
+        // accept the request for free events and reject paid ones.
+        if (!cancelled) setStripeConnect({ stripe_payouts_enabled: false });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAdmin]);
+
+  // Paid-event = at least one tier (or seatmap seat) with price > 0.
+  const hasPaidTier = form.has_seatmap
+    ? Number(form.seat_price) > 0
+    : tiers.some((t) => Number(t.price) > 0);
+  const needsStripeForPaidEvent = !isAdmin
+    && hasPaidTier
+    && stripeConnect !== null
+    && !stripeConnect.stripe_payouts_enabled;
+
+  const onConnectStripe = async () => {
+    try {
+      const { data } = await api.post("/stripe/connect/onboard", {
+        return_url: `${window.location.origin}/organizer?stripe_return=1`,
+        refresh_url: window.location.href,
+      });
+      if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        toast.error("Couldn't start Stripe onboarding — open the organizer dashboard and try again.");
+      }
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      toast.error(formatApiErrorDetail(detail) || "Couldn't start Stripe onboarding.");
+    }
+  };
+
   // Admin only & create mode: fetch list of organizers for the "create on behalf of" picker.
   useEffect(() => {
     if (!isAdmin || isEdit) return;
@@ -306,10 +352,22 @@ export default function CreateEvent() {
       // server-side validation errors come through with err.response.data.detail.
       const status = err?.response?.status;
       const detail = err?.response?.data?.detail;
+      const code = (detail && typeof detail === "object") ? detail.code : null;
       if (!err?.response) {
         toast.error("Couldn't reach the server. Check your connection and try again.");
       } else if (status === 401) {
         toast.error("Your session expired — please sign in again.");
+      } else if (status === 402 && code === "stripe_payouts_required") {
+        // Stripe Connect gate fired server-side. Surface a clear CTA — the
+        // server already emailed the organizer the 1-click onboarding link.
+        toast.error("Connect Stripe to publish a paid event — opening onboarding now.");
+        // Refresh local status so the inline banner reflects reality, then
+        // forward the organizer straight to onboarding.
+        try {
+          const { data: st } = await api.get("/stripe/connect/status");
+          setStripeConnect(st);
+        } catch { /* ignore */ }
+        await onConnectStripe();
       } else if (status === 403) {
         toast.error("You need an organizer account to post events. Visit 'Become an organizer' first.");
       } else if (status === 422) {
@@ -330,6 +388,43 @@ export default function CreateEvent() {
         <div className="py-10 text-center" style={{ color: "var(--text-dim)" }}>Loading…</div>
       ) : (
       <form onSubmit={onSubmit} className="space-y-6" data-testid="create-event-form">
+        {needsStripeForPaidEvent && (
+          <div
+            className="border-2 rounded-2xl p-5 flex items-start gap-4"
+            style={{ borderColor: "#E84B3C", background: "#FFF4F2" }}
+            data-testid="stripe-required-banner"
+          >
+            <div
+              className="shrink-0 mt-0.5 w-9 h-9 rounded-full flex items-center justify-center"
+              style={{ background: "#E84B3C", color: "white", fontWeight: 700 }}
+              aria-hidden
+            >
+              !
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-base" style={{ color: "#7A1410" }}>
+                Connect your bank to publish a paid event
+              </div>
+              <p className="text-sm mt-1" style={{ color: "#7A1410" }}>
+                You&apos;ve set at least one paid ticket — Stripe is how we send you the
+                ticket revenue. Add your bank + ID once (about 3 minutes) and your
+                event publishes the moment you save.
+              </p>
+              <button
+                type="button"
+                onClick={onConnectStripe}
+                className="mt-3 px-4 py-2 rounded-full text-sm font-semibold transition"
+                style={{ background: "#E84B3C", color: "white" }}
+                data-testid="stripe-required-connect-btn"
+              >
+                Connect Stripe now →
+              </button>
+              <p className="text-xs mt-2" style={{ color: "#A53428" }}>
+                Tip: free events (all prices set to 0) don&apos;t need Stripe — skip this banner.
+              </p>
+            </div>
+          </div>
+        )}
         {isAdmin && !isEdit && (
           <div
             className="border rounded-2xl p-4 flex items-start gap-3"

@@ -356,10 +356,68 @@ async def get_event(event_id: str):
     return event_to_public(e)
 
 
+def _event_is_paid(tiers: list) -> bool:
+    """An event is `paid` if at least one tier has a positive price.
+
+    Used to decide whether the organizer MUST connect Stripe Connect before
+    publishing (free events skip the Stripe gate entirely).
+    """
+    for t in tiers or []:
+        try:
+            if float(t.get("price", 0) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+async def _send_stripe_required_reminder(user: dict, event_title: str, onboarding_origin: str) -> None:
+    """Fire-and-forget reminder email when an organizer tries to publish a paid
+    event without a working Stripe Connect payout account. One-shot per attempt
+    — the user pulls the trigger on each publish click, so we don't throttle.
+    """
+    try:
+        from emails import send_template_fireforget
+        send_template_fireforget(
+            "organizer_stripe_required",
+            user.get("email"),
+            {
+                "organizer_name": user.get("name") or "there",
+                "event_title": event_title or "your event",
+                "onboarding_url": f"{onboarding_origin.rstrip('/')}/organizer?stripe_return=1",
+            },
+            db,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"[events] stripe-required reminder dispatch failed: {exc}")
+
+
 @router.post("/events")
-async def create_event(payload: EventIn, user: dict = Depends(get_current_user)):
+async def create_event(payload: EventIn, request: Request, user: dict = Depends(get_current_user)):
     await require_role(user, "organizer", "admin")
     event_id = f"evt_{uuid.uuid4().hex[:12]}"
+
+    # Stripe Connect gate: organizers MUST have a working payout account
+    # before they can publish a PAID event. Free events skip this check.
+    # Admins are trusted (they can create on behalf of an organizer who is
+    # still onboarding — that organizer will get their own payout reminder
+    # via the "admin_created_event_for_you" flow downstream).
+    if user.get("role") != "admin" and _event_is_paid(payload.tiers):
+        if not bool(user.get("stripe_payouts_enabled")):
+            origin = request.headers.get("origin") or "https://www.allsale.events"
+            await _send_stripe_required_reminder(user, payload.title, origin)
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "code": "stripe_payouts_required",
+                    "message": (
+                        "Connect your bank account on Stripe before publishing a "
+                        "paid event — payouts can't reach you otherwise. We've "
+                        "emailed you a 1-click onboarding link."
+                    ),
+                    "onboarding_path": "/organizer",
+                },
+            )
 
     # Admin-only: create on behalf of another organizer. The event gets
     # attributed to that organizer (organizer_id + organizer_name) and lands
@@ -512,6 +570,34 @@ async def update_event(event_id: str, payload: dict, user: dict = Depends(get_cu
     update = {k: v for k, v in (payload or {}).items() if k in EDITABLE}
     if not update:
         raise HTTPException(status_code=400, detail="No editable fields provided")
+
+    # Stripe Connect gate (mirror of the create-event check). If this PATCH
+    # raises an event from free → paid, the organizer needs working payouts.
+    if (
+        "tiers" in update
+        and user.get("role") != "admin"
+        and _event_is_paid(update["tiers"])
+        and not bool(user.get("stripe_payouts_enabled"))
+    ):
+        from fastapi import Request as _Req  # local import for type only
+        # We don't have the Request object here; use the platform default for
+        # the onboarding link domain — good enough for the reminder email.
+        cms = await db.platform_settings.find_one({"key": "cms"}, {"_id": 0}) or {}
+        origin = (cms.get("public_origin") or "https://www.allsale.events").rstrip("/")
+        await _send_stripe_required_reminder(user, event.get("title", ""), origin)
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "stripe_payouts_required",
+                "message": (
+                    "Connect your bank account on Stripe before turning this "
+                    "into a paid event — payouts can't reach you otherwise. "
+                    "We've emailed you a 1-click onboarding link."
+                ),
+                "onboarding_path": "/organizer",
+            },
+        )
+
     update["updated_at"] = utc_now().isoformat()
     update["updated_by"] = user["user_id"]
 

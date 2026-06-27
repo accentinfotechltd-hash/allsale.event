@@ -31,6 +31,14 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Stripe Connect gate on event publish (Feb 26 2026)**:
+  - User requested: organizers must set up their Stripe bank account before they can publish a paid event (or get a reminder). Chose Option A — hard block on paid events, free events skip.
+  - **Backend (`routers/events.py`):** new helper `_event_is_paid()`. Both `POST /events` and `PATCH /events/{id}` now return **402** `{code: "stripe_payouts_required", message, onboarding_path}` when a non-admin organizer tries to publish/flip a paid event without `stripe_payouts_enabled=true`. Admins are exempt. Free events (all tier prices == 0) skip the gate.
+  - **Email:** new dedicated `organizer_stripe_required` template (sent the instant the 402 fires) with the 1-click `/organizer?stripe_return=1` onboarding URL, ID/bank/address checklist, and "free events don't need Stripe" disclaimer. The existing passive `organizer_stripe_setup_nudge` is unchanged.
+  - **Frontend (`pages/CreateEvent.jsx`):** new sticky red banner above the form when the organizer has paid tiers AND no Stripe connected — surfaces the requirement BEFORE they hit submit. Inline "Connect Stripe now →" button starts onboarding immediately. If they still try to submit (or the state is stale), the 402 handler auto-refreshes the Stripe status and forwards them to the Stripe onboarding URL. The persistent `StripeConnectPanel` on `/organizer` already covers the dashboard-level reminder.
+  - **Tests:** 6 new pytest cases in `test_stripe_connect_publish_gate.py` covering: (1) paid+no-stripe → 402, (2) free+no-stripe → 200, (3) paid+stripe-enabled → 200, (4) admin bypass, (5) email template registered & rendering, (6) PATCH edit gate when free→paid. **111/111 backend tests pass, frontend lint clean.**
+  - **Verified live:** registered a fresh organizer in-browser, navigated to `/organizer/new` → red banner visible (count=1) with default $50 tier; set tier price to 0 → banner disappears (count=0).
+
 - **Country → local currency for invoice + frontend (Feb 26 2026)**:
   - User reported: "make sure all country have their own currency show in invoice and frontend as well." 21+ countries (Qatar, Kuwait, Bahrain, Oman, Israel, Pakistan, Bangladesh, Sri Lanka, Nepal, Vietnam, Taiwan, Nigeria, Kenya, Egypt, Ghana, Argentina, Chile, Colombia, Turkey, Morocco, Czech Republic) wrongly defaulted to USD/EUR.
   - **Fix:**

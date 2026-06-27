@@ -545,6 +545,7 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "admin_blast": lambda ctx: _t_admin_blast(ctx),
     "admin_new_event_submitted": lambda ctx: _t_admin_new_event_submitted(ctx),
     "organizer_stripe_setup_nudge": lambda ctx: _t_organizer_stripe_setup_nudge(ctx),
+    "organizer_stripe_required": lambda ctx: _t_organizer_stripe_required(ctx),
     "follower_new_event": lambda ctx: _t_follower_new_event(ctx),
     "follower_weekly_digest": lambda ctx: _t_follower_weekly_digest(ctx),
     "ticket_transfer_offer": lambda ctx: _t_ticket_transfer_offer(ctx),
@@ -1637,6 +1638,46 @@ def _t_organizer_stripe_setup_nudge(ctx: Dict[str, Any]) -> tuple[str, str, str]
         f"Hi {ctx.get('organizer_name','organizer')},",
         f"You have {n} {plural} coming up but Stripe isn't set up yet — payouts will be delayed.",
         f"Finish setup: {ctx.get('dashboard_url', APP_PUBLIC_URL + '/organizer')}",
+    ])
+    return subject, html, text
+
+
+def _t_organizer_stripe_required(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Sent the instant an organizer tries to publish a PAID event before
+    connecting Stripe. Hard block — they hit the "Publish" button, got a
+    402, and this email arrives with the 1-click onboarding URL.
+
+    Different tone from `_t_organizer_stripe_setup_nudge` — this is the
+    action the organizer just attempted, not a passive nudge.
+    """
+    name = ctx.get("organizer_name", "there")
+    title = ctx.get("event_title", "your event")
+    onboarding_url = ctx.get("onboarding_url") or f"{APP_PUBLIC_URL}/organizer"
+    body = f"""
+    <p style="color:{TEXT};">Hi {name},</p>
+    <p style="color:{TEXT_MUTED};">You just tried to publish <b style="color:{TEXT};">{title}</b> — but your Stripe payout account isn&apos;t connected yet, so we can&apos;t send you the ticket revenue.</p>
+    <p style="color:{TEXT_MUTED};">Good news: it&apos;s a 3-minute setup. Add your bank details + a photo ID, and Stripe verifies you on the spot. Then you can hit publish again and your event goes live instantly.</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+      style="margin-top:14px;border:1px solid {BORDER};border-radius:12px;padding:18px;background:#FFF9F0;">
+      <tr><td style="color:{TEXT};font-weight:600;">What you need handy</td></tr>
+      <tr><td style="color:{TEXT_MUTED};padding-top:8px;">• Your bank account / IBAN<br/>• A photo ID (passport or driver&apos;s licence)<br/>• Your business / personal address</td></tr>
+    </table>
+    <p style="margin-top:16px;color:{TEXT_MUTED};font-size:13px;">Free events don&apos;t need Stripe — only paid events do.</p>
+    """
+    subject = f"Connect Stripe to publish '{title}'"
+    html = _layout(
+        subject,
+        "Almost there — one step away from going live",
+        body,
+        "Connect Stripe now",
+        onboarding_url,
+    )
+    text = _text_fallback([
+        f"Hi {name},",
+        f"You just tried to publish '{title}' but Stripe isn't connected yet.",
+        "We need Stripe to send you your ticket revenue. 3-min setup.",
+        f"Connect now: {onboarding_url}",
+        "Tip: free events don't need Stripe — only paid events do.",
     ])
     return subject, html, text
 
