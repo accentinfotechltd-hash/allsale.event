@@ -28,23 +28,24 @@ async def public_fee_settings():
     safe to expose. The frontend uses these to render the tier breakdown so
     it never diverges from the backend `compute_fees()` result.
     """
-    from fees import PLATFORM_FEE_BPS, STRIPE_FEE_BPS, STRIPE_FEE_FLAT
+    from fees import PLATFORM_FEE_BPS, PLATFORM_FEE_FLAT, STRIPE_FEE_BPS, STRIPE_FEE_FLAT
 
     doc = await db.platform_settings.find_one({"key": "commission"}, {"_id": 0}) or {}
     # Admin override → DB doc, fall back to env-derived values from fees.py
-    # (which themselves fall back to 5% / $0.30 if PLATFORM_FEE_BPS /
-    # STRIPE_FEE_FLAT aren't set in env). This keeps the public endpoint and
+    # (which themselves fall back to 1% / $0.50 if PLATFORM_FEE_BPS /
+    # PLATFORM_FEE_FLAT aren't set in env). This keeps the public endpoint and
     # the real `compute_fees()` math 1:1 even when the DB doc is wiped.
     pct = doc.get("commission_percent")
     if pct is None:
         pct = PLATFORM_FEE_BPS / 100.0
     flat = doc.get("commission_flat_fee_per_ticket")
     if flat is None:
-        flat = STRIPE_FEE_FLAT
+        flat = PLATFORM_FEE_FLAT
     return {
         "platform_pct": float(pct),
         "platform_flat_per_ticket": float(flat),
         "stripe_pct": STRIPE_FEE_BPS / 100.0,
+        "stripe_flat_per_ticket": float(STRIPE_FEE_FLAT),
     }
 
 
@@ -222,7 +223,7 @@ async def create_hold(payload: HoldIn, request: Request, user: dict = Depends(ge
         amount,
         booking_doc["currency"],
         platform_pct=admin_pct,
-        stripe_flat=admin_flat,
+        platform_flat=admin_flat,  # admin's flat per booking — NOT Stripe's flat
         absorb_fees=bool(event.get("absorb_fees")),
     )
     buyer_total = round(fee_breakdown.buyer_total, 2)

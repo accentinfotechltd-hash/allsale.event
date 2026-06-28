@@ -2,21 +2,24 @@
 
 The buyer is charged enough to cover:
   1. The organizer's ticket face value (their gross revenue, paid out 5 days after the event).
-  2. Allsale's platform fee (default 5% of face value).
+  2. Allsale's platform fee:
+        platform_pct% × face_value   +   platform_flat per booking
   3. Stripe's processing fee (default 2.7% + $0.30) applied on the WHOLE charge.
 
 We gross-up the buyer total so that *after* Stripe takes their cut, the remainder
-covers face_value + platform_fee exactly.
+covers face_value + platform_fee_total exactly.
 
 Formula:
-  buyer_total = (face_value + platform_fee + stripe_flat) / (1 - stripe_pct)
-  stripe_fee  = buyer_total - (face_value + platform_fee)
-  service_fee = platform_fee + stripe_fee  ← the single number the buyer sees
+  platform_fee_total = (face_value × platform_pct) + platform_flat
+  buyer_total        = (face_value + platform_fee_total + stripe_flat) / (1 - stripe_pct)
+  stripe_fee         = buyer_total - (face_value + platform_fee_total)
+  service_fee        = platform_fee_total + stripe_fee   ← the single number the buyer sees
 
 Env knobs (read at import time):
-  PLATFORM_FEE_BPS  default 500   ( = 5%)
-  STRIPE_FEE_BPS    default 270   ( = 2.7%, NZ domestic card)
-  STRIPE_FEE_FLAT   default 0.30  (fixed per-transaction, in the event's currency)
+  PLATFORM_FEE_BPS   default 100   ( = 1%)
+  PLATFORM_FEE_FLAT  default 0.50  (Allsale's flat per booking, in event currency)
+  STRIPE_FEE_BPS     default 270   ( = 2.7%, NZ domestic card)
+  STRIPE_FEE_FLAT    default 0.30  (Stripe's actual flat, in event currency)
 """
 from __future__ import annotations
 
@@ -38,15 +41,16 @@ def _env_float(key: str, default: float) -> float:
         return default
 
 
-PLATFORM_FEE_BPS = _env_int("PLATFORM_FEE_BPS", 500)     # 5%
-STRIPE_FEE_BPS = _env_int("STRIPE_FEE_BPS", 270)         # 2.7%
-STRIPE_FEE_FLAT = _env_float("STRIPE_FEE_FLAT", 0.30)    # $0.30
+PLATFORM_FEE_BPS = _env_int("PLATFORM_FEE_BPS", 100)        # 1%
+PLATFORM_FEE_FLAT = _env_float("PLATFORM_FEE_FLAT", 0.50)   # $0.50 / booking
+STRIPE_FEE_BPS = _env_int("STRIPE_FEE_BPS", 270)            # 2.7%
+STRIPE_FEE_FLAT = _env_float("STRIPE_FEE_FLAT", 0.30)       # $0.30 (Stripe's actual)
 
 
 @dataclass(frozen=True)
 class FeeBreakdown:
     face_value: float       # organizer's gross (paid out, minus platform fee)
-    platform_fee: float     # Allsale's cut (5% of face_value by default)
+    platform_fee: float     # Allsale's cut (platform_pct × face + platform_flat)
     stripe_fee: float       # estimated Stripe fee on buyer_total
     service_fee: float      # platform_fee + stripe_fee — the single line the buyer sees
     buyer_total: float      # what we actually charge Stripe
@@ -61,6 +65,7 @@ class FeeBreakdown:
             "buyer_total": round(self.buyer_total, 2),
             "currency": self.currency,
             "platform_fee_bps": PLATFORM_FEE_BPS,
+            "platform_fee_flat": PLATFORM_FEE_FLAT,
             "stripe_fee_bps": STRIPE_FEE_BPS,
             "stripe_fee_flat": STRIPE_FEE_FLAT,
         }
@@ -70,6 +75,7 @@ def compute_fees(
     face_value: float,
     currency: str = "NZD",
     platform_pct: float | None = None,
+    platform_flat: float | None = None,
     stripe_flat: float | None = None,
     absorb_fees: bool = False,
 ) -> FeeBreakdown:
@@ -99,7 +105,8 @@ def compute_fees(
         return FeeBreakdown(0, 0, 0, 0, 0, (currency or "NZD").upper())
 
     plat_pct = (PLATFORM_FEE_BPS / 10000.0) if platform_pct is None else float(platform_pct) / 100.0
-    flat = STRIPE_FEE_FLAT if stripe_flat is None else float(stripe_flat)
+    plat_flat = PLATFORM_FEE_FLAT if platform_flat is None else float(platform_flat)
+    stripe_flat_val = STRIPE_FEE_FLAT if stripe_flat is None else float(stripe_flat)
     stripe_pct = STRIPE_FEE_BPS / 10000.0
 
     if absorb_fees:
@@ -107,8 +114,8 @@ def compute_fees(
         # cut is computed off the displayed price; Stripe's cut is computed
         # off the buyer total (which equals the displayed price in this mode).
         buyer_total = face_value
-        platform = face_value * plat_pct
-        stripe_fee = face_value * stripe_pct + flat
+        platform = face_value * plat_pct + plat_flat
+        stripe_fee = face_value * stripe_pct + stripe_flat_val
         # `face_value` returned to the caller is the organizer's NET — i.e.
         # what reaches their balance after platform + Stripe take their cut.
         organizer_net = max(0.0, face_value - platform - stripe_fee)
@@ -123,10 +130,10 @@ def compute_fees(
         )
 
     # Exclusive (default): gross up `face_value` so the buyer covers all fees.
-    platform = face_value * plat_pct
+    platform = face_value * plat_pct + plat_flat
     # Avoid div-by-zero (would only happen if STRIPE_FEE_BPS=10000, i.e. 100%).
     denom = max(1e-6, 1 - stripe_pct)
-    buyer_total = (face_value + platform + flat) / denom
+    buyer_total = (face_value + platform + stripe_flat_val) / denom
     stripe_fee = buyer_total - (face_value + platform)
     service_fee = platform + stripe_fee
     return FeeBreakdown(

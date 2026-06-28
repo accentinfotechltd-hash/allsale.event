@@ -31,6 +31,18 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Fee math fix: platform_flat split from stripe_flat — 1% + $0.50 now collected correctly (Feb 26 2026)**:
+  - User reported: "I could see the fee in my stripe account, we charge 1% + 0.50 cent fees."
+  - **RCA:** The old `compute_fees()` only had `stripe_flat` parameter. Admin's `commission_flat_fee_per_ticket` ($0.50 platform flat) was being passed as `stripe_flat`, OVERWRITING Stripe's actual $0.30. Net effect: platform was under-collecting by $0.30 per ticket — the $0.50 was being used to cover Stripe's $0.30 instead of being kept by the platform. Also the env default was wrong (5% platform fee instead of the user's actual 1%).
+  - **Fix:**
+    1. Added separate `platform_flat` parameter to `compute_fees()`. Platform fee is now `face × platform_pct + platform_flat` (independent of Stripe's flat).
+    2. Updated env defaults to match user's real rates: `PLATFORM_FEE_BPS=100` (1%), `PLATFORM_FEE_FLAT=0.50`, `STRIPE_FEE_FLAT=0.30` (unchanged).
+    3. Updated `routers/bookings.py` to pass `admin_flat` as `platform_flat` (not `stripe_flat`).
+    4. Updated DB doc `platform_settings.commission` to `commission_percent=1.0, commission_flat_fee_per_ticket=0.50` (was 5.0 / 0.30).
+    5. Updated `GET /api/fees/public-settings` to expose `stripe_flat_per_ticket` so the frontend can render the exact buyer total.
+  - **Live-verified:** NZ$25 Early Bird → face $25.00, platform_fee **$0.75** (1% × 25 + $0.50), stripe_fee $1.02, buyer pays **NZ$26.77**. Admin's Stripe will now actually see $0.75 of platform revenue per ticket.
+  - **Tests:** 7 new pytest cases in `test_fees_platform_flat.py` covering: default rates, $25-ticket spot check, platform_flat independence from stripe_flat, override precedence, absorb_fees mode breakdown, public endpoint shape, breakdown.as_dict() carries both flats. **102/102 backend tests pass.**
+
 - **Resend 429 retry-with-backoff — admin booking notifications now reliable (Feb 26 2026)**:
   - User reported: "admin can't receive the payment confirmation. When customer can buy make sure organizer and admin both can get paid."
   - **RCA:** Resend free tier rate-limits at **2 req/sec**. Each booking fires 3 emails in parallel (buyer + organizer + admin). The DB showed **18/24 admin emails failed with 429** and 12/24 organizer emails failed with the same rate-limit error.
