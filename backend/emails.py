@@ -1749,7 +1749,15 @@ async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None, at
                 to = owner["notification_email"]
         except Exception:
             pass
-    base = {"log_id": log_id, "template": template, "to": to, "to_requested": requested_to, "created_at": now_iso, "context_summary": _safe_summary(ctx)}
+    base = {
+        "log_id": log_id, "template": template, "to": to, "to_requested": requested_to,
+        "created_at": now_iso, "context_summary": _safe_summary(ctx),
+    }
+    # Cross-link the log to the booking when ctx carries one (booking_confirmation,
+    # admin_new_booking, organizer_new_sale, refund_issued). Lets admin support
+    # quickly answer "did Alice's confirmation email go out?" from the DB.
+    if isinstance(ctx, dict) and ctx.get("booking_id"):
+        base["booking_id"] = ctx["booking_id"]
 
     if not _RESEND_AVAILABLE or not RESEND_API_KEY:
         logger.warning(f"[email] resend unavailable or RESEND_API_KEY not set — skipped {template} to {to}")
@@ -1793,7 +1801,7 @@ async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None, at
         params["attachments"] = _normalize_attachments(attachments)
 
     try:
-        result = await asyncio.to_thread(resend.Emails.send, params)
+        result = await _resend_send_with_retry(params, template=template, to=to)
         email_id = result.get("id") if isinstance(result, dict) else None
         logger.info(f"[email] sent {template} → {to} (id={email_id})")
         if db is not None:
@@ -1804,6 +1812,46 @@ async def send_template(template: str, to: str, ctx: Dict[str, Any], db=None, at
         if db is not None:
             await db.email_logs.insert_one({**base, "status": "failed", "reason": str(e)[:500], "subject": subject})
         return {"status": "failed", "log_id": log_id, "reason": str(e)}
+
+
+async def _resend_send_with_retry(params: Dict[str, Any], *, template: str, to: str, max_attempts: int = 4) -> Dict[str, Any]:
+    """Wrap `resend.Emails.send` with exponential-backoff retry on rate-limit errors.
+
+    Resend's free tier caps at 2 requests/second. The booking-confirmation
+    flow fires 3+ emails in parallel (buyer + organizer + every admin) so
+    1 in 3 was reliably failing with 429. We retry with backoff
+    400ms → 800ms → 1.6s → 3.2s so transient rate-limits stop reaching the
+    `email_logs` failure path.
+
+    Non-rate-limit errors (auth, invalid recipient, etc.) raise on the
+    first attempt — retrying those would just delay the eventual error.
+    """
+    delay = 0.4
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await asyncio.to_thread(resend.Emails.send, params)
+        except Exception as exc:  # noqa: BLE001
+            last_exc = exc
+            msg = str(exc).lower()
+            is_rate_limit = (
+                "too many requests" in msg
+                or "rate limit" in msg
+                or "429" in msg
+            )
+            if not is_rate_limit or attempt >= max_attempts:
+                raise
+            jitter = (attempt * 73 % 100) / 1000.0  # 0–99ms deterministic jitter
+            logger.warning(
+                f"[email] resend 429 on {template}→{to} attempt {attempt}/{max_attempts} — "
+                f"retrying in {delay + jitter:.2f}s"
+            )
+            await asyncio.sleep(delay + jitter)
+            delay *= 2
+    # Should be unreachable — the loop either returns or re-raises.
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("resend retry exhausted with no exception captured")
 
 
 def send_template_fireforget(template: str, to: str, ctx: Dict[str, Any], db=None, attachments: Optional[List[Dict[str, Any]]] = None):

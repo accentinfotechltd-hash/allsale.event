@@ -189,6 +189,7 @@ async def _send_booking_confirmation_email(booking_id: str) -> None:
             {"_id": 0, "organizer_id": 1, "title": 1, "currency": 1, "organizer_name": 1},
         ) or {}
         sale_ctx = {
+            "booking_id": booking_id,
             "event_title": event_doc.get("title") or booking.get("event_id"),
             "organizer_name": event_doc.get("organizer_name") or "Organizer",
             "buyer_name": booking.get("user_name") or booking.get("user_email") or "Someone",

@@ -31,6 +31,15 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Resend 429 retry-with-backoff — admin booking notifications now reliable (Feb 26 2026)**:
+  - User reported: "admin can't receive the payment confirmation. When customer can buy make sure organizer and admin both can get paid."
+  - **RCA:** Resend free tier rate-limits at **2 req/sec**. Each booking fires 3 emails in parallel (buyer + organizer + admin). The DB showed **18/24 admin emails failed with 429** and 12/24 organizer emails failed with the same rate-limit error.
+  - **Fix:** `emails._resend_send_with_retry()` wraps `resend.Emails.send` with exponential backoff (400ms → 800ms → 1.6s → 3.2s, up to 4 attempts) on rate-limit errors. Non-rate-limit errors (auth, invalid recipient) still raise on the first attempt — retrying those would just delay the inevitable.
+  - **Bonus:** `email_logs` rows now carry `booking_id` when ctx has one, so admin support can answer "did Alice's confirmation email go out?" with a single query. Closed the open backlog item from earlier turns.
+  - **Tests:** 5 new pytest cases in `test_email_rate_limit_retry.py` covering: retry succeeds, retry exhausts, non-rate-limit fails fast, end-to-end log shape stays clean (one `sent` row, not one-per-attempt), booking_id cross-link present. **95/95 backend tests pass.**
+  - **Verified live:** triggered booking-confirmation fan-out on `bk_partner_test_001` → admin email rate-limited twice (`attempt 1/4`, `attempt 2/4`), retried, **succeeded on attempt 3**. All three emails (buyer + organizer + admin) now land reliably.
+  - **Payout flow audit:** ran `fees.compute_fees(100.0)` for both modes — confirmed math is correct: buyer-pays-fees: buyer NZ$108.22 → Stripe NZ$3.22 + platform/admin NZ$5.00 + organizer NZ$100.00. Absorb-fees: buyer NZ$100 → Stripe NZ$3.00 + platform/admin NZ$5.00 + organizer NZ$92.00. The `payouts.py` flow uses face_value as the single source of truth and admin's platform_fee is collected at checkout time.
+
 - **Polished EventCard redesign — text moves above & below the poster (Feb 26 2026)**:
   - User reference: premiertickets.co style — clean poster on top, price + date + title below, no chrome covering the organizer's poster art.
   - **Changes (`components/EventCard.jsx`):** removed the full dark gradient overlay; kept only a 25%-top scrim for badge legibility. Removed the bottom-image overlay block (date + price). Below the image now reads top-to-bottom: small "STARTS FROM" label → big serif **NZ$XX.XX** price → date row with calendar icon and uppercase locale-formatted timestamp → serif title → venue line → organizer & creator faces. Price now uses 2-decimal precision (NZ$25.00) to match the reference exactly.
