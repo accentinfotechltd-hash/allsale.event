@@ -34,7 +34,8 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
 - **Polished EventCard redesign — text moves above & below the poster (Feb 26 2026)**:
   - User reference: premiertickets.co style — clean poster on top, price + date + title below, no chrome covering the organizer's poster art.
   - **Changes (`components/EventCard.jsx`):** removed the full dark gradient overlay; kept only a 25%-top scrim for badge legibility. Removed the bottom-image overlay block (date + price). Below the image now reads top-to-bottom: small "STARTS FROM" label → big serif **NZ$XX.XX** price → date row with calendar icon and uppercase locale-formatted timestamp → serif title → venue line → organizer & creator faces. Price now uses 2-decimal precision (NZ$25.00) to match the reference exactly.
-  - **Verified live:** Geeta Rabari card on `/events` shows the polished layout — Featured badge sits clean on the poster, "STARTS FROM NZ$25.00", "SAT, JUL 18, 2026 · 7:00 AM", title, venue, organizer face. Lint clean.
+  - **Also polished `TrendingCarousel`/`TrendingTile`** (used on the home page) to the same clean layout — was still showing a price pill overlay on the poster. Now: clean poster + top-only scrim → "Starts from" label → big serif price → date → title → venue, all below the image.
+  - **Verified live:** Geeta Rabari card on `/events` shows the polished layout. Home page featured grid (EventCard) and trending carousel (TrendingTile) both use the same polish pattern now. Lint clean.
 
 - **Geo-IP auto-detect for the homepage country picker (Feb 26 2026)**:
   - User opted into the previous turn's improvement offer ("Yes").

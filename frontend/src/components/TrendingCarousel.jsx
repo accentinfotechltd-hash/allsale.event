@@ -109,6 +109,16 @@ function TrendingTile({ event, index }) {
     if (!tiers.length) return null;
     return Math.min(...tiers.map((t) => Number(t.price) || 0));
   })();
+  const dateLine = (() => {
+    if (!event.date) return "TBA";
+    const d = new Date(event.date);
+    if (Number.isNaN(d.getTime())) return "TBA";
+    const weekday = d.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
+    const month = d.toLocaleDateString("en-US", { month: "short" }).toUpperCase();
+    const day = String(d.getDate()).padStart(2, "0");
+    const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    return `${weekday}, ${month} ${day} · ${time}`;
+  })();
 
   return (
     <Link
@@ -117,16 +127,14 @@ function TrendingTile({ event, index }) {
       style={{ borderColor: "var(--border)", animationDelay: `${index * 0.05}s` }}
       data-testid={`trending-tile-${event.event_id}`}
     >
+      {/* Poster — clean, no bottom overlay. Top scrim only for badge legibility. */}
       <div className="relative h-[200px] overflow-hidden">
         <img
           src={event.image_url}
           alt={event.title}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
         />
-        <div
-          className="absolute inset-0"
-          style={{ background: "linear-gradient(180deg, rgba(0,0,0,0) 50%, rgba(0,0,0,0.65) 100%)" }}
-        />
+        <div className="absolute inset-x-0 top-0 h-1/3 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
         <div className="absolute top-3 left-3 flex gap-1.5">
           <span
             className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] uppercase tracking-widest font-medium"
@@ -143,27 +151,38 @@ function TrendingTile({ event, index }) {
             </span>
           )}
         </div>
+      </div>
+      {/* Text block — price → date → title → venue, all below the poster. */}
+      <div className="p-4">
         {lowestPrice != null && (
-          <div
-            className="absolute bottom-3 right-3 px-2.5 py-1 rounded-full text-xs font-medium backdrop-blur-md"
-            style={{ background: "rgba(0,0,0,0.65)", color: "#FFFFFF" }}
-          >
-            {lowestPrice > 0 ? `From ${formatMoney(lowestPrice, event.currency)}` : "Free"}
+          <div className="mb-2">
+            <div
+              className="text-[10px] uppercase tracking-widest"
+              style={{ color: "var(--text-muted)" }}
+            >
+              {lowestPrice > 0 ? "Starts from" : ""}
+            </div>
+            <div
+              className="serif text-xl leading-tight"
+              style={{ color: "var(--accent)" }}
+              data-testid={`trending-price-${event.event_id}`}
+            >
+              {lowestPrice > 0 ? formatMoney(lowestPrice, event.currency) : "Free"}
+            </div>
           </div>
         )}
-      </div>
-      <div className="p-4">
-        <div className="font-medium text-base truncate mb-2" data-testid={`trending-title-${event.event_id}`}>
+        <div
+          className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider mb-2"
+          style={{ color: "var(--text-muted)" }}
+        >
+          <Calendar size={11} />
+          <span className="truncate">{dateLine}</span>
+        </div>
+        <div className="serif text-lg leading-tight mb-2 line-clamp-2" data-testid={`trending-title-${event.event_id}`}>
           {event.title}
         </div>
-        <div className="flex items-center gap-3 text-xs" style={{ color: "var(--text-muted)" }}>
-          <span className="inline-flex items-center gap-1">
-            <Calendar size={11} />
-            {event.date ? new Date(event.date).toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "TBA"}
-          </span>
-          <span className="inline-flex items-center gap-1 truncate">
-            <MapPin size={11} /> {event.city}
-          </span>
+        <div className="flex items-center gap-1.5 text-xs truncate" style={{ color: "var(--text-muted)" }}>
+          <MapPin size={11} /> <span className="truncate">{event.venue ? `${event.venue} · ${event.city}` : event.city}</span>
         </div>
       </div>
     </Link>
