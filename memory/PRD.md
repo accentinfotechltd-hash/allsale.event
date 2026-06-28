@@ -31,6 +31,11 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Polished EventCard redesign — text moves above & below the poster (Feb 26 2026)**:
+  - User reference: premiertickets.co style — clean poster on top, price + date + title below, no chrome covering the organizer's poster art.
+  - **Changes (`components/EventCard.jsx`):** removed the full dark gradient overlay; kept only a 25%-top scrim for badge legibility. Removed the bottom-image overlay block (date + price). Below the image now reads top-to-bottom: small "STARTS FROM" label → big serif **NZ$XX.XX** price → date row with calendar icon and uppercase locale-formatted timestamp → serif title → venue line → organizer & creator faces. Price now uses 2-decimal precision (NZ$25.00) to match the reference exactly.
+  - **Verified live:** Geeta Rabari card on `/events` shows the polished layout — Featured badge sits clean on the poster, "STARTS FROM NZ$25.00", "SAT, JUL 18, 2026 · 7:00 AM", title, venue, organizer face. Lint clean.
+
 - **Geo-IP auto-detect for the homepage country picker (Feb 26 2026)**:
   - User opted into the previous turn's improvement offer ("Yes").
   - **Backend (`/api/geo/country`):** new endpoint. Resolution order — (1) CDN edge headers (`cf-ipcountry`, `x-vercel-ip-country`, `fastly-geo-country`, `x-country-code`, `x-appengine-country`), (2) IP-based lookup via `ipapi.co` keyed off `x-forwarded-for` / client IP, with a 5-min in-memory TTL cache (capped at 2k entries) so repeat hits never hammer the upstream, (3) `NZ` default. Returns `{country, source: "header"|"ip"|"default"}`.

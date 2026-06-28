@@ -1,11 +1,26 @@
 import { Link } from "react-router-dom";
-import { MapPin, Star, Flame } from "lucide-react";
+import { MapPin, Star, Flame, Calendar } from "lucide-react";
 import { formatMoney } from "@/lib/currencies";
 import { flagForCountry } from "@/lib/countries";
 
 export default function EventCard({ event, index = 0 }) {
   const date = new Date(event.date);
-  const dateStr = date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  // Compact, all-caps date — matches the reference cards: "FRI, JUL 03RD 2026 07:30 PM".
+  // We fall back to a clean en-US fallback when toLocale* returns junk on
+  // older mobile webviews.
+  const dateLine = (() => {
+    if (Number.isNaN(date.getTime())) return "DATE TBA";
+    try {
+      const weekday = date.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
+      const month = date.toLocaleDateString("en-US", { month: "short" }).toUpperCase();
+      const day = String(date.getDate()).padStart(2, "0");
+      const year = date.getFullYear();
+      const time = date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      return `${weekday}, ${month} ${day}, ${year} · ${time}`;
+    } catch {
+      return date.toUTCString();
+    }
+  })();
   // Compute the lowest VALID positive price for the badge. We deliberately
   // separate three cases here:
   //   - At least one positive tier/seat price → show "from $X"
@@ -34,6 +49,10 @@ export default function EventCard({ event, index = 0 }) {
       style={{ animationDelay: `${index * 0.05}s`, opacity: event.is_past ? 0.7 : 1 }}
       data-testid={`event-card-${event.event_id}`}
     >
+      {/* POSTER — keeps its natural composition. No text overlay on the
+          poster itself so the organizer's design isn't fighting with our
+          chrome. Badges (Featured/Trending/Past) sit on a subtle top
+          scrim so they're readable but don't dominate. */}
       <div className="relative aspect-[4/5] overflow-hidden">
         <img
           src={event.image_url}
@@ -41,7 +60,9 @@ export default function EventCard({ event, index = 0 }) {
           className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
           style={event.is_past ? { filter: "grayscale(0.6)" } : undefined}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
+        {/* Top scrim only (about 25%), purely for badge legibility — the
+            poster art below stays clean. */}
+        <div className="absolute inset-x-0 top-0 h-1/4 bg-gradient-to-b from-black/55 to-transparent pointer-events-none" />
         <div className="absolute top-3 left-3 flex flex-col gap-1.5 items-start">
           <span className="chip chip-accent" style={{ fontSize: "0.65rem" }}>{event.category}</span>
           {event.is_past && (
@@ -97,50 +118,70 @@ export default function EventCard({ event, index = 0 }) {
             </span>
           )}
         </div>
-        <div className="absolute bottom-3 left-3 right-3 flex items-end justify-between">
-          <div>
-            <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>{dateStr}</div>
-          </div>
-          <div className="text-right">
-            {priceState === "price" && (
-              <>
-                <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-dim)" }}>from</div>
-                <div
-                  className="serif text-2xl leading-none"
-                  style={{ color: "var(--accent)" }}
-                  data-testid={`event-card-price-${event.event_id}`}
-                >
-                  {formatMoney(minPrice, currency, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                </div>
-              </>
-            )}
-            {priceState === "free" && (
-              <div
-                className="serif text-2xl leading-none"
-                style={{ color: "var(--accent)" }}
-                data-testid={`event-card-price-${event.event_id}`}
-              >
-                Free
-              </div>
-            )}
-            {priceState === "tba" && (
-              <div
-                className="serif text-xl leading-none opacity-80"
-                style={{ color: "var(--text-muted)" }}
-                data-testid={`event-card-price-${event.event_id}`}
-                title="Tickets not yet on sale"
-              >
-                TBA
-              </div>
-            )}
-          </div>
-        </div>
       </div>
+
+      {/* TEXT BLOCK — sits cleanly below the poster. Reads top-to-bottom:
+          price headline → date/venue → title → organizer & promoters. */}
       <div className="p-4">
-        <h3 className="serif text-xl leading-tight mb-1 line-clamp-2 group-hover:text-[color:var(--accent)] transition-colors">{event.title}</h3>
+        {/* Price block */}
+        {priceState === "price" && (
+          <div className="mb-2">
+            <div
+              className="text-[10px] uppercase tracking-widest"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Starts from
+            </div>
+            <div
+              className="serif text-2xl leading-tight"
+              style={{ color: "var(--accent)" }}
+              data-testid={`event-card-price-${event.event_id}`}
+            >
+              {formatMoney(minPrice, currency, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </div>
+          </div>
+        )}
+        {priceState === "free" && (
+          <div className="mb-2">
+            <div
+              className="serif text-2xl leading-tight"
+              style={{ color: "var(--accent)" }}
+              data-testid={`event-card-price-${event.event_id}`}
+            >
+              Free
+            </div>
+          </div>
+        )}
+        {priceState === "tba" && (
+          <div className="mb-2">
+            <div
+              className="serif text-xl leading-tight opacity-80"
+              style={{ color: "var(--text-muted)" }}
+              data-testid={`event-card-price-${event.event_id}`}
+              title="Tickets not yet on sale"
+            >
+              TBA
+            </div>
+          </div>
+        )}
+
+        {/* Date / time */}
+        <div
+          className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider mb-3"
+          style={{ color: "var(--text-muted)" }}
+          data-testid={`event-card-date-${event.event_id}`}
+        >
+          <Calendar className="w-3 h-3 flex-shrink-0" aria-hidden />
+          <span className="truncate">{dateLine}</span>
+        </div>
+
+        {/* Title */}
+        <h3 className="serif text-xl leading-tight mb-2 line-clamp-2 group-hover:text-[color:var(--accent)] transition-colors">{event.title}</h3>
+
+        {/* Venue */}
         <div className="flex items-center gap-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
           <MapPin className="w-3 h-3" />
-          {event.venue} · {event.city}
+          <span className="truncate">{event.venue} · {event.city}</span>
           {event.country && (
             <span className="ml-1" title={event.country} data-testid={`event-flag-${event.event_id}`}>{flagForCountry(event.country)}</span>
           )}
