@@ -31,6 +31,13 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Geo-IP auto-detect for the homepage country picker (Feb 26 2026)**:
+  - User opted into the previous turn's improvement offer ("Yes").
+  - **Backend (`/api/geo/country`):** new endpoint. Resolution order — (1) CDN edge headers (`cf-ipcountry`, `x-vercel-ip-country`, `fastly-geo-country`, `x-country-code`, `x-appengine-country`), (2) IP-based lookup via `ipapi.co` keyed off `x-forwarded-for` / client IP, with a 5-min in-memory TTL cache (capped at 2k entries) so repeat hits never hammer the upstream, (3) `NZ` default. Returns `{country, source: "header"|"ip"|"default"}`.
+  - **Frontend:** new `"AUTO"` sentinel triggers the geo call only on first visit (no localStorage entry). Existing user selections always take precedence — we never overwrite an explicit choice. Trigger button shows "Detecting…" briefly while the call is in-flight.
+  - **Live-verified:** cleared localStorage → reload → picker auto-set to "🇺🇸 United States" (test runner's IP), persisted to localStorage, empty-state CTA visible because US has no events. Real Indian/UAE visitors will auto-land on their market.
+  - **Tests:** 6 new pytest cases in `test_geo_country_detection.py` covering header priority, header normalisation (lowercase → upper), invalid values (`XX`), response-shape contract, and the TTL cache. **90/90 tests pass across new + existing suites.**
+
 - **Country picker on home page + organizer pre-launch checklist (Feb 26 2026)**:
   - User requested: country selector on home page + (from previous turn's offer) the pre-launch readiness widget.
   - **Country picker (`components/CountryPicker.jsx` + `pages/Landing.jsx`):** new component fed by the existing `GET /api/events/countries`. Two instances on the landing page (hero + above the featured grid). Persists choice to `localStorage["allsale_selected_country"]`. Refetches featured events with `?country=` when changed. Empty-state CTA when the selected country has zero events ("Show events from all countries"). Backend `GET /api/events/featured` now accepts `?country=` (backwards-compatible — no param = global feed).

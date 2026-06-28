@@ -19,7 +19,10 @@ function _initialCountry() {
     if (saved && /^[A-Z]{2}$/.test(saved)) return saved;
     if (saved === "ALL") return "ALL";
   } catch { /* ignore */ }
-  return "ALL"; // first-visit default — let the buyer pick consciously
+  // No saved choice yet — signal to the picker that it should auto-detect
+  // from the visitor's IP. A pending state ("AUTO") lets us avoid flashing
+  // "All countries" while the geo call is in-flight.
+  return "AUTO";
 }
 
 export default function Landing() {
@@ -38,12 +41,38 @@ export default function Landing() {
   const [country, setCountry] = useState(_initialCountry);
   const nav = useNavigate();
 
-  // Persist the picker selection.
+  // First-visit auto-detect: hit /api/geo/country and pre-select the
+  // visitor's country if we haven't stored a choice yet. Skipped entirely
+  // when localStorage already has a 2-letter code or "ALL" — we never
+  // override an explicit user selection.
   useEffect(() => {
+    if (country !== "AUTO") return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get("/geo/country");
+        const code = (data?.country || "").toUpperCase();
+        if (!cancelled && /^[A-Z]{2}$/.test(code)) setCountry(code);
+        else if (!cancelled) setCountry("ALL");
+      } catch {
+        if (!cancelled) setCountry("ALL");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [country]);
+
+  // Persist the picker selection — but never write the transient "AUTO"
+  // placeholder back to storage (otherwise we'd lose the auto-detect cue).
+  useEffect(() => {
+    if (country === "AUTO") return;
     try { window.localStorage.setItem(COUNTRY_STORAGE_KEY, country); } catch { /* ignore */ }
   }, [country]);
 
   useEffect(() => {
+    // While we're auto-detecting on a first visit, skip the featured fetch
+    // — the next render (post-detect) will trigger a fresh fetch with the
+    // right country param so we don't pay for a wasted ALL-countries call.
+    if (country === "AUTO") return;
     (async () => {
       try {
         const params = country && country !== "ALL" ? { country } : {};

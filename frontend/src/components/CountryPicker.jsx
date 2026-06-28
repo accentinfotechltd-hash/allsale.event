@@ -56,11 +56,14 @@ export default function CountryPicker({ value, onChange, compact = false }) {
   }, [open]);
 
   const totalCount = options.reduce((sum, o) => sum + (o.count || 0), 0);
-  const currentMeta = value === "ALL"
-    ? { code: "ALL", name: "All countries", flag: "🌐", count: totalCount }
-    : options.find((o) => o.code === value)
-      || COUNTRIES.find((c) => c.code === value)
-      || { code: value || "NZ", name: value || "New Zealand", flag: "🇳🇿", count: 0 };
+  const isDetecting = value === "AUTO";
+  const currentMeta = isDetecting
+    ? { code: "AUTO", name: "Detecting…", flag: "🌐", count: 0 }
+    : value === "ALL"
+      ? { code: "ALL", name: "All countries", flag: "🌐", count: totalCount }
+      : options.find((o) => o.code === value)
+        || COUNTRIES.find((c) => c.code === value)
+        || { code: value || "NZ", name: value || "New Zealand", flag: "🇳🇿", count: 0 };
 
   const select = useCallback((code) => {
     onChange?.(code);

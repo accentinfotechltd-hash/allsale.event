@@ -26,6 +26,38 @@ def _event_finished_cutoff_iso() -> str:
     return (utc_now() - timedelta(hours=EVENT_FINISHED_GRACE_HOURS)).isoformat()
 
 
+# Tiny TTL cache for geo-IP lookups so we never re-hit the public API for
+# the same client within a short window. 5-min TTL is a reasonable balance
+# — long enough to absorb a refresh-loop, short enough that a VPN switch
+# is picked up on the next session.
+_GEO_CACHE: Dict[str, tuple[str, float]] = {}
+_GEO_CACHE_TTL = 300.0  # seconds
+
+
+def _geo_cache_get(ip: str) -> Optional[str]:
+    import time
+    entry = _GEO_CACHE.get(ip)
+    if not entry:
+        return None
+    code, expires_at = entry
+    if expires_at < time.monotonic():
+        _GEO_CACHE.pop(ip, None)
+        return None
+    return code
+
+
+def _geo_cache_put(ip: str, code: str) -> None:
+    import time
+    # Cheap LRU-ish: cap at 2k entries; drop the oldest when full.
+    if len(_GEO_CACHE) >= 2000:
+        try:
+            oldest = min(_GEO_CACHE.items(), key=lambda kv: kv[1][1])[0]
+            _GEO_CACHE.pop(oldest, None)
+        except Exception:  # noqa: BLE001
+            _GEO_CACHE.clear()
+    _GEO_CACHE[ip] = (code, time.monotonic() + _GEO_CACHE_TTL)
+
+
 def _is_event_past(event_date: Optional[str]) -> bool:
     if not event_date:
         return False
@@ -293,6 +325,62 @@ async def public_event_countries():
     async for row in db.events.aggregate(pipeline):
         out.append({"country": row["_id"] or "NZ", "count": row["count"]})
     return out
+
+
+@router.get("/geo/country")
+async def detect_country(request: Request):
+    """Detect the caller's country so the homepage CountryPicker can default
+    to their market on first visit.
+
+    Resolution order (each step is cheap and non-blocking):
+      1. Edge-injected geo headers — Cloudflare (`cf-ipcountry`), Vercel
+         (`x-vercel-ip-country`), Fastly (`fastly-geo-country`). Free + no
+         external call when we're behind one of these CDNs.
+      2. Direct call to https://ipapi.co/<ip>/country_code/ as a fallback,
+         5-minute in-memory cache per IP so we never hammer the free tier.
+         If the upstream returns anything other than a 2-letter code (e.g.
+         rate-limited, opaque error string), we skip the result.
+      3. Default to `NZ` (platform's primary market) so the picker still
+         has a sensible value when geo lookup fails completely.
+
+    Returns `{country: "NZ", source: "header"|"ip"|"default"}`. The
+    frontend only uses the value when no localStorage choice exists yet —
+    it never overrides an explicit user selection.
+    """
+    # 1) CDN edge headers
+    edge_headers = (
+        "cf-ipcountry", "x-vercel-ip-country", "fastly-geo-country",
+        "x-country-code", "x-appengine-country",
+    )
+    for h in edge_headers:
+        v = (request.headers.get(h) or "").strip().upper()
+        if len(v) == 2 and v.isalpha() and v != "XX":
+            return {"country": v, "source": "header"}
+
+    # 2) Upstream geo-IP fallback (cached + short-timeout so a slow API
+    #    never holds up the homepage)
+    client_ip = (
+        request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        or (request.client.host if request.client else "")
+    )
+    if client_ip and not client_ip.startswith(("127.", "10.", "192.168.", "172.16.", "::1")):
+        cached = _geo_cache_get(client_ip)
+        if cached:
+            return {"country": cached, "source": "ip"}
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=2.5) as cx:
+                r = await cx.get(f"https://ipapi.co/{client_ip}/country_code/")
+                if r.status_code == 200:
+                    code = (r.text or "").strip().upper()
+                    if len(code) == 2 and code.isalpha():
+                        _geo_cache_put(client_ip, code)
+                        return {"country": code, "source": "ip"}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[geo] ipapi lookup failed for {client_ip}: {exc}")
+
+    # 3) Sensible default
+    return {"country": "NZ", "source": "default"}
 
 
 @router.get("/events/{event_id}")
