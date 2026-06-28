@@ -31,6 +31,13 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Country picker on home page + organizer pre-launch checklist (Feb 26 2026)**:
+  - User requested: country selector on home page + (from previous turn's offer) the pre-launch readiness widget.
+  - **Country picker (`components/CountryPicker.jsx` + `pages/Landing.jsx`):** new component fed by the existing `GET /api/events/countries`. Two instances on the landing page (hero + above the featured grid). Persists choice to `localStorage["allsale_selected_country"]`. Refetches featured events with `?country=` when changed. Empty-state CTA when the selected country has zero events ("Show events from all countries"). Backend `GET /api/events/featured` now accepts `?country=` (backwards-compatible — no param = global feed).
+  - **Pre-launch checklist (`components/OrganizerLaunchChecklist.jsx`):** new widget on `/organizer` (above StripeConnectPanel). Ticks 5 items: Stripe Connect, phone, profile photo, refund policy on ≥1 event, first event published. Shows progress bar + per-item hints + click-to-fix shortcuts. Auto-hides once all 5 are done. Built from existing endpoints — no new backend code.
+  - **Verified live:** hero picker → AE returned 6 cards, NZ returned full list, choice persisted to localStorage; new organizer dashboard shows `1/5 complete · 20%` (phone ✓, rest ✗) — clickable rows route to /profile, /organizer, /organizer/new.
+  - **Tests:** all 119 prior tests still pass. Lint clean on the two new components.
+
 - **Stripe Connect gate on event publish (Feb 26 2026)**:
   - User requested: organizers must set up their Stripe bank account before they can publish a paid event (or get a reminder). Chose Option A — hard block on paid events, free events skip.
   - **Backend (`routers/events.py`):** new helper `_event_is_paid()`. Both `POST /events` and `PATCH /events/{id}` now return **402** `{code: "stripe_payouts_required", message, onboarding_path}` when a non-admin organizer tries to publish/flip a paid event without `stripe_payouts_enabled=true`. Admins are exempt. Free events (all tier prices == 0) skip the gate.

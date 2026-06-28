@@ -222,12 +222,20 @@ async def trending_events(limit: int = 12):
 
 
 @router.get("/events/featured")
-async def featured_events():
+async def featured_events(country: Optional[str] = None):
+    """Featured events for the homepage hero / rail.
+
+    `?country=NZ` narrows to a single market — used by the homepage country
+    picker so a buyer in India sees Mumbai events instead of a New Zealand
+    festival. Omitting the param returns the global feed (backwards-compatible).
+    """
     cutoff_iso = _event_finished_cutoff_iso()
-    base_q = {
+    base_q: Dict[str, Any] = {
         "status": {"$in": ["approved", "published"]},
         "date": {"$gte": cutoff_iso},
     }
+    if country:
+        base_q["country"] = country.upper()
     cursor = db.events.find({**base_q, "featured": True}, {"_id": 0}).limit(6)
     items = [event_to_public(e) async for e in cursor]
     if not items:

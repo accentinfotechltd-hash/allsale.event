@@ -5,8 +5,22 @@ import EventCard from "@/components/EventCard";
 import FeatureShowcase from "@/components/FeatureShowcase";
 import TrendingCarousel from "@/components/TrendingCarousel";
 import CreatorSpotlight from "@/components/CreatorSpotlight";
+import CountryPicker from "@/components/CountryPicker";
 import { useAuth } from "@/lib/auth";
-import { ArrowRight, Search, Calendar, Zap, Award, Sparkles, Ticket, ScanLine, DollarSign, ShieldCheck, Smartphone, Megaphone, Users } from "lucide-react";
+import { ArrowRight, Search, Calendar, Zap, Award, Sparkles, Ticket, ScanLine, DollarSign, ShieldCheck, Smartphone, Megaphone, Users, Globe } from "lucide-react";
+
+// Local-storage key for the homepage country filter. Persisted so a
+// returning visitor lands straight on their market without re-selecting.
+const COUNTRY_STORAGE_KEY = "allsale_selected_country";
+
+function _initialCountry() {
+  try {
+    const saved = window.localStorage.getItem(COUNTRY_STORAGE_KEY);
+    if (saved && /^[A-Z]{2}$/.test(saved)) return saved;
+    if (saved === "ALL") return "ALL";
+  } catch { /* ignore */ }
+  return "ALL"; // first-visit default — let the buyer pick consciously
+}
 
 export default function Landing() {
   const { user } = useAuth();
@@ -19,13 +33,22 @@ export default function Landing() {
   // Carousel index for multi-pick hero rotation.
   const [heroIdx, setHeroIdx] = useState(0);
   const [q, setQ] = useState("");
+  // Country filter — narrows featured + recommendations to a single market.
+  // Persists in localStorage so the user doesn't re-select every visit.
+  const [country, setCountry] = useState(_initialCountry);
   const nav = useNavigate();
+
+  // Persist the picker selection.
+  useEffect(() => {
+    try { window.localStorage.setItem(COUNTRY_STORAGE_KEY, country); } catch { /* ignore */ }
+  }, [country]);
 
   useEffect(() => {
     (async () => {
       try {
+        const params = country && country !== "ALL" ? { country } : {};
         const [f, c, s, ep] = await Promise.all([
-          api.get("/events/featured"),
+          api.get("/events/featured", { params }),
           api.get("/events/categories"),
           api.get("/events/stats/public").catch(() => ({ data: { live_events: 0 } })),
           api.get("/site-settings/editor-pick").catch(() => ({ data: { picks: [], event: null, blurb: "", badge_text: "Editor's Pick" } })),
@@ -36,7 +59,7 @@ export default function Landing() {
         setEditorPick(ep.data || { picks: [], event: null, blurb: "", badge_text: "Editor's Pick" });
       } catch (e) { console.error(e); }
     })();
-  }, []);
+  }, [country]);
 
   useEffect(() => {
     if (!user) return;
@@ -99,7 +122,7 @@ export default function Landing() {
               Aotearoa&apos;s ticketing platform where <strong style={{ color: "var(--text)" }}>organizers keep 100%</strong> of the ticket price. Concerts, comedy, sports, theatre, festivals — locked seats, no scalpers, refundable on the organizer&apos;s terms.
             </p>
             <form
-              onSubmit={(e) => { e.preventDefault(); nav(`/events?q=${encodeURIComponent(q)}`); }}
+              onSubmit={(e) => { e.preventDefault(); const params = new URLSearchParams(); if (q) params.set("q", q); if (country && country !== "ALL") params.set("country", country); nav(`/events?${params.toString()}`); }}
               className="flex flex-col sm:flex-row gap-2 max-w-xl"
               data-testid="hero-search-form"
             >
@@ -117,6 +140,11 @@ export default function Landing() {
                 Search <ArrowRight className="w-4 h-4" />
               </button>
             </form>
+
+            <div className="mt-4 flex items-center gap-3 flex-wrap">
+              <span className="text-sm" style={{ color: "var(--text-dim)" }}>Showing events in</span>
+              <CountryPicker value={country} onChange={setCountry} compact />
+            </div>
 
             <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mt-10 text-sm" style={{ color: "var(--text)" }}>
               <div className="flex items-center gap-2 whitespace-nowrap"><Zap className="w-4 h-4 flex-shrink-0" style={{ color: "var(--accent)" }} /> Instant e-tickets</div>
@@ -237,18 +265,46 @@ export default function Landing() {
       {/* FEATURED EVENTS — promoted to right under the hero so the first thing
           visitors do AFTER reading the pitch is see real events on sale. */}
       <section className="max-w-7xl mx-auto px-6 pb-16" data-testid="landing-featured-events">
-        <div className="flex items-end justify-between mb-8">
+        <div className="flex items-end justify-between mb-8 flex-wrap gap-4">
           <div>
             <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>On sale now</div>
             <h2 className="serif text-4xl">Featured events</h2>
           </div>
-          <Link to="/events" className="hidden md:inline-flex items-center gap-2 text-sm hover:opacity-80" style={{ color: "var(--text)" }}>
-            See all <ArrowRight className="w-4 h-4" />
-          </Link>
+          <div className="flex items-center gap-3">
+            <CountryPicker value={country} onChange={setCountry} compact />
+            <Link to="/events" className="hidden md:inline-flex items-center gap-2 text-sm hover:opacity-80" style={{ color: "var(--text)" }}>
+              See all <ArrowRight className="w-4 h-4" />
+            </Link>
+          </div>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-          {(Array.isArray(featured) ? featured : []).slice(0, 8).map((e, i) => <EventCard key={e.event_id} event={e} index={i} />)}
-        </div>
+        {(Array.isArray(featured) && featured.length === 0) ? (
+          <div
+            className="rounded-2xl border-2 border-dashed p-10 text-center"
+            style={{ borderColor: "var(--border)", color: "var(--text-dim)" }}
+            data-testid="featured-empty-state"
+          >
+            <Globe className="w-10 h-10 mx-auto mb-3 opacity-60" />
+            <div className="text-base mb-1" style={{ color: "var(--text)" }}>
+              No events live in {country === "ALL" ? "any country yet" : `this country yet`}.
+            </div>
+            <div className="text-sm">
+              {country !== "ALL" && (
+                <button
+                  type="button"
+                  onClick={() => setCountry("ALL")}
+                  className="underline hover:opacity-80"
+                  data-testid="featured-empty-reset-country"
+                >
+                  Show events from all countries
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {(Array.isArray(featured) ? featured : []).slice(0, 8).map((e, i) => <EventCard key={e.event_id} event={e} index={i} />)}
+          </div>
+        )}
       </section>
 
       {/* PREMIUM FEATURE SHOWCASE — moved to top so visitors see Allsale's full power immediately */}

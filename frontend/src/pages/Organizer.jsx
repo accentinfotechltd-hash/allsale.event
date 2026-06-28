@@ -15,6 +15,7 @@ import OrganizerPayoutsPanel from "@/components/OrganizerPayoutsPanel";
 import OrganizerEmbedPanel from "@/components/OrganizerEmbedPanel";
 import ScannerInstallCard from "@/components/ScannerInstallCard";
 import GiftCardRedemptionsPanel from "@/components/GiftCardRedemptionsPanel";
+import OrganizerLaunchChecklist from "@/components/OrganizerLaunchChecklist";
 
 export default function Organizer() {
   const { user } = useAuth();
@@ -112,6 +113,8 @@ export default function Organizer() {
           </Link>
         </div>
       </div>
+
+      <OrganizerLaunchChecklist events={events} />
 
       <StripeConnectPanel />
 
