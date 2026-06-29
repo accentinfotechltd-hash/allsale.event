@@ -31,6 +31,21 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Admin Stripe Connect Status Tab + Organizer Warning Banner (Feb 28 2026, iter_26)**:
+  - User context: Phase B deployed to production, but Stripe's "Collected fees" tab is still empty because 0 production organizers have completed Stripe Connect onboarding. All historical 38 paid charges happened pre-Phase-B, structured as single charges on Allsale's master account (Settlement merchant: Allsale Events / Transferred to: —) — those are immutable, will never show app fees in Stripe.
+  - **Admin tab `/admin?tab=stripe-connect`** (component: `AdminStripeConnectStatusTab.jsx`):
+    - 4 KPI cards: Total organizers, 🟢 Connected, 🟡 Onboarding incomplete, 🔴 Not connected.
+    - Amber "uncollected revenue" banner showing total $$$ that went to non-connected organizers.
+    - Filter pills + table with per-organizer revenue + last-paid + last-reminder timestamps.
+    - **"Email all 🔴 organizers" bulk button** → blasts the existing `organizer_stripe_setup_nudge` template via the rate-limited fire-forget queue (respects Resend's 2 req/sec cap).
+    - **Per-row "Send reminder"** for targeted nudges.
+    - CSV export with full table.
+  - **Backend endpoints (`/app/backend/routers/admin.py`):**
+    - `GET /api/admin/stripe-connect-status` — aggregates paid revenue per organizer via single Mongo pipeline (bookings→events lookup), sorts by lifetime_revenue DESC.
+    - `POST /api/admin/stripe-connect-status/remind` — accepts `user_ids: [...]` for targeted or `user_ids: null` for blast. Idempotent: re-checks `stripe_charges_enabled` per-target inside the loop so an admin double-clicking can't re-spam someone who just connected. Stamps `stripe_nudge_sent_at` + `stripe_nudge_sent_by`.
+  - **Organizer-facing warning banner** (`OrganizerStripeConnectWarning.jsx`): Hard-warning red/amber banner on `/organizer` shown ONLY when the organizer has paid revenue AND `stripe_charges_enabled !== true`. Shows lifetime $$$ and a one-click "Connect Stripe now" CTA that fires `POST /stripe/connect/onboard`. Auto-hides on connect.
+  - **Tests:** 5 + 3 new pytest cases (`test_admin_stripe_connect_status.py` + `test_iter26_stripe_connect_remind.py`). All 8 pass. Testing agent (iter_26): 100% pass (backend 8/8, frontend 13/13), no bugs, no blocking action items.
+
 - **Phase B: Stripe Connect Destination Charges — admin's #1 ask fulfilled (Feb 28 2026)**:
   - User reported: "I can see the charges but I can't see the collection fees. I can't see my cut." Phase A (Admin Revenue Dashboard at `/admin/revenue`) exposed the platform cut in-app; Phase B makes it visible **natively in the Stripe Dashboard** as a separate `application_fee` line per charge.
   - **Backend (`routers/payments.py`):**
