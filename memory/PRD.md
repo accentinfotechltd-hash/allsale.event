@@ -31,6 +31,13 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **AI flyer progress UI (Feb 28 2026, iter_27)** — fixed the 15-20s "looks broken" wait on `/events/{id}/share` → "Add AI text overlay":
+  - New `AiFlyerProgress.jsx` inline progress card with rotating stage messages, asymptotic progress bar (capped at 95% until API returns), pulsing icon, elapsed-time counter, and a "taking longer than usual" honesty line after 15s.
+  - 4 stages keyed to observed P50 latency: 0s "Reading your event details…", 5s "Drafting a punchy headline…", 10s "Polishing the tagline & CTA…", 16s "Almost done — finalising the text…".
+  - Asymptotic curve `95 × (1 - exp(-t/8))` — rewarding fast start (30% by 3s, 60% by 8s, 82% by 15s), never claims 100% prematurely.
+  - On success, parent sets `aiFinished=true` → card jumps to 100% with a green CheckCircle flash for 700ms before unmounting.
+  - **Tests:** 9 jest unit tests for the math + stage selection (`AiFlyerProgress.math.test.js`) — all pass. Verified live via Playwright: progress card mounts on click, stage label updates, percent ticks up (40% at 4.5s → 55% at 7s).
+
 - **Mixed-model softening (Feb 28 2026, iter_26b)** — user decision: manual payouts stay as the platform's default; Stripe Connect is an *opt-in upgrade* for organizers who want instant payouts:
   - **Email template `organizer_stripe_setup_nudge` rewritten** — old copy ("payouts will be held in escrow until you connect") → new soft tone ("Optional upgrade for faster payouts. No rush — manual bank transfers continue to work exactly as before."). Subject changed to "Want faster payouts? Connect Stripe (optional)".
   - **Organizer banner re-themed** (`OrganizerStripeConnectWarning.jsx`):

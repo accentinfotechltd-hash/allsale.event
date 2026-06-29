@@ -6,6 +6,7 @@ import { toPng } from "html-to-image";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import api from "@/lib/api";
+import AiFlyerProgress from "@/components/AiFlyerProgress";
 
 // Pick the best background image for a flyer. Posters (portrait) take precedence
 // because they're already designed for 9:16; otherwise we fall back to the
@@ -72,6 +73,7 @@ export default function EventShare() {
   // headline + tagline, and the brand bar's micro-copy becomes the CTA.
   const [aiText, setAiText] = useState(null);
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiFinished, setAiFinished] = useState(false);
   const refs = useRef({});
 
   useEffect(() => {
@@ -169,14 +171,17 @@ export default function EventShare() {
 
   const generateAi = async () => {
     setAiBusy(true);
+    setAiFinished(false);
     try {
       const { data } = await api.post(`/events/${id}/flyer/generate-text`);
       setAiText({ headline: data.headline || "", tagline: data.tagline || "", cta: data.cta || "GRAB TICKETS" });
+      // Trigger the 100% flash; the component calls onDoneFlash → setAiBusy(false).
+      setAiFinished(true);
       toast.success("AI text added — edit any line, then download");
     } catch (e) {
-      toast.error(e?.response?.data?.detail || "Couldn't generate text — try again");
-    } finally {
+      setAiFinished(false);
       setAiBusy(false);
+      toast.error(e?.response?.data?.detail || "Couldn't generate text — try again");
     }
   };
 
@@ -288,6 +293,12 @@ export default function EventShare() {
               </button>
             )}
           </div>
+
+          <AiFlyerProgress
+            active={aiBusy}
+            finished={aiFinished}
+            onDoneFlash={() => { setAiBusy(false); setAiFinished(false); }}
+          />
 
           {aiText && (
             <div
