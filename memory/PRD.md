@@ -31,8 +31,19 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **CRITICAL BUG FIX: Listing vs checkout fee mismatch (Feb 28 2026, iter_29)**:
+  - **User report**: $30 ticket listing showed "+ $1.65 fees" but checkout charged $1.96. Two-cent-plus-twenty discrepancy at the point of purchase = bad-faith vibe + bookings abandoned.
+  - **Root cause**: `/app/frontend/src/lib/fees.js::estimateBuyerFees()` had TWO structural bugs in the gross-up formula:
+    1. It OMITTED the `platform_flat` ($0.50) from the `platform_fee` term (only multiplied face × pct).
+    2. It SUBSTITUTED `platform_flat` ($0.50) into the denominator slot where `stripe_flat` ($0.30) belongs. So `(face + platform + platform_flat) / (1 - stripe_pct)` instead of `(face + platform_fee + stripe_flat) / (1 - stripe_pct)`.
+    3. The `useFeeSettings()` hook NEVER fetched `stripe_flat_per_ticket` from `/api/fees/public-settings` (already exposed by backend).
+    4. Bonus: stale fallback defaults still said 5% + $0.30 instead of the admin's actual 1% + $0.50.
+  - **Effect**: every paid event under-quoted by `(platform_flat - stripe_flat) / (1 - stripe_pct)` ≈ $0.20–0.30. Confirmed by user's screenshots: $30 face → listing said $1.65 fees, checkout charged $1.96 (delta = $0.31).
+  - **Fix**: rewrote `estimateBuyerFees()` to mirror backend `fees.py::compute_fees()` exactly: `platform = face × pct + platform_flat`; `total = (face + platform + stripe_flat) / (1 - stripe_pct)`. Defaults updated to 1% + $0.50 / 2.7% + $0.30. `useFeeSettings()` now consumes `stripe_flat_per_ticket`.
+  - **Tests**: 8 new jest cases (`lib/__tests__/fees.test.js`) covering $25/$30/$145/$0/absorb mode + 2 explicit regression cases for the two bug patterns. All pass.
+  - **Live verification**: Geeta Rabari event now shows `$25.00 + $1.77 fees / $35.00 + $2.15 fees / $75.00 + $3.67 fees` — matches `compute_fees()` to the cent.
+
 - **Stale Partner Application Auto-Reminder + Polish Sweep (Feb 28 2026, iter_28)**:
-  - **Stale-pending digest** (Feature B): New scheduler tick `_send_stale_partner_application_reminder` fires every Tuesday 09–11 UTC if any `partner_applications` rows have been pending for >5 days. Sends ONE digest email to each admin (template `partner_applications_stale_digest`) listing every stale row + their age in days. Dedupe-per-week via `platform_meta.stale_partner_apps_alert.week`. Stops good prospects falling through the cracks. 4 unit tests pass.
   - **Polish sweep** (Feature D):
     - **`emails.py`** — added missing `_h(s)` (HTML-escape) and `_wrap_html(inner_html, …)` helpers used by 8 organizer-lifecycle templates that were previously crashing at runtime with `NameError`. Now all `_t_organizer_welcome_*` templates actually compile and render. Fixed `ACCENT` undefined-name in 3 partner application templates I introduced earlier (typo — should have been `BRAND_COLOR`). Pre-existing 39 ruff errors → 0.
     - **`scheduler.py`** — fixed F601 dict-key duplicate (`$ne` used twice in same dict literal) by switching to `$nin: [None, ""]`. Pre-existing → fixed.
