@@ -79,6 +79,153 @@ from routers.ws_seats import notify_seats, notify_tier_refresh
 router = APIRouter(tags=["payments"])
 
 
+# ---------------------------------------------------------------------------
+# Stripe Connect — Destination Charges (Phase B)
+# ---------------------------------------------------------------------------
+#
+# When the organizer has a connected Stripe Express account with charges
+# enabled, we route the checkout via Stripe **Destination Charges**:
+#
+#   stripe.checkout.Session.create(
+#     payment_intent_data={
+#       "application_fee_amount": <platform cut in cents>,
+#       "transfer_data": {"destination": <organizer's connected account>},
+#     },
+#   )
+#
+# Effects:
+#   • Stripe natively shows the platform's `application_fee_amount` as a
+#     separate line in the Stripe Dashboard — admin can finally see their
+#     cut without a custom report.
+#   • Funds are split at charge time: the connected account receives
+#     (buyer_total - application_fee_amount); the platform keeps the rest.
+#   • Stripe's processing fee is debited from the PLATFORM by default — we
+#     gross it up into the application_fee so platform nets exactly
+#     `platform_fee` (per `fees.compute_fees()`) and the organizer nets
+#     exactly `face_value`.
+#
+# Math (verified against `fees.compute_fees`):
+#   application_fee_amount = booking.amount - booking.face_value
+#                         = service_fee  (+ protection_amount if opted)
+#   For both exclusive and absorb_fees modes this is correct because
+#   `booking.face_value` is set to the organizer's net by compute_fees.
+#
+# Fallback conditions where we keep the LEGACY flow (platform-collects-100%,
+# admin reconciles via the manual /payouts/* APIs):
+#   • Organizer has no `stripe_account_id` or `stripe_charges_enabled` is
+#     false (legacy events created before the Stripe Connect publish gate).
+#   • Booking used a gift card (gift_card_amount > 0). The gift card amount
+#     lives on the platform's balance; routing it through the connected
+#     account would require a separate Transfer. Out of scope for Phase B.
+#   • Stripe API key not configured.
+#
+# The `stripe_destination_charge=True` flag on the booking + payment_tx is
+# the audit signal; `payouts.py::_eligible_bookings_for_payout` excludes
+# these from the manual payout queue to prevent double-paying organizers.
+
+
+def _should_use_destination_charge(booking: dict, organizer: dict | None) -> bool:
+    """Decide whether this checkout should use Stripe Destination Charges
+    (Phase B) instead of the legacy platform-collects-everything flow."""
+    if not _RAW_STRIPE_AVAILABLE or not STRIPE_API_KEY:
+        return False
+    if not organizer:
+        return False
+    if not organizer.get("stripe_account_id"):
+        return False
+    if not organizer.get("stripe_charges_enabled"):
+        return False
+    # Gift-card redemptions stay on legacy flow — the GC balance is on the
+    # platform; destination charges would underfund the organizer.
+    if float(booking.get("gift_card_amount") or 0) > 0:
+        return False
+    # Booking must have an organizer-net (face_value) so we can compute the
+    # split. If somehow missing (very old bookings) bail out safely.
+    face_value = float(booking.get("face_value") or 0)
+    amount = float(booking.get("amount") or 0)
+    if face_value <= 0 or amount <= 0 or face_value >= amount:
+        # face_value >= amount would imply zero or negative application fee
+        # — usually a free/comp ticket; legacy flow is correct.
+        return False
+    return True
+
+
+def _application_fee_cents(booking: dict) -> int:
+    """Platform cut in cents: buyer_total - organizer_net = service_fee +
+    any protection surcharge (which stays on platform). Clamped to >= 0."""
+    amount = float(booking.get("amount") or 0)
+    face_value = float(booking.get("face_value") or 0)
+    fee = max(0.0, amount - face_value)
+    return int(round(fee * 100))
+
+
+async def _build_destination_charge_session(
+    *,
+    booking: dict,
+    event: dict,
+    organizer_stripe_account: str,
+    application_fee_cents: int,
+    success_url: str,
+    cancel_url: str,
+) -> dict:
+    """Create a Stripe Checkout Session using the raw SDK with Destination
+    Charges. Returns {url, session_id, amount_total_minor, currency}.
+
+    The platform's `application_fee_amount` is set so that AFTER Stripe
+    deducts processing fees from the platform side, the platform nets exactly
+    `booking.platform_fee` and the organizer's connected account nets
+    `booking.face_value` (verified math — see module docstring).
+    """
+    if not _RAW_STRIPE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Stripe SDK not installed")
+    _stripe_sdk.api_key = STRIPE_API_KEY
+
+    currency = (event.get("currency") or booking.get("currency") or "NZD").lower()
+    title = (event.get("title") or "Event ticket")[:200]
+    amount_minor = int(round(float(booking["amount"]) * 100))
+
+    import asyncio as _asyncio
+    session = await _asyncio.to_thread(
+        _stripe_sdk.checkout.Session.create,
+        mode="payment",
+        line_items=[{
+            "quantity": 1,
+            "price_data": {
+                "currency": currency,
+                "product_data": {"name": title},
+                "unit_amount": amount_minor,
+            },
+        }],
+        payment_intent_data={
+            "application_fee_amount": application_fee_cents,
+            "transfer_data": {"destination": organizer_stripe_account},
+            # Surface the booking_id on the underlying PaymentIntent too so
+            # admin can cross-link from the Stripe dashboard.
+            "metadata": {
+                "booking_id": booking["booking_id"],
+                "event_id": booking["event_id"],
+            },
+        },
+        success_url=success_url,
+        cancel_url=cancel_url,
+        client_reference_id=booking["booking_id"],
+        metadata={
+            "booking_id": booking["booking_id"],
+            "event_id": booking["event_id"],
+            "user_id": booking.get("user_id") or "",
+            "user_email": booking.get("user_email") or "",
+            "destination_charge": "true",
+            "connected_account": organizer_stripe_account,
+        },
+    )
+    return {
+        "url": session.url,
+        "session_id": session.id,
+        "amount_total_minor": getattr(session, "amount_total", amount_minor),
+        "currency": getattr(session, "currency", currency),
+    }
+
+
 @router.get("/payments/mode")
 async def payments_mode():
     """Public endpoint used by the checkout UI to display the truthful Stripe
@@ -283,6 +430,61 @@ async def checkout_session(payload: CheckoutIn, request: Request, user: dict = D
 
     success_url = f"{payload.origin_url}/checkout/success?session_id={{CHECKOUT_SESSION_ID}}"
     cancel_url = f"{payload.origin_url}/checkout/{payload.booking_id}"
+
+    # ---- Phase B: Stripe Connect Destination Charges --------------------
+    # If the organizer has a connected Stripe Express account with charges
+    # enabled, route the charge via destination charges so the platform's
+    # cut shows up as `application_fee_amount` in the Stripe dashboard
+    # (admin's #1 request). See _should_use_destination_charge for the
+    # guard rails — gift cards / legacy organizers continue using the
+    # platform-collects-100% flow below.
+    organizer = None
+    if event.get("organizer_id"):
+        organizer = await db.users.find_one(
+            {"user_id": event["organizer_id"]},
+            {"_id": 0, "stripe_account_id": 1, "stripe_charges_enabled": 1},
+        )
+    if _should_use_destination_charge(booking, organizer):
+        app_fee_cents = _application_fee_cents(booking)
+        try:
+            dest_sess = await _build_destination_charge_session(
+                booking=booking,
+                event=event,
+                organizer_stripe_account=organizer["stripe_account_id"],  # type: ignore[index]
+                application_fee_cents=app_fee_cents,
+                success_url=success_url,
+                cancel_url=cancel_url,
+            )
+            await db.bookings.update_one(
+                {"booking_id": booking["booking_id"]},
+                {"$set": {
+                    "stripe_destination_charge": True,
+                    "stripe_connect_account_id": organizer["stripe_account_id"],  # type: ignore[index]
+                    "application_fee_amount": round(app_fee_cents / 100, 2),
+                }},
+            )
+            await db.payment_transactions.insert_one({
+                "session_id": dest_sess["session_id"],
+                "booking_id": booking["booking_id"],
+                "user_id": user["user_id"],
+                "amount": booking["amount"],
+                "currency": currency,
+                "payment_status": "initiated",
+                "destination_charge": True,
+                "connected_account": organizer["stripe_account_id"],  # type: ignore[index]
+                "application_fee_amount": round(app_fee_cents / 100, 2),
+                "created_at": utc_now().isoformat(),
+            })
+            return {"url": dest_sess["url"], "session_id": dest_sess["session_id"]}
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001 — fall back to legacy path
+            logger.exception(
+                f"[stripe-connect] destination-charge session creation failed "
+                f"for booking={booking['booking_id']} acct={organizer.get('stripe_account_id') if organizer else None} — "  # type: ignore[union-attr]
+                f"falling back to legacy: {exc}"
+            )
+    # --------------------------------------------------------------------
 
     # Stripe Tax — when enabled, use the raw stripe SDK path so we can pass
     # automatic_tax. Otherwise stick with the emergent wrapper (which is

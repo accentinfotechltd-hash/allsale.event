@@ -1,0 +1,36 @@
+{
+  "summary": "Phase B (Stripe Connect Destination Charges) backend-only validation. Re-ran the 15 unit tests in test_stripe_destination_charges.py (15/15 PASS) and authored a new live HTTP integration suite test_iter25_phase_b_integration.py (9/9 PASS). Covered: smoke (/api/payments/mode + /api/payments/health auth gate), /api/fees/public-settings reflects user's 1% + $0.50, legacy organizer checkout succeeds without stripe_destination_charge flag, fake-acct-id destination-charge path gracefully falls back to legacy (no 500, valid Stripe URL returned), /api/organizer/payouts/balance excludes bookings flagged stripe_destination_charge=True (gross + bookings count drop by exactly the seeded booking), /api/admin/revenue returns per-booking platform_fee/stripe_fee/organizer_share breakdown, and platform_settings DB doc carries 1.0% commission + $0.50 flat. Verified backend log line '[stripe-connect] destination-charge session creation failed ... falling back to legacy' is emitted on fallback. All stamped DB fields cleaned up.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_stripe_destination_charges.py",
+    "/app/backend/tests/test_iter25_phase_b_integration.py",
+    "/app/test_reports/pytest/iter25_dest_charges_unit.xml",
+    "/app/test_reports/pytest/iter25_phase_b_integration.xml",
+    "/app/test_reports/pytest/iter25_combined.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "payments.py: _should_use_destination_charge correctly bails when gift_card_amount > 0, organizer lacks stripe_account_id, charges_enabled is false, OR face_value >= amount (free/comp tickets). All gating cases unit-tested.",
+    "payments.py: fallback try/except around _build_destination_charge_session re-raises HTTPException but catches generic Exception and falls through to legacy flow — verified working with a fake acct_id in live HTTP test; log line emitted as designed.",
+    "payouts.py::_eligible_bookings_for_payout: both primary and fallback queries include {stripe_destination_charge: {$ne: True}}, so legacy bookings (missing the field entirely) still qualify thanks to Mongo's $ne-matches-missing semantics. Verified empirically: seeding a paid booking and then flipping the flag drops it from /organizer/payouts/balance gross + count.",
+    "admin/revenue endpoint: per-booking row uses `organizer_share` (not `face_value`) as the field name — kept the assertion consistent with that. Phase A behavior preserved."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter25_phase_b_integration.py (NEW — 9 live integration tests)"
+  ],
+  "success_rate": {"backend": "100% (24/24 tests passed across both suites)", "frontend": "not tested (per request)"},
+  "test_credentials": "Used the provided admin@allsale.events / admin123 and orgtester@allsale.events / orgtest123. /app/memory/test_credentials.md is up to date — no missing entries.",
+  "seed_data_creation": "Seeded one TEST_bk_iter25_<uuid> paid booking under one of orgtester's events to exercise the payouts-exclusion path (the org had no real paid bookings, only pending). Booking is auto-deleted in finally; verified DB is clean post-run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run with: cd /app/backend && python -m pytest tests/test_stripe_destination_charges.py tests/test_iter25_phase_b_integration.py -v. The integration suite is fully self-contained (creates+cleans its own test data). It will scrub stripe_account_id/stripe_charges_enabled on user_2492358084d3 even on partial failure (finally block). If orgtester ever gets a real paid booking the test will use it instead of seeding. Note: 9 of 9 integration tests rely on the live backend at REACT_APP_BACKEND_URL — they will fail if backend is down.",
+  "rca of the issue": "N/A — no bugs found. Phase B is working as designed."
+}

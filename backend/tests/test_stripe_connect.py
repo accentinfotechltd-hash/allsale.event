@@ -33,7 +33,7 @@ def organizer_token():
 
     reg = requests.post(
         f"{API}/api/auth/register",
-        json={"name": "Connect Test", "email": email, "password": password, "role": "organizer"},
+        json={"name": "Connect Test", "email": email, "password": password, "role": "organizer", "phone": "+64 21 555 7777"},
         timeout=10,
     )
     assert reg.status_code in (200, 201), f"register failed: {reg.status_code} {reg.text}"
@@ -80,7 +80,7 @@ def test_onboard_requires_organizer_role():
     email = f"attendee_block_{uuid.uuid4().hex[:8]}@example.com"
     reg = requests.post(
         f"{API}/api/auth/register",
-        json={"name": "Block Me", "email": email, "password": "test1234", "role": "attendee"},
+        json={"name": "Block Me", "email": email, "password": "test1234", "role": "attendee", "phone": "+64 21 555 8888"},
         timeout=10,
     )
     assert reg.status_code in (200, 201)

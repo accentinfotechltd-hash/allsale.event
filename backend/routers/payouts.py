@@ -103,20 +103,36 @@ async def _get_organizer_event_ids(organizer_id: str) -> list[str]:
 
 
 async def _eligible_bookings_for_payout(organizer_id: str) -> list[dict]:
-    """Paid bookings, not yet attached to any payout, for this organizer's events."""
+    """Paid bookings, not yet attached to any payout, for this organizer's events.
+
+    Bookings flagged `stripe_destination_charge=True` are EXCLUDED — those
+    were settled directly to the organizer's connected Stripe account at
+    checkout time (Phase B). Including them here would double-pay the
+    organizer (once via Stripe Connect, once via the manual /payouts/* flow).
+    """
     event_ids = await _get_organizer_event_ids(organizer_id)
     if not event_ids:
         return []
     items = []
     async for b in db.bookings.find(
-        {"event_id": {"$in": event_ids}, "status": "paid", "payout_id": {"$in": [None]}},
+        {
+            "event_id": {"$in": event_ids},
+            "status": "paid",
+            "payout_id": {"$in": [None]},
+            "stripe_destination_charge": {"$ne": True},
+        },
         {"_id": 0},
     ).sort("paid_at", 1):
         items.append(b)
     # Mongo `{"$in": [None]}` also matches "missing" field in motor, but to be safe also include docs without the field
     if not items:
         async for b in db.bookings.find(
-            {"event_id": {"$in": event_ids}, "status": "paid", "payout_id": {"$exists": False}},
+            {
+                "event_id": {"$in": event_ids},
+                "status": "paid",
+                "payout_id": {"$exists": False},
+                "stripe_destination_charge": {"$ne": True},
+            },
             {"_id": 0},
         ).sort("paid_at", 1):
             items.append(b)
