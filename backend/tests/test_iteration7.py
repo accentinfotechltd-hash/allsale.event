@@ -5,11 +5,20 @@
 - Role change, suspend/unsuspend with self-protection & invalid role
 - Suspended user login -> 403; stale JWT -> 403; unsuspend -> works again
 - Legacy users without 'active' field treated as active
+
+DEPRECATED: uses stale seed accounts (organizer@allsale.events etc.) that
+were removed in the Feb 2026 reset. Admin-user-management is now covered by
+tests/test_admin_users_*.py. Kept for archaeology.
 """
-import os
-import uuid
-import requests
 import pytest
+
+pytestmark = pytest.mark.skip(
+    reason="superseded — stale seed credentials no longer in DB"
+)
+
+import os  # noqa: E402
+import uuid  # noqa: E402,F401
+import requests  # noqa: E402,F401
 
 # Load BASE_URL from frontend env if env var missing (consistent with iter5)
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL")

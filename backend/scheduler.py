@@ -667,7 +667,7 @@ async def _send_event_recaps(db: Any) -> int:
             top_promo_agg = await db.bookings.aggregate([
                 {"$match": {
                     "event_id": event_id, "status": {"$in": ["paid", "confirmed"]},
-                    "code": {"$exists": True, "$ne": None, "$ne": ""},
+                    "code": {"$nin": [None, ""], "$exists": True},
                 }},
                 {"$group": {"_id": "$code", "n": {"$sum": 1}}},
                 {"$sort": {"n": -1}},
@@ -955,6 +955,78 @@ async def _dispatch_due_flyer_campaigns(db: Any) -> int:
     return dispatched
 
 
+async def _send_stale_partner_application_reminder(db) -> int:
+    """Tuesday 09–11 UTC: if any partner_applications have been sitting in
+    `pending` for >5 days, send admins a single digest email so good
+    prospects don't fall through the cracks.
+
+    Dedupe key: stamps `stale_partner_apps_alert_week` on the platform_meta
+    doc so we only send once per ISO-week even if the loop runs multiple times
+    in the 2-hour window.
+    """
+    now = datetime.now(timezone.utc)
+    if now.weekday() != 1 or now.hour < 9 or now.hour >= 11:
+        return 0
+
+    week_key = now.strftime("%G-W%V")
+    meta = await db.platform_meta.find_one({"key": "stale_partner_apps_alert"}) or {}
+    if meta.get("week") == week_key:
+        return 0
+
+    cutoff_iso = (now - timedelta(days=5)).isoformat()
+    cur = db.partner_applications.find(
+        {"status": "pending", "created_at": {"$lte": cutoff_iso}},
+        {"_id": 0, "application_id": 1, "full_name": 1, "email": 1, "company": 1, "created_at": 1},
+    ).sort("created_at", 1).limit(50)
+    stale = [doc async for doc in cur]
+    if not stale:
+        # Stamp the week anyway so we don't re-query repeatedly within the window.
+        await db.platform_meta.update_one(
+            {"key": "stale_partner_apps_alert"},
+            {"$set": {"week": week_key, "checked_at": now.isoformat(), "stale_count": 0}},
+            upsert=True,
+        )
+        return 0
+
+    sent = 0
+    rows = []
+    for app in stale:
+        try:
+            age_days = (now - datetime.fromisoformat(app["created_at"].replace("Z", "+00:00"))).days
+        except Exception:
+            age_days = 5
+        rows.append({
+            "full_name": app.get("full_name") or "(no name)",
+            "email": app.get("email") or "",
+            "company": app.get("company") or "",
+            "age_days": age_days,
+            "application_id": app.get("application_id") or "",
+        })
+
+    admin_emails = [u["email"] async for u in db.users.find(
+        {"role": "admin", "email": {"$exists": True, "$ne": None}}, {"_id": 0, "email": 1}
+    )]
+    for admin_email in admin_emails:
+        try:
+            send_template_fireforget(
+                "partner_applications_stale_digest",
+                admin_email,
+                {"applications": rows, "count": len(rows)},
+                db,
+            )
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[stale-partner-apps] email to %s failed: %s", admin_email, str(exc)[:200])
+
+    await db.platform_meta.update_one(
+        {"key": "stale_partner_apps_alert"},
+        {"$set": {"week": week_key, "sent_at": now.isoformat(), "stale_count": len(rows), "admins_notified": sent}},
+        upsert=True,
+    )
+    logger.info("[stale-partner-apps] reminded %d admins about %d stale applications", sent, len(rows))
+    return sent
+
+
 async def fast_loop(db: Any, interval_seconds: int = 60) -> None:
     """High-cadence loop for tasks that need minute-level precision.
 
@@ -984,10 +1056,11 @@ async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
             n_boost = await _send_boost_recaps(db)
             n_recap = await _send_event_recaps(db)
             n_statements = await _send_monthly_partner_statements(db)
+            n_stale_apps = await _send_stale_partner_application_reminder(db)
             payout_batch = await _run_monthly_partner_payouts(db)
             webhook_alert = await _check_webhook_silent_failure(db)
             payout_summary = await run_due_event_payouts(db)
-            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or n_boost or n_recap or n_statements or payout_batch or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
+            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or n_boost or n_recap or n_statements or n_stale_apps or payout_batch or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
                 logger.info(
                     "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s boost_recaps=%s event_recaps=%s monthly_statements=%s partner_payout_batch=%s webhook_alert=%s payouts=%s",
                     n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, n_boost, n_recap, n_statements, payout_batch, webhook_alert, payout_summary,

@@ -445,7 +445,7 @@ function UsersTab({ currentUser }) {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [roleFilter, statusFilter]);
+  useEffect(() => { load();   }, [roleFilter, statusFilter]);
 
   const onSearch = (e) => { e.preventDefault(); load(); };
 
@@ -727,7 +727,7 @@ function EmailsTab() {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [template, status]);
+  useEffect(() => { load();   }, [template, status]);
 
   return (
     <div data-testid="admin-emails-tab">
@@ -827,7 +827,7 @@ function PayoutsTab() {
     } catch { toast.error("Failed to load payouts"); }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [status]);
+  useEffect(() => { load();   }, [status]);
 
   const markPaid = async (p) => {
     const ref = window.prompt(`Wire reference for ${fmoney(p.net_amount)} to ${p.organizer_email}?\n(e.g., WIRE12345, leave blank for none)`);
@@ -1254,7 +1254,7 @@ function EditorPickPanel() {
       data-testid="editor-pick-panel"
     >
       <h2 className="serif text-2xl mb-1 flex items-center gap-2">
-        <Sparkles className="w-5 h-5" style={{ color: "var(--accent)" }} /> Editor's Picks
+        <Sparkles className="w-5 h-5" style={{ color: "var(--accent)" }} /> Editor&apos;s Picks
       </h2>
       <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
         Pin one or more curated events to the landing-page hero spotlight. When multiple picks are set the landing page auto-rotates between them.
@@ -1263,7 +1263,7 @@ function EditorPickPanel() {
       <div className="space-y-3 mb-5">
         {picks.length === 0 && (
           <div className="text-sm py-4 px-3 rounded-lg" style={{ background: "var(--bg-elev)", color: "var(--text-muted)" }} data-testid="editor-pick-empty">
-            No picks yet — the landing-page hero will show the first featured event. Click "Add pick" below to spotlight specific events.
+            No picks yet — the landing-page hero will show the first featured event. Click &quot;Add pick&quot; below to spotlight specific events.
           </div>
         )}
         {picks.map((pick, i) => {
@@ -1351,7 +1351,7 @@ function EditorPickPanel() {
           data-testid="editor-pick-badge"
         />
         <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
-          Override to e.g. "Trending now", "Don't miss", "Hand-picked". Defaults to "Editor's Pick".
+          Override to e.g. &quot;Trending now&quot;, &quot;Don&apos;t miss&quot;, &quot;Hand-picked&quot;. Defaults to &quot;Editor&apos;s Pick&quot;.
         </div>
       </label>
 
@@ -1414,7 +1414,7 @@ function BlastPanel() {
     <div className="border rounded-2xl p-8" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }} data-testid="admin-blast-panel">
       <h2 className="serif text-2xl mb-1">Email blast</h2>
       <p className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
-        Send a custom email to a filtered audience. Use sparingly — it's logged.
+        Send a custom email to a filtered audience. Use sparingly — it&apos;s logged.
       </p>
       <form onSubmit={send} className="space-y-4">
         <div>
@@ -1573,7 +1573,7 @@ function EmailDiagnosticsPanel() {
         <Mail className="w-5 h-5" style={{ color: "var(--accent)" }} /> Email delivery
       </h2>
       <p className="text-sm mb-5" style={{ color: "var(--text-muted)" }}>
-        Verify the production Resend config, send yourself a diagnostic email, and resend booking confirmations to customers whose tickets didn't arrive.
+        Verify the production Resend config, send yourself a diagnostic email, and resend booking confirmations to customers whose tickets didn&apos;t arrive.
       </p>
 
       {diag && (
@@ -1624,7 +1624,7 @@ function EmailDiagnosticsPanel() {
             </button>
           </div>
           <p className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
-            Paste a customer's email to find all their tickets, or a booking ID for a single one.
+            Paste a customer&apos;s email to find all their tickets, or a booking ID for a single one.
           </p>
 
           {bookingsFound.length > 0 && (
@@ -1718,7 +1718,7 @@ function StripeReconcilePanel() {
         <RefreshCw className="w-5 h-5" style={{ color: "var(--accent)" }} /> Reconcile Stripe payments
       </h2>
       <p className="text-sm mb-5" style={{ color: "var(--text-muted)" }}>
-        Re-pull every pending checkout session from Stripe and finalise any that have actually been paid — issues the e-ticket, sends the confirmation email, and frees the seat hold. Use this when the live webhook hasn't been configured yet, or any time a customer's payment succeeded but their ticket didn't arrive.
+        Re-pull every pending checkout session from Stripe and finalise any that have actually been paid — issues the e-ticket, sends the confirmation email, and frees the seat hold. Use this when the live webhook hasn&apos;t been configured yet, or any time a customer&apos;s payment succeeded but their ticket didn&apos;t arrive.
       </p>
       <button
         type="button"
@@ -1757,7 +1757,7 @@ function StripeReconcilePanel() {
       <div className="mt-6 pt-5" style={{ borderTop: "1px dashed var(--border)" }}>
         <div className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-dim)" }}>Force-fulfil a single booking</div>
         <p className="text-xs mb-3" style={{ color: "var(--text-muted)" }}>
-          When Stripe shows the charge as Succeeded but the reconcile job can't query it cleanly, paste the booking ID here to manually issue the ticket. <strong style={{ color: "var(--danger)" }}>Verify the charge succeeded in your Stripe dashboard first.</strong>
+          When Stripe shows the charge as Succeeded but the reconcile job can&apos;t query it cleanly, paste the booking ID here to manually issue the ticket. <strong style={{ color: "var(--danger)" }}>Verify the charge succeeded in your Stripe dashboard first.</strong>
         </p>
         <div className="flex gap-2">
           <input
@@ -1811,7 +1811,7 @@ function DemoDataPanel() {
       </h2>
       <p className="text-sm mb-5" style={{ color: "var(--text-muted)" }}>
         Wipe the sample events shipped with a fresh install (Dune, Hamilton, AllBlacks,
-        etc.) and the demo organizer/attendee accounts. Real events you've created
+        etc.) and the demo organizer/attendee accounts. Real events you&apos;ve created
         and real users that have signed up are left alone.
       </p>
       <button
@@ -2616,7 +2616,7 @@ function ProtectionClaimsTab() {
     } catch { /* widget will just hide */ }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter]);
+  useEffect(() => { load();   }, [filter]);
   useEffect(() => { loadStats(); }, []);
 
   const decide = async (claim, decision) => {

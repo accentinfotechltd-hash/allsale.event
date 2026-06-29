@@ -231,7 +231,7 @@ export default function Landing() {
                       style={{ color: "rgba(255,255,255,0.85)", textShadow: "0 1px 6px rgba(0,0,0,0.5)" }}
                       data-testid="hero-blurb"
                     >
-                      "{heroBlurb}"
+                      &ldquo;{heroBlurb}&rdquo;
                     </p>
                   ) : null}
                   <p
@@ -398,7 +398,7 @@ export default function Landing() {
                 <div key={r.event.event_id} className="relative" data-testid={`rec-${r.event.event_id}`}>
                   <EventCard event={r.event} index={i} />
                   <div className="mt-2 px-1 text-xs italic leading-snug" style={{ color: "var(--text)" }}>
-                    "{r.reason}"
+                    &ldquo;{r.reason}&rdquo;
                   </div>
                 </div>
               ))}

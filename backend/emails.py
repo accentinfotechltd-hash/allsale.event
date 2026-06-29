@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import html as _html_lib
 import logging
 import os
 from datetime import datetime, timezone
@@ -90,6 +91,27 @@ def _layout(title: str, preheader: str, body_html: str, cta_label: Optional[str]
 
 def _text_fallback(lines: list[str]) -> str:
     return "\n".join(lines) + f"\n\n— Allsale Events\n{APP_PUBLIC_URL}\n"
+
+
+def _h(s: Any) -> str:
+    """HTML-escape a value for safe inline embedding in template strings.
+
+    Templates that interpolate user-controlled strings (event titles, organizer
+    names, free-form notes) call `_h(value)` so a stray "<script>" or `&` in
+    user input can't break the rendered HTML email.
+    """
+    if s is None:
+        return ""
+    return _html_lib.escape(str(s), quote=True)
+
+
+def _wrap_html(inner_html: str, title: str = "Allsale Events", preheader: str = "") -> str:
+    """Lightweight wrapper used by older organizer-lifecycle templates that
+    pre-date `_layout`. Renders the same dark-card chrome but without the
+    explicit CTA button (CTAs are inlined via <a> tags inside `inner_html`).
+    Kept for backwards compatibility — new templates should call `_layout`.
+    """
+    return _layout(title, preheader, inner_html)
 
 
 def _money(amount: float, currency: str = "NZD") -> str:
@@ -573,6 +595,7 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "partner_application_received": lambda ctx: _t_partner_application_received(ctx),
     "partner_application_admin_notify": lambda ctx: _t_partner_application_admin_notify(ctx),
     "partner_application_approved": lambda ctx: _t_partner_application_approved(ctx),
+    "partner_applications_stale_digest": lambda ctx: _t_partner_applications_stale_digest(ctx),
 }
 
 
@@ -611,7 +634,7 @@ def _t_partner_application_admin_notify(ctx: Dict[str, Any]) -> tuple[str, str, 
       <tr><td style="padding:10px 14px;border-top:1px solid {BORDER};color:{TEXT_MUTED};">Audience size</td><td style="padding:10px 14px;border-top:1px solid {BORDER};color:{TEXT};">{ctx.get('audience_size') or '(not specified)'}</td></tr>
     </table>
     <p style="color:{TEXT};font-weight:600;margin-top:18px;">Why they want to partner</p>
-    <p style="color:{TEXT_MUTED};white-space:pre-wrap;border-left:3px solid {ACCENT};padding-left:12px;margin:8px 0 18px;">{ctx.get('why_partner') or ''}</p>
+    <p style="color:{TEXT_MUTED};white-space:pre-wrap;border-left:3px solid {BRAND_COLOR};padding-left:12px;margin:8px 0 18px;">{ctx.get('why_partner') or ''}</p>
     """
     subject = f"New partner application — {name}"
     html = _layout(subject, "Allsale Admin", body, "Review in admin", APP_PUBLIC_URL + "/admin?tab=partner-applications")
@@ -630,7 +653,7 @@ def _t_partner_application_approved(ctx: Dict[str, Any]) -> tuple[str, str, str]
     """Email to applicant when admin approves their application."""
     name = ctx.get("applicant_name") or "there"
     note = ctx.get("note") or ""
-    note_block = f'<p style="color:{TEXT_MUTED};border-left:3px solid {ACCENT};padding-left:12px;">{note}</p>' if note else ""
+    note_block = f'<p style="color:{TEXT_MUTED};border-left:3px solid {BRAND_COLOR};padding-left:12px;">{note}</p>' if note else ""
     body = f"""
     <p style="color:{TEXT};">Great news, {name} — you&apos;re in. 🎉</p>
     <p style="color:{TEXT_MUTED};">Your Allsale marketing partner application has been approved. We&apos;ll be in touch within 24 hours to share your commission structure, partner portal credentials, and the first event campaigns we&apos;d like you to promote.</p>
@@ -645,6 +668,45 @@ def _t_partner_application_approved(ctx: Dict[str, Any]) -> tuple[str, str, str]
         note,
         "Reply to set up an intro call.",
     ])
+    return subject, html, text
+
+
+def _t_partner_applications_stale_digest(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Tuesday admin reminder when partner applications have been sitting
+    pending for more than 5 days. One email, one digest, summarises all
+    stale rows so admin can clear the queue in one sitting."""
+    rows = ctx.get("applications") or []
+    count = ctx.get("count") or len(rows)
+    rows_html = "".join([
+        f"<tr>"
+        f"<td style=\"padding:10px 14px;border-bottom:1px solid {BORDER};color:{TEXT};\">"
+        f"<b>{r.get('full_name') or '(no name)'}</b>"
+        f"<br/><span style=\"color:{TEXT_MUTED};font-size:13px;\">{r.get('email','')}"
+        f"{(' · ' + r['company']) if r.get('company') else ''}</span></td>"
+        f"<td style=\"padding:10px 14px;border-bottom:1px solid {BORDER};color:{BRAND_COLOR};text-align:right;white-space:nowrap;\">"
+        f"<b>{int(r.get('age_days') or 0)} days</b></td>"
+        f"</tr>"
+        for r in rows
+    ])
+    body = f"""
+    <p style="color:{TEXT};">Hey,</p>
+    <p style="color:{TEXT_MUTED};">You have <b style="color:{TEXT};">{count} partner application{'s' if count != 1 else ''}</b> sitting in <b>pending</b> for more than 5 days. Good prospects might be waiting on you.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:14px 0;border:1px solid {BORDER};border-radius:10px;overflow:hidden;">
+      {rows_html}
+    </table>
+    <p style="color:{TEXT_MUTED};font-size:13px;">Hit the button below to triage them in a single sweep.</p>
+    """
+    subject = f"{count} partner application{'s' if count != 1 else ''} waiting on you"
+    html = _layout(subject, "Stale partner applications", body, "Review applications", APP_PUBLIC_URL + "/admin?tab=partner-applications")
+    text_lines = [
+        f"{count} partner application{'s' if count != 1 else ''} have been pending for >5 days:",
+        "",
+    ]
+    for r in rows:
+        text_lines.append(f"  • {r.get('full_name','(no name)')} <{r.get('email','')}> — {int(r.get('age_days') or 0)} days")
+    text_lines.append("")
+    text_lines.append(f"Review: {APP_PUBLIC_URL}/admin?tab=partner-applications")
+    text = _text_fallback(text_lines)
     return subject, html, text
 
 
@@ -714,7 +776,7 @@ def _t_marketing_partner_invitation(ctx: Dict[str, Any]) -> tuple[str, str, str]
       Any questions? Just reply to this email — we read every message.
     </p>
     """
-    subject = f"Welcome to the Allsale partner program — sign-in details inside"
+    subject = "Welcome to the Allsale partner program — sign-in details inside"
     html = _layout(
         f"Welcome, {ctx['partner_name']}",
         f"You earn {pct}% on every paid booking.",
