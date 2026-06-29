@@ -1,0 +1,42 @@
+{
+  "summary": "Iteration 26 — Stripe Connect Status Admin Tab + Organizer Warning Banner. Backend: all 5 existing tests in test_admin_stripe_connect_status.py PASS plus 3 NEW extended tests in test_iter26_stripe_connect_remind.py PASS (targeted send stamps `stripe_nudge_sent_at`, idempotent skip when charges_enabled=true, blast all is bounded by summary.not_connected, `queued_at` field present in response). Frontend: admin tab renders at /admin?tab=stripe-connect with 4 KPI cards (Total=73, Connected=21, Onboarding=0, Not connected=52), amber uncollected-revenue banner (NZ$750.00 figure), all 4 filter pills present (All/🔴/🟡/🟢), Export CSV downloads stripe-connect-status-YYYY-MM-DD.csv, Email all 🔴 organizers triggers JS confirm() and POSTs to /remind (200 OK), individual Send-reminder row buttons POST and refresh table. Filter pills narrow correctly (Not connected → 52, Connected → 21, Onboarding → 0). Organizer warning banner appears on /organizer when orgtester is seeded with one paid booking (US$75.00 revenue + Connect Stripe now CTA), hidden when same orgtester has zero paid bookings (negative case). Banner uses /api/organizer/payouts/balance + /api/auth/me.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Admin Connect status tab", "issues": ["Filter pill testid for onboarding uses 'onboarding_incomplete' (not 'onboarding' as hinted in review_request). Document this in the request next time. Functionally correct — backend status string is 'onboarding_incomplete' and the pill testid mirrors that. No code change needed."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_admin_stripe_connect_status.py",
+    "/app/backend/tests/test_iter26_stripe_connect_remind.py",
+    "/app/test_reports/pytest/iter26_admin_stripe_connect.xml",
+    "/app/test_reports/pytest/iter26_remind_extra.xml",
+    "/app/test_reports/pytest/iter26_combined.xml"
+  ],
+  "action_items": [
+    "None — feature is working end-to-end. Optional polish: in /admin?tab=stripe-connect on first load the Emergent 'Welcome' onboarding modal overlays the tab and intercepts clicks until dismissed (Escape works). Consider auto-suppressing it for admins who already have the 'Don't show again' box checked.",
+    "Optional: when summary.onboarding === 0, the 🟡 Onboarding pill is rendered but disabled-looking — consider conditionally hiding it OR keeping always-visible for consistency (current impl keeps it visible, which I think is the right call)."
+  ],
+  "critical_code_review_comments": [
+    "admin.py /stripe-connect-status correctly aggregates paid revenue from bookings → events join and reconciles summary counts (total = connected + onboarding + not_connected). Sorting is by lifetime_revenue DESC then status_rank tiebreaker — verified empirically.",
+    "admin.py /stripe-connect-status/remind enforces idempotent skip via fresh DB read of stripe_charges_enabled inside the per-target loop (line 1396), so the admin clicking 'Remind' twice within the same minute cannot re-spam an organizer who just connected.",
+    "AdminStripeConnectStatusTab.jsx filter logic (line 50-53) uses `x.status === filter` directly — and pill IDs match the backend status strings exactly (`not_connected`, `onboarding_incomplete`, `connected`). Filter pills narrow rows correctly: All→73, Not connected→52, Onboarding→0, Connected→21.",
+    "OrganizerStripeConnectWarning.jsx correctly hides itself when hasRevenue=false OR charges_enabled=true (verified both branches with live data). Uses GET /organizer/payouts/balance + GET /auth/me. Both fire only once on mount — no polling, no unnecessary refetches.",
+    "OPTIONAL: AdminStripeConnectStatusTab.jsx loads from localStorage('auth_token') directly (line 36, 67, 85) instead of using the centralized `api` axios instance (which OrganizerStripeConnectWarning correctly uses). Minor inconsistency — not blocking, but worth a future refactor."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter26_stripe_connect_remind.py (NEW — 3 extra remind-endpoint tests)"
+  ],
+  "success_rate": {"backend": "100% (8/8 tests passed across both suites)", "frontend": "100% (all 13 review_request items verified via Playwright + live HTTP)"},
+  "test_credentials": "Used admin@allsale.events / admin123 and orgtester@allsale.events / orgtest123 from /app/memory/test_credentials.md — both work.",
+  "seed_data_creation": "Seeded one TEST_bk_iter26_<uuid> paid booking ($75 on evt_63b6d149aa17 owned by orgtester) to exercise the positive-case warning banner. Auto-deleted in cleanup. orgtester's stripe_charges_enabled / stripe_account_id / stripe_nudge_sent_at fields were unset at end of run — verified post-cleanup DB doc is clean ({}).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Run with: cd /app/backend && python -m pytest tests/test_admin_stripe_connect_status.py tests/test_iter26_stripe_connect_remind.py -v. The iter26 suite mutates orgtester's user doc but always restores in finally blocks. WATCH OUT: the Emergent welcome onboarding modal overlays /admin and /organizer on first visit — Playwright tests need to dismiss with Escape + 800ms wait before clicking inside the tab body. Filter pill for onboarding has testid 'connect-status-filter-onboarding_incomplete' (NOT 'onboarding') — review request was slightly inaccurate on that one.",
+  "rca of the issue": "N/A — no bugs found. Initial scripting hiccup where 'not_connected' filter appeared not to narrow was caused by the welcome modal intercepting the first click; once Escape was pressed before clicking the pill, filter correctly went 73→52. Confirmed via re-run."
+}

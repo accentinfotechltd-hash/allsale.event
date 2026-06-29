@@ -1238,3 +1238,197 @@ async def admin_revenue(
         "mixed_currencies": len(currencies) > 1,
         "range": {"start": start, "end": end},
     }
+
+
+# ---------- Stripe Connect Status Tracker (admin) ----------
+# Lets the admin see which organizers haven't completed Stripe Connect
+# onboarding yet so they can chase the high-revenue ones onto the new
+# Phase B (destination charges) flow. Without this, organizers' charges
+# keep landing on Allsale's master account and never appear in Stripe's
+# native "Collected fees" tab.
+
+@router.get("/stripe-connect-status")
+async def admin_stripe_connect_status(user: dict = Depends(get_current_user)):
+    """List every organizer who has ever created an event, with their
+    Stripe Connect status and revenue stats.
+
+    Status values:
+      🔴 not_connected         — no stripe_account_id on the user
+      🟡 onboarding_incomplete — has account but charges_enabled=false
+      ✅ connected              — charges_enabled=true (Phase B will route)
+
+    Sorted by lifetime_revenue DESC so admin can chase the biggest revenue
+    organizers first.
+    """
+    _admin_only(user)
+
+    # 1) Find every user who owns at least one event.
+    organizer_ids = await db.events.distinct("organizer_id")
+    if not organizer_ids:
+        return {"items": [], "summary": {"total": 0, "connected": 0, "onboarding": 0, "not_connected": 0}}
+
+    # 2) Pre-aggregate paid-booking totals per organizer in one pipeline.
+    revenue_by_org: dict = {}
+    pipeline = [
+        {"$match": {"status": "paid"}},
+        {"$lookup": {
+            "from": "events", "localField": "event_id",
+            "foreignField": "event_id", "as": "_event"
+        }},
+        {"$unwind": "$_event"},
+        {"$group": {
+            "_id": "$_event.organizer_id",
+            "bookings_count": {"$sum": 1},
+            "tickets_sold": {"$sum": {"$ifNull": ["$quantity", 1]}},
+            "lifetime_revenue": {"$sum": {"$ifNull": ["$amount", 0]}},
+            "platform_fees_collected": {"$sum": {"$ifNull": ["$platform_fee", 0]}},
+            "last_paid_at": {"$max": "$paid_at"},
+            "currencies": {"$addToSet": "$currency"},
+        }},
+    ]
+    async for row in db.bookings.aggregate(pipeline):
+        revenue_by_org[row["_id"]] = row
+
+    # 3) Build the response row per organizer.
+    rows: list = []
+    summary = {"total": 0, "connected": 0, "onboarding": 0, "not_connected": 0}
+    async for u in db.users.find(
+        {"user_id": {"$in": list(organizer_ids)}},
+        {"_id": 0, "user_id": 1, "email": 1, "name": 1, "phone": 1,
+         "stripe_account_id": 1, "stripe_charges_enabled": 1,
+         "stripe_payouts_enabled": 1, "stripe_details_submitted": 1,
+         "stripe_nudge_sent_at": 1, "created_at": 1},
+    ):
+        acct = u.get("stripe_account_id") or None
+        charges = bool(u.get("stripe_charges_enabled"))
+        if charges:
+            status = "connected"
+        elif acct:
+            status = "onboarding_incomplete"
+        else:
+            status = "not_connected"
+        summary[status if status != "onboarding_incomplete" else "onboarding"] += 1
+        summary["total"] += 1
+
+        rev = revenue_by_org.get(u["user_id"]) or {}
+        events_count = await db.events.count_documents({"organizer_id": u["user_id"]})
+        rows.append({
+            "user_id": u["user_id"],
+            "email": u.get("email"),
+            "name": u.get("name") or u.get("email"),
+            "phone": u.get("phone"),
+            "stripe_account_id": acct,
+            "stripe_charges_enabled": charges,
+            "stripe_payouts_enabled": bool(u.get("stripe_payouts_enabled")),
+            "stripe_details_submitted": bool(u.get("stripe_details_submitted")),
+            "status": status,
+            "events_count": events_count,
+            "bookings_count": int(rev.get("bookings_count") or 0),
+            "tickets_sold": int(rev.get("tickets_sold") or 0),
+            "lifetime_revenue": round(float(rev.get("lifetime_revenue") or 0), 2),
+            "platform_fees_collected": round(float(rev.get("platform_fees_collected") or 0), 2),
+            "currency": (rev.get("currencies") or ["NZD"])[0] if rev.get("currencies") else "NZD",
+            "last_paid_at": rev.get("last_paid_at"),
+            "last_reminder_sent_at": u.get("stripe_nudge_sent_at"),
+        })
+
+    # Sort biggest revenue first, then by status (not_connected first within ties).
+    status_rank = {"not_connected": 0, "onboarding_incomplete": 1, "connected": 2}
+    rows.sort(key=lambda r: (-r["lifetime_revenue"], status_rank.get(r["status"], 9)))
+
+    return {"items": rows, "summary": summary}
+
+
+class _RemindIn(BaseModel):
+    user_ids: Optional[list[str]] = None  # None = remind all not_connected with revenue
+
+
+@router.post("/stripe-connect-status/remind")
+async def admin_send_stripe_reminders(payload: _RemindIn, user: dict = Depends(get_current_user)):
+    """Send the `organizer_stripe_setup_nudge` email to a list of organizers
+    (or to ALL not-connected organizers with revenue when `user_ids` is None).
+
+    Rate-limited via the existing email_logs retry-on-429 logic in emails.py
+    so a 200-recipient blast doesn't get truncated by Resend's 2 req/sec cap.
+    """
+    _admin_only(user)
+    target_ids = payload.user_ids or []
+
+    if not target_ids:
+        # Default target: every organizer who has paid revenue + isn't connected.
+        organizer_ids_with_revenue = []
+        async for row in db.bookings.aggregate([
+            {"$match": {"status": "paid"}},
+            {"$lookup": {"from": "events", "localField": "event_id", "foreignField": "event_id", "as": "_e"}},
+            {"$unwind": "$_e"},
+            {"$group": {"_id": "$_e.organizer_id"}},
+        ]):
+            organizer_ids_with_revenue.append(row["_id"])
+        async for u in db.users.find(
+            {
+                "user_id": {"$in": organizer_ids_with_revenue},
+                "$or": [
+                    {"stripe_charges_enabled": {"$ne": True}},
+                    {"stripe_charges_enabled": {"$exists": False}},
+                ],
+            },
+            {"_id": 0, "user_id": 1},
+        ):
+            target_ids.append(u["user_id"])
+
+    if not target_ids:
+        return {"sent": 0, "skipped": 0, "errors": []}
+
+    sent = 0
+    skipped = 0
+    errors: list = []
+    now_iso = utc_now().isoformat()
+    async for u in db.users.find(
+        {"user_id": {"$in": target_ids}},
+        {"_id": 0, "user_id": 1, "email": 1, "name": 1,
+         "stripe_charges_enabled": 1, "stripe_account_id": 1},
+    ):
+        if not u.get("email"):
+            skipped += 1
+            continue
+        # Re-check status: if they completed onboarding since the admin opened
+        # the tab, skip (idempotent — never spam someone who already finished).
+        if u.get("stripe_charges_enabled"):
+            skipped += 1
+            continue
+        try:
+            # Surface the count of upcoming events on this organizer so the
+            # email body reads honestly ("you have N events coming up...").
+            from datetime import datetime as _dt
+            now_iso_for_query = _dt.now(timezone.utc).isoformat()
+            events_count = await db.events.count_documents({
+                "organizer_id": u["user_id"],
+                "date": {"$gte": now_iso_for_query[:10]},
+            })
+            next_event = await db.events.find_one(
+                {"organizer_id": u["user_id"], "date": {"$gte": now_iso_for_query[:10]}},
+                {"_id": 0, "title": 1, "date": 1},
+                sort=[("date", 1)],
+            )
+            send_template_fireforget(
+                "organizer_stripe_setup_nudge",
+                u["email"],
+                {
+                    "organizer_name": u.get("name") or "Organizer",
+                    "events_count": max(1, events_count),
+                    "next_event_title": (next_event or {}).get("title") or "your next event",
+                    "next_event_date": (next_event or {}).get("date") or "",
+                    "dashboard_url": None,  # template falls back to /organizer
+                },
+                db,
+            )
+            await db.users.update_one(
+                {"user_id": u["user_id"]},
+                {"$set": {"stripe_nudge_sent_at": now_iso, "stripe_nudge_sent_by": user["user_id"]}},
+            )
+            sent += 1
+        except Exception as exc:  # noqa: BLE001 — log and keep blasting
+            errors.append({"user_id": u["user_id"], "error": str(exc)[:120]})
+
+    return {"sent": sent, "skipped": skipped, "errors": errors, "queued_at": now_iso}
+

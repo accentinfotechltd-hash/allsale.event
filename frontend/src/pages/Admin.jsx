@@ -12,6 +12,7 @@ import AdminBlogTab from "@/components/AdminBlogTab";
 import AdminMarketingPartnersTab from "@/components/AdminMarketingPartnersTab";
 import AdminFlyersTab from "@/components/AdminFlyersTab";
 import AdminCreatorCodesTab from "@/components/AdminCreatorCodesTab";
+import AdminStripeConnectStatusTab from "@/components/AdminStripeConnectStatusTab";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -19,7 +20,7 @@ export default function Admin() {
   const initialTab = (() => {
     if (typeof window === "undefined") return "events";
     const t = new URLSearchParams(window.location.search).get("tab");
-    const valid = ["events", "users", "payouts", "stripe", "emails", "chats", "org-chat", "protection", "blog", "partners", "settings"];
+    const valid = ["events", "users", "payouts", "stripe", "stripe-connect", "emails", "chats", "org-chat", "protection", "blog", "partners", "settings"];
     return valid.includes(t) ? t : "events";
   })();
   const [tab, setTab] = useState(initialTab);
@@ -52,6 +53,7 @@ export default function Admin() {
           <TabBtn id="users" current={tab} onClick={setTab} icon={<Users className="w-4 h-4" />} label="Users" />
           <TabBtn id="payouts" current={tab} onClick={setTab} icon={<Wallet className="w-4 h-4" />} label="Payouts" />
           <TabBtn id="stripe" current={tab} onClick={setTab} icon={<ShieldCheck className="w-4 h-4" />} label="Stripe" />
+          <TabBtn id="stripe-connect" current={tab} onClick={setTab} icon={<Handshake className="w-4 h-4" />} label="Connect status" />
           <TabBtn id="emails" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Emails" />
           <TabBtn id="chats" current={tab} onClick={setTab} icon={<MessageCircle className="w-4 h-4" />} label="Live chat" />
           <TabBtn id="org-chat" current={tab} onClick={setTab} icon={<MessagesSquare className="w-4 h-4" />} label="Organizer chat" />
@@ -64,7 +66,7 @@ export default function Admin() {
         </div>
       </div>
 
-      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : tab === "org-chat" ? <OrganizerChatTab /> : tab === "protection" ? <ProtectionClaimsTab /> : tab === "blog" ? <AdminBlogTab /> : tab === "partners" ? <AdminMarketingPartnersTab /> : tab === "flyers" ? <AdminFlyersTab /> : tab === "creator-codes" ? <AdminCreatorCodesTab /> : <SettingsTab />}
+      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "stripe-connect" ? <AdminStripeConnectStatusTab /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : tab === "org-chat" ? <OrganizerChatTab /> : tab === "protection" ? <ProtectionClaimsTab /> : tab === "blog" ? <AdminBlogTab /> : tab === "partners" ? <AdminMarketingPartnersTab /> : tab === "flyers" ? <AdminFlyersTab /> : tab === "creator-codes" ? <AdminCreatorCodesTab /> : <SettingsTab />}
     </div>
   );
 }
