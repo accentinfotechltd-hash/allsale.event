@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
+import { invalidateFeeSettingsCache } from "@/lib/fees";
 import MessageReactions from "@/components/MessageReactions";
 import { useAuth } from "@/lib/auth";
 import useChatLive from "@/lib/useChatLive";
@@ -987,7 +988,11 @@ function SettingsTab() {
         marketing_partners_auto_payout: autoPayout,
       });
       setSettings(data);
-      toast.success("Settings saved");
+      // Bust the in-memory fee-settings cache so listing pages re-fetch the
+      // new rate within the next render instead of showing stale fees for
+      // up to a minute (or until a hard refresh).
+      invalidateFeeSettingsCache();
+      toast.success("Settings saved — new rate is live on all listing pages now");
     } catch (e) {
       toast.error(e?.response?.data?.detail?.[0]?.msg || "Save failed");
     } finally { setSaving(false); }

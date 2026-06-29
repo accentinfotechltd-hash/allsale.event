@@ -69,26 +69,40 @@ export function estimateTicketProtection(subtotal) {
   return round2(subtotal * (TICKET_PROTECTION_BPS / 10000));
 }
 
-// Single-flight cache so multiple components mounting at once only issue one
-// network request. Refreshes when the user reloads.
+// Short-TTL cache so multiple components mounting at once share one fetch,
+// but admin rate changes propagate to live buyer pages within ~60 seconds
+// without requiring a hard refresh.
 let _settingsPromise = null;
+let _settingsFetchedAt = 0;
+const FEE_SETTINGS_TTL_MS = 60_000;
+
 function loadFeeSettings() {
-  if (!_settingsPromise) {
-    _settingsPromise = api.get("/fees/public-settings")
-      .then((r) => ({
-        platformPct: r.data?.platform_pct ?? DEFAULT_PLATFORM_PCT,
-        platformFlat: r.data?.platform_flat_per_ticket ?? DEFAULT_PLATFORM_FLAT,
-        stripePct: r.data?.stripe_pct ?? DEFAULT_STRIPE_PCT,
-        stripeFlat: r.data?.stripe_flat_per_ticket ?? DEFAULT_STRIPE_FLAT,
-      }))
-      .catch(() => ({
-        platformPct: DEFAULT_PLATFORM_PCT,
-        platformFlat: DEFAULT_PLATFORM_FLAT,
-        stripePct: DEFAULT_STRIPE_PCT,
-        stripeFlat: DEFAULT_STRIPE_FLAT,
-      }));
+  const now = Date.now();
+  if (_settingsPromise && (now - _settingsFetchedAt) < FEE_SETTINGS_TTL_MS) {
+    return _settingsPromise;
   }
+  _settingsFetchedAt = now;
+  _settingsPromise = api.get("/fees/public-settings")
+    .then((r) => ({
+      platformPct: r.data?.platform_pct ?? DEFAULT_PLATFORM_PCT,
+      platformFlat: r.data?.platform_flat_per_ticket ?? DEFAULT_PLATFORM_FLAT,
+      stripePct: r.data?.stripe_pct ?? DEFAULT_STRIPE_PCT,
+      stripeFlat: r.data?.stripe_flat_per_ticket ?? DEFAULT_STRIPE_FLAT,
+    }))
+    .catch(() => ({
+      platformPct: DEFAULT_PLATFORM_PCT,
+      platformFlat: DEFAULT_PLATFORM_FLAT,
+      stripePct: DEFAULT_STRIPE_PCT,
+      stripeFlat: DEFAULT_STRIPE_FLAT,
+    }));
   return _settingsPromise;
+}
+
+/** Invalidate the cache — call from /admin/settings after the admin saves a
+ *  new commission rate so the next listing page render fetches fresh values. */
+export function invalidateFeeSettingsCache() {
+  _settingsPromise = null;
+  _settingsFetchedAt = 0;
 }
 
 export function useFeeSettings() {
