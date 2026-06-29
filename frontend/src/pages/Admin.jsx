@@ -4,7 +4,7 @@ import api from "@/lib/api";
 import MessageReactions from "@/components/MessageReactions";
 import { useAuth } from "@/lib/auth";
 import useChatLive from "@/lib/useChatLive";
-import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send, Pencil, UserPlus, MessagesSquare, FileText, Handshake, Tag } from "lucide-react";
+import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send, Pencil, UserPlus, MessagesSquare, FileText, Handshake, Tag, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
 import StripeAdminDiagnostics from "@/components/StripeAdminDiagnostics";
@@ -30,9 +30,18 @@ export default function Admin() {
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-12">
-      <div className="mb-8">
-        <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>Admin</div>
-        <h1 className="serif text-5xl">Control center</h1>
+      <div className="mb-8 flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <div className="text-xs uppercase tracking-[0.3em] mb-2" style={{ color: "var(--accent)" }}>Admin</div>
+          <h1 className="serif text-5xl">Control center</h1>
+        </div>
+        <Link
+          to="/admin/revenue"
+          className="btn-primary inline-flex items-center gap-2"
+          data-testid="admin-revenue-link"
+        >
+          <DollarSign className="w-4 h-4" /> Revenue dashboard
+        </Link>
       </div>
 
       <AdminHeroStrip onClickProtection={() => setTab("protection")} onClickPartners={() => setTab("partners")} />

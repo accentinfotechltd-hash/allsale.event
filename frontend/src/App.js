@@ -25,6 +25,7 @@ import OrganizerPayouts from "@/pages/OrganizerPayouts";
 import OrganizerTransfers from "@/pages/OrganizerTransfers";
 import CheckIn from "@/pages/CheckIn";
 import Admin from "@/pages/Admin";
+import AdminRevenue from "@/pages/AdminRevenue";
 import AuthCallback from "@/pages/AuthCallback";
 import BecomeOrganizer from "@/pages/BecomeOrganizer";
 import About from "@/pages/About";
@@ -138,6 +139,7 @@ function AppRouter() {
         <Route path="/organizer/bundles" element={<RequireOrganizer><BundleManager /></RequireOrganizer>} />
         <Route path="/organizer/referral" element={<RequireOrganizer><OrganizerReferral /></RequireOrganizer>} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/admin/revenue" element={<AdminRevenue />} />
       </Routes>
     </Layout>
   );

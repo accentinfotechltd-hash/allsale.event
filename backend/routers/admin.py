@@ -1097,3 +1097,144 @@ async def admin_email_send_test(payload: _SendTestIn, user: dict = Depends(get_c
             "triggered_by": user["user_id"],
         })
         return {"ok": False, "to": payload.to, "from": params["from"], "reason": reason}
+
+
+
+# ---------- Revenue dashboard (admin's own platform-fee P&L) ----------
+@router.get("/revenue")
+async def admin_revenue(
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    limit: int = 200,
+    offset: int = 0,
+    user: dict = Depends(get_current_user),
+):
+    """Per-booking revenue breakdown so admin can see their platform-fee
+    cut without leaving Allsale.
+
+    Stripe natively doesn't show our 1% + $0.50 platform fee as a line
+    item (the architecture today is "platform-keeps-100%, organizer
+    receives manual payouts"). This endpoint reconstructs the breakdown
+    from `bookings.amount`, `bookings.face_value`, and the historical
+    fee snapshot stored at checkout time.
+
+    Returns:
+        {
+          items: [...per booking row with breakdown...],
+          totals: {gross, stripe_fees, platform_fees, organizer_share, count},
+          currency: "NZD",     # majority currency in the slice; mixed is flagged
+        }
+    """
+    _admin_only(user)
+
+    q: dict = {"status": "paid"}
+    if start:
+        q["paid_at"] = {"$gte": start}
+    if end:
+        q.setdefault("paid_at", {})["$lte"] = end
+
+    rows: list = []
+    totals = {
+        "gross": 0.0, "stripe_fees": 0.0, "platform_fees": 0.0,
+        "organizer_share": 0.0, "count": 0,
+    }
+    currencies: dict = {}
+
+    # Pull bookings + event titles + organizer info in one pass.
+    cursor = db.bookings.find(q, {"_id": 0}).sort("paid_at", -1).skip(int(offset)).limit(int(limit))
+    async for b in cursor:
+        gross = float(b.get("amount") or 0)
+        face = float(b.get("face_value") or 0)
+        # Reconstruct fees: prefer stored breakdown, fall back to a clean compute.
+        platform_fee = b.get("platform_fee")
+        stripe_fee = b.get("stripe_fee_estimated") or b.get("stripe_fee")
+
+        event_doc = await db.events.find_one(
+            {"event_id": b.get("event_id")},
+            {"_id": 0, "title": 1, "organizer_name": 1, "organizer_id": 1, "absorb_fees": 1},
+        ) or {}
+        absorb_fees = bool(event_doc.get("absorb_fees"))
+
+        if platform_fee is None or stripe_fee is None:
+            # Lazy import so tests don't pay for it on cold start.
+            from fees import compute_fees
+            plat = await db.platform_settings.find_one({"key": "commission"}, {"_id": 0}) or {}
+            # Legacy bookings don't store `face_value`. In the buyer-pays-fees
+            # model the buyer paid `gross` and the organizer receives a smaller
+            # face_value — so we need to invert the gross-up. Approximation:
+            # compute_fees(face) gives buyer_total. We want buyer_total ≈ gross.
+            # `face = gross / (1 + platform_pct + (stripe_pct + flat/face))`
+            # is messy with the flat fee, so we just iterate 3x — converges fast.
+            if not face:
+                trial = gross
+                for _ in range(4):
+                    fb_trial = compute_fees(
+                        trial, b.get("currency") or "NZD",
+                        platform_pct=plat.get("commission_percent"),
+                        platform_flat=plat.get("commission_flat_fee_per_ticket"),
+                        absorb_fees=absorb_fees,
+                    )
+                    if fb_trial.buyer_total <= 0:
+                        break
+                    trial = trial * (gross / fb_trial.buyer_total)
+                face = trial
+            fb = compute_fees(
+                face, b.get("currency") or "NZD",
+                platform_pct=plat.get("commission_percent"),
+                platform_flat=plat.get("commission_flat_fee_per_ticket"),
+                absorb_fees=absorb_fees,
+            )
+            platform_fee = float(fb.platform_fee)
+            stripe_fee = float(fb.stripe_fee)
+            face = float(fb.face_value)
+            # Final safety: force the row math to reconcile exactly with `gross`.
+            # Tiny iteration error otherwise leaves a few cents un-attributed.
+            remainder = gross - (platform_fee + stripe_fee + face)
+            face += remainder
+
+        # If face_value not stored on the booking, reverse-engineer it.
+        if not face:
+            face = max(0.0, gross - float(platform_fee or 0) - float(stripe_fee or 0))
+
+        currency = (b.get("currency") or "NZD").upper()
+        currencies[currency] = currencies.get(currency, 0) + 1
+
+        # Use the event_doc fetched above (already loaded for absorb_fees).
+        ev = event_doc
+
+        rows.append({
+            "booking_id": b.get("booking_id"),
+            "paid_at": b.get("paid_at"),
+            "event_id": b.get("event_id"),
+            "event_title": ev.get("title") or "(deleted)",
+            "organizer_name": ev.get("organizer_name") or "—",
+            "absorb_fees": bool(ev.get("absorb_fees")),
+            "buyer_email": b.get("user_email"),
+            "quantity": int(b.get("quantity") or 1),
+            "currency": currency,
+            "gross": round(gross, 2),
+            "stripe_fee": round(float(stripe_fee or 0), 2),
+            "platform_fee": round(float(platform_fee or 0), 2),
+            "organizer_share": round(face, 2),
+            "stripe_session_id": b.get("stripe_session_id"),
+        })
+        totals["gross"] += gross
+        totals["stripe_fees"] += float(stripe_fee or 0)
+        totals["platform_fees"] += float(platform_fee or 0)
+        totals["organizer_share"] += face
+        totals["count"] += 1
+
+    for k in ("gross", "stripe_fees", "platform_fees", "organizer_share"):
+        totals[k] = round(totals[k], 2)
+
+    # Majority currency for the headline cards. If a slice has mixed
+    # currencies, the page will badge each row anyway — this is for the KPIs.
+    headline_currency = max(currencies.items(), key=lambda kv: kv[1])[0] if currencies else "NZD"
+
+    return {
+        "items": rows,
+        "totals": totals,
+        "currency": headline_currency,
+        "mixed_currencies": len(currencies) > 1,
+        "range": {"start": start, "end": end},
+    }
