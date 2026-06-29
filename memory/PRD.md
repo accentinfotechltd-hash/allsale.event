@@ -31,6 +31,14 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Fee-settings cache propagation fix (Feb 28 2026, iter_30)** — follow-up to iter_29:
+  - User reported they changed the admin commission rate but listing pages still showed the old fee amount.
+  - **Root cause**: `frontend/src/lib/fees.js::loadFeeSettings()` was an unbounded single-flight cache — once a page loaded the `/fees/public-settings` response, the in-memory promise was retained forever and never re-fetched. Admin rate changes therefore stayed invisible to live buyer browsers until a full hard refresh.
+  - **Fix (two-pronged)**:
+    1. Added a 60-second TTL — `_settingsFetchedAt` timestamp; re-fetches when stale.
+    2. Exported `invalidateFeeSettingsCache()` and wired it into `Admin.jsx` save handler so any commission edit instantly busts the cache — toast updated to "Settings saved — new rate is live on all listing pages now".
+  - **Verified**: user confirmed "now it's all good, it update now" after the fix shipped.
+
 - **CRITICAL BUG FIX: Listing vs checkout fee mismatch (Feb 28 2026, iter_29)**:
   - **User report**: $30 ticket listing showed "+ $1.65 fees" but checkout charged $1.96. Two-cent-plus-twenty discrepancy at the point of purchase = bad-faith vibe + bookings abandoned.
   - **Root cause**: `/app/frontend/src/lib/fees.js::estimateBuyerFees()` had TWO structural bugs in the gross-up formula:
