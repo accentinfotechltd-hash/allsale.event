@@ -228,6 +228,7 @@ export default function Layout({ children }) {
               <li><Link to={user && user.role !== "attendee" ? "/organizer" : "/become-organizer"} style={{ color: "var(--text-muted)" }}>Dashboard</Link></li>
               <li><Link to="/influencers" style={{ color: "var(--text-muted)" }} data-testid="footer-influencers-link">Creator marketplace</Link></li>
               <li><Link to={user?.is_influencer ? "/influencer" : "/influencer/onboarding"} style={{ color: "var(--text-muted)" }} data-testid="footer-become-creator-link">Become a creator</Link></li>
+              <li><Link to="/become-partner" style={{ color: "var(--text-muted)" }} data-testid="footer-become-partner-link">Become a partner</Link></li>
               <li><Link to="/scan" style={{ color: "var(--text-muted)" }} data-testid="footer-scanner-link">Door scanner app</Link></li>
             </ul>
           </div>

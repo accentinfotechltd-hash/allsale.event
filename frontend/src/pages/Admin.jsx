@@ -13,6 +13,7 @@ import AdminMarketingPartnersTab from "@/components/AdminMarketingPartnersTab";
 import AdminFlyersTab from "@/components/AdminFlyersTab";
 import AdminCreatorCodesTab from "@/components/AdminCreatorCodesTab";
 import AdminStripeConnectStatusTab from "@/components/AdminStripeConnectStatusTab";
+import AdminPartnerApplicationsTab from "@/components/AdminPartnerApplicationsTab";
 
 export default function Admin() {
   const { user } = useAuth();
@@ -20,7 +21,7 @@ export default function Admin() {
   const initialTab = (() => {
     if (typeof window === "undefined") return "events";
     const t = new URLSearchParams(window.location.search).get("tab");
-    const valid = ["events", "users", "payouts", "stripe", "stripe-connect", "emails", "chats", "org-chat", "protection", "blog", "partners", "settings"];
+    const valid = ["events", "users", "payouts", "stripe", "stripe-connect", "emails", "chats", "org-chat", "protection", "blog", "partners", "partner-applications", "settings"];
     return valid.includes(t) ? t : "events";
   })();
   const [tab, setTab] = useState(initialTab);
@@ -60,13 +61,14 @@ export default function Admin() {
           <TabBtn id="protection" current={tab} onClick={setTab} icon={<ShieldAlert className="w-4 h-4" />} label="Protection claims" />
           <TabBtn id="blog" current={tab} onClick={setTab} icon={<FileText className="w-4 h-4" />} label="Blog" />
           <TabBtn id="partners" current={tab} onClick={setTab} icon={<Handshake className="w-4 h-4" />} label="Lead partners" />
+          <TabBtn id="partner-applications" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Applications" />
           <TabBtn id="flyers" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Recruitment flyers" />
           <TabBtn id="creator-codes" current={tab} onClick={setTab} icon={<Tag className="w-4 h-4" />} label="Creator codes" />
           <TabBtn id="settings" current={tab} onClick={setTab} icon={<SettingsIcon className="w-4 h-4" />} label="Settings" />
         </div>
       </div>
 
-      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "stripe-connect" ? <AdminStripeConnectStatusTab /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : tab === "org-chat" ? <OrganizerChatTab /> : tab === "protection" ? <ProtectionClaimsTab /> : tab === "blog" ? <AdminBlogTab /> : tab === "partners" ? <AdminMarketingPartnersTab /> : tab === "flyers" ? <AdminFlyersTab /> : tab === "creator-codes" ? <AdminCreatorCodesTab /> : <SettingsTab />}
+      {tab === "events" ? <EventsTab /> : tab === "users" ? <UsersTab currentUser={user} /> : tab === "payouts" ? <PayoutsTab /> : tab === "stripe" ? <StripeAdminDiagnostics /> : tab === "stripe-connect" ? <AdminStripeConnectStatusTab /> : tab === "emails" ? <EmailsTab /> : tab === "chats" ? <SupportChatTab /> : tab === "org-chat" ? <OrganizerChatTab /> : tab === "protection" ? <ProtectionClaimsTab /> : tab === "blog" ? <AdminBlogTab /> : tab === "partners" ? <AdminMarketingPartnersTab /> : tab === "partner-applications" ? <AdminPartnerApplicationsTab /> : tab === "flyers" ? <AdminFlyersTab /> : tab === "creator-codes" ? <AdminCreatorCodesTab /> : <SettingsTab />}
     </div>
   );
 }

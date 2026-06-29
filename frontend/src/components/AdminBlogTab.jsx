@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import api from "@/lib/api";
 import RichTextEditor from "@/components/RichTextEditor";
 import ImageUploader from "@/components/ImageUploader";
+import NewsletterUnsubscribeReasons from "@/components/NewsletterUnsubscribeReasons";
 
 /**
  * AdminBlogTab — admin CMS for /blog.
@@ -261,6 +262,9 @@ export default function AdminBlogTab() {
           )}
         </div>
       )}
+
+      {/* Why-people-unsubscribe widget — surfaces feedback so admin can iterate on cadence/content */}
+      <NewsletterUnsubscribeReasons />
     </div>
   );
 }

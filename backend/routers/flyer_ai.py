@@ -28,17 +28,17 @@ logger = logging.getLogger("aura.flyer_ai")
 router = APIRouter(tags=["flyer-ai"])
 
 
-SYSTEM_PROMPT = """You are a senior copywriter writing 3-line headlines for
+SYSTEM_PROMPT_TEMPLATE = """You are a senior copywriter writing 3-line headlines for
 social media event flyers (Instagram square/story/landscape).
 
 OUTPUT STRICT JSON ONLY — no prose, no markdown fences, no commentary.
 
 Schema:
-{
+{{
   "headline": str,   // PUNCHY 3-6 words. ALL CAPS optional. No emojis. No quotes. The hook.
   "tagline":  str,   // ONE short sentence (max 12 words) describing the vibe / who it's for.
   "cta":      str    // 2-4 words. Action verb. e.g. "BOOK YOUR SEAT", "GRAB TICKETS", "LIMITED ENTRY"
-}
+}}
 
 Rules:
 - DO NOT restate the event date, venue or city — the AI text sits next to that info
@@ -48,7 +48,38 @@ Rules:
 - Match the energy of the title. Concert = electric. Conference = sharp.
 - If the title is in Hindi/Gujarati/other script, write English copy that complements it (do not translate).
 - ASCII only. No smart quotes, no em-dashes — use regular hyphens.
+
+STYLE DIRECTION: {style_brief}
 """
+
+STYLE_BRIEFS = {
+    "punchy": (
+        "PUNCHY — short, impactful, ALL-CAPS-friendly. Think rock concert poster, "
+        "sports billboard, hype announcement. Use power verbs and visceral imagery. "
+        "Headline must feel like a chant. CTA is a command (e.g. 'GRAB TICKETS', 'LOCK IT IN')."
+    ),
+    "elegant": (
+        "ELEGANT — refined, editorial, restrained. Think Vogue cover, gala invitation, "
+        "boutique jazz night. Use sophisticated vocabulary, mixed case (Title Case for headline), "
+        "and quiet confidence. CTA is gracious (e.g. 'Reserve Your Seat', 'Save the Date')."
+    ),
+    "mysterious": (
+        "MYSTERIOUS — intriguing, suggestive, slightly cryptic. Think indie film teaser, "
+        "underground rave, immersive theatre. Use evocative imagery, sentence fragments, "
+        "and leave something unsaid. CTA hints at scarcity (e.g. 'Step Inside', 'If You Know')."
+    ),
+}
+
+
+def _system_prompt(style: str) -> str:
+    """Build the system prompt for the requested style. Falls back to a
+    neutral brief if the style id is unknown (so frontend can add new styles
+    later without backend changes)."""
+    brief = STYLE_BRIEFS.get(
+        style,
+        "Default house style — confident, modern, audience-aware. Avoid over-doing any one register.",
+    )
+    return SYSTEM_PROMPT_TEMPLATE.format(style_brief=brief)
 
 
 def _strip_json(s: str) -> str:
@@ -62,8 +93,14 @@ def _strip_json(s: str) -> str:
 
 @router.post("/events/{event_id}/flyer/generate-text")
 async def generate_flyer_text(
-    event_id: str, user: dict = Depends(get_current_user)
+    event_id: str,
+    style: str = "default",
+    user: dict = Depends(get_current_user),
 ) -> Dict[str, Any]:
+    """Generate flyer text. Optional `?style=punchy|elegant|mysterious|default`
+    so the "Surprise me" frontend button can rotate through preset voices
+    on each click without restating the system prompt server-side.
+    """
     event = await db.events.find_one({"event_id": event_id}, {"_id": 0})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -101,12 +138,13 @@ async def generate_flyer_text(
 
     raw = None
     last_err: Exception | None = None
+    sys_prompt = _system_prompt(style)
     for provider, model in MODEL_CHAIN:
         try:
             chat = LlmChat(
                 api_key=key,
                 session_id=f"flyer_text_{uuid.uuid4().hex[:10]}",
-                system_message=SYSTEM_PROMPT,
+                system_message=sys_prompt,
             ).with_model(provider, model)
             raw = await chat.send_message(UserMessage(text=user_text))
             break
@@ -142,6 +180,7 @@ async def generate_flyer_text(
             "tagline": fallback_taglines[hash(event_id) % len(fallback_taglines)],
             "cta": "BOOK NOW",
             "ai_fallback": True,
+            "style": style,
         }
 
     try:
@@ -161,4 +200,4 @@ async def generate_flyer_text(
     if not cta:
         cta = "GRAB TICKETS"
 
-    return {"headline": headline, "tagline": tagline, "cta": cta}
+    return {"headline": headline, "tagline": tagline, "cta": cta, "style": style}

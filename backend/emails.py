@@ -570,7 +570,82 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "blog_new_post": lambda ctx: _t_blog_new_post(ctx),
     "marketing_partner_statement": lambda ctx: _t_marketing_partner_statement(ctx),
     "marketing_partner_invitation": lambda ctx: _t_marketing_partner_invitation(ctx),
+    "partner_application_received": lambda ctx: _t_partner_application_received(ctx),
+    "partner_application_admin_notify": lambda ctx: _t_partner_application_admin_notify(ctx),
+    "partner_application_approved": lambda ctx: _t_partner_application_approved(ctx),
 }
+
+
+def _t_partner_application_received(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Acknowledgement to the applicant — confirms we got the submission."""
+    name = ctx.get("applicant_name") or "there"
+    app_id = ctx.get("application_id") or ""
+    body = f"""
+    <p style="color:{TEXT};">Hi {name},</p>
+    <p style="color:{TEXT_MUTED};">Thanks for applying to the Allsale marketing partner program. We&apos;ve received your application and our team will review it within <b style="color:{TEXT};">2-3 business days</b>.</p>
+    <p style="color:{TEXT_MUTED};">If approved, we&apos;ll reach out with the commission structure + portal access. We typically pay 10-25% of platform commission on every booking your audience drives, recurring monthly.</p>
+    <p style="color:{TEXT_MUTED};font-size:12px;">Reference: <code>{app_id}</code></p>
+    """
+    subject = "We got your partner application — review in 2-3 days"
+    html = _layout(subject, "Allsale Marketing Partner Program", body, "Visit Allsale", APP_PUBLIC_URL)
+    text = _text_fallback([
+        f"Hi {name},",
+        "Thanks for applying to the Allsale marketing partner program.",
+        "Our team will review within 2-3 business days. If approved, we'll send commission details + portal access.",
+        f"Reference: {app_id}",
+    ])
+    return subject, html, text
+
+
+def _t_partner_application_admin_notify(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Notify Allsale admins that a new partner application landed."""
+    name = ctx.get("applicant_name") or "(no name)"
+    email = ctx.get("applicant_email") or ""
+    body = f"""
+    <p style="color:{TEXT};">A new partner application just came in.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:14px 0;border:1px solid {BORDER};border-radius:10px;overflow:hidden;">
+      <tr><td style="padding:10px 14px;background:#FFF9F0;color:{TEXT};font-weight:600;">Applicant</td><td style="padding:10px 14px;color:{TEXT};">{name}</td></tr>
+      <tr><td style="padding:10px 14px;border-top:1px solid {BORDER};color:{TEXT_MUTED};">Email</td><td style="padding:10px 14px;border-top:1px solid {BORDER};color:{TEXT};"><a href="mailto:{email}">{email}</a></td></tr>
+      <tr><td style="padding:10px 14px;border-top:1px solid {BORDER};color:{TEXT_MUTED};">Company</td><td style="padding:10px 14px;border-top:1px solid {BORDER};color:{TEXT};">{ctx.get('applicant_company') or '(none)'}</td></tr>
+      <tr><td style="padding:10px 14px;border-top:1px solid {BORDER};color:{TEXT_MUTED};">Channels</td><td style="padding:10px 14px;border-top:1px solid {BORDER};color:{TEXT};">{ctx.get('channels') or '(not specified)'}</td></tr>
+      <tr><td style="padding:10px 14px;border-top:1px solid {BORDER};color:{TEXT_MUTED};">Audience size</td><td style="padding:10px 14px;border-top:1px solid {BORDER};color:{TEXT};">{ctx.get('audience_size') or '(not specified)'}</td></tr>
+    </table>
+    <p style="color:{TEXT};font-weight:600;margin-top:18px;">Why they want to partner</p>
+    <p style="color:{TEXT_MUTED};white-space:pre-wrap;border-left:3px solid {ACCENT};padding-left:12px;margin:8px 0 18px;">{ctx.get('why_partner') or ''}</p>
+    """
+    subject = f"New partner application — {name}"
+    html = _layout(subject, "Allsale Admin", body, "Review in admin", APP_PUBLIC_URL + "/admin?tab=partner-applications")
+    text = _text_fallback([
+        f"New partner application — {name} <{email}>",
+        f"Company: {ctx.get('applicant_company') or '(none)'}",
+        f"Channels: {ctx.get('channels') or '(not specified)'}",
+        f"Audience: {ctx.get('audience_size') or '(not specified)'}",
+        f"Why partner: {ctx.get('why_partner') or ''}",
+        f"Review: {APP_PUBLIC_URL}/admin?tab=partner-applications",
+    ])
+    return subject, html, text
+
+
+def _t_partner_application_approved(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Email to applicant when admin approves their application."""
+    name = ctx.get("applicant_name") or "there"
+    note = ctx.get("note") or ""
+    note_block = f'<p style="color:{TEXT_MUTED};border-left:3px solid {ACCENT};padding-left:12px;">{note}</p>' if note else ""
+    body = f"""
+    <p style="color:{TEXT};">Great news, {name} — you&apos;re in. 🎉</p>
+    <p style="color:{TEXT_MUTED};">Your Allsale marketing partner application has been approved. We&apos;ll be in touch within 24 hours to share your commission structure, partner portal credentials, and the first event campaigns we&apos;d like you to promote.</p>
+    {note_block}
+    <p style="color:{TEXT_MUTED};">Reply to this email if you&apos;d like to set up an intro call.</p>
+    """
+    subject = "You're in — Allsale partner application approved"
+    html = _layout(subject, "Welcome to the Allsale partner network", body, "Visit Allsale", APP_PUBLIC_URL)
+    text = _text_fallback([
+        f"Great news, {name} — your Allsale partner application has been approved.",
+        "We'll be in touch within 24 hours with commission details + portal access.",
+        note,
+        "Reply to set up an intro call.",
+    ])
+    return subject, html, text
 
 
 def _t_marketing_partner_invitation(ctx: Dict[str, Any]) -> tuple[str, str, str]:

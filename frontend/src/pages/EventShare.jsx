@@ -74,6 +74,9 @@ export default function EventShare() {
   const [aiText, setAiText] = useState(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiFinished, setAiFinished] = useState(false);
+  // Style rotator for "Surprise me" — cycles default → punchy → elegant → mysterious → default.
+  const STYLE_CYCLE = ["default", "punchy", "elegant", "mysterious"];
+  const [aiStyleIdx, setAiStyleIdx] = useState(0);
   const refs = useRef({});
 
   useEffect(() => {
@@ -169,20 +172,34 @@ export default function EventShare() {
 
   const activeFmt = FORMATS.find((f) => f.key === active);
 
-  const generateAi = async () => {
+  const STYLE_META = {
+    default: { label: "AI text", emoji: "✨" },
+    punchy: { label: "Punchy", emoji: "⚡" },
+    elegant: { label: "Elegant", emoji: "🕯️" },
+    mysterious: { label: "Mysterious", emoji: "🌒" },
+  };
+
+  const generateAi = async (style = "default") => {
     setAiBusy(true);
     setAiFinished(false);
     try {
-      const { data } = await api.post(`/events/${id}/flyer/generate-text`);
-      setAiText({ headline: data.headline || "", tagline: data.tagline || "", cta: data.cta || "GRAB TICKETS" });
-      // Trigger the 100% flash; the component calls onDoneFlash → setAiBusy(false).
+      const { data } = await api.post(`/events/${id}/flyer/generate-text`, null, { params: { style } });
+      setAiText({ headline: data.headline || "", tagline: data.tagline || "", cta: data.cta || "GRAB TICKETS", style: data.style || style });
       setAiFinished(true);
-      toast.success("AI text added — edit any line, then download");
+      const meta = STYLE_META[data.style || style] || STYLE_META.default;
+      toast.success(`${meta.emoji} ${meta.label} draft applied — edit any line, then download`);
     } catch (e) {
       setAiFinished(false);
       setAiBusy(false);
       toast.error(e?.response?.data?.detail || "Couldn't generate text — try again");
     }
+  };
+
+  const surpriseMe = () => {
+    // Skip "default" if the user already has a default draft loaded — pick a flavoured style.
+    const nextIdx = (aiStyleIdx + 1) % STYLE_CYCLE.length;
+    setAiStyleIdx(nextIdx);
+    generateAi(STYLE_CYCLE[nextIdx === 0 ? 1 : nextIdx]); // never rotate back to "default" via surprise
   };
 
   return (
@@ -284,13 +301,18 @@ export default function EventShare() {
               <Package size={14} /> Download all 3 (ZIP)
             </button>
             {!aiText ? (
-              <button onClick={generateAi} disabled={aiBusy} className="btn-ghost" data-testid="ai-generate-btn">
+              <button onClick={() => generateAi("default")} disabled={aiBusy} className="btn-ghost" data-testid="ai-generate-btn">
                 <Wand2 size={14} /> {aiBusy ? "Writing..." : "Add AI text overlay"}
               </button>
             ) : (
-              <button onClick={() => setAiText(null)} className="btn-ghost" data-testid="ai-remove-btn">
-                <XIcon size={14} /> Remove text overlay
-              </button>
+              <>
+                <button onClick={surpriseMe} disabled={aiBusy} className="btn-ghost" data-testid="ai-surprise-btn" title="Try a different copywriting style">
+                  <Wand2 size={14} /> {aiBusy ? "Writing..." : "🪄 Surprise me"}
+                </button>
+                <button onClick={() => setAiText(null)} className="btn-ghost" data-testid="ai-remove-btn">
+                  <XIcon size={14} /> Remove text overlay
+                </button>
+              </>
             )}
           </div>
 
@@ -308,10 +330,10 @@ export default function EventShare() {
             >
               <div className="flex items-center justify-between">
                 <div className="text-xs uppercase tracking-widest" style={{ color: "var(--accent)" }}>
-                  <Wand2 size={12} className="inline mr-1" /> AI flyer text · editable
+                  <Wand2 size={12} className="inline mr-1" /> AI flyer text · {STYLE_META[aiText?.style || "default"]?.label || "AI text"} · editable
                 </div>
-                <button onClick={generateAi} disabled={aiBusy} className="text-xs underline" style={{ color: "var(--text-muted)" }} data-testid="ai-regenerate-btn">
-                  {aiBusy ? "Rewriting..." : "Regenerate"}
+                <button onClick={() => generateAi(aiText?.style || "default")} disabled={aiBusy} className="text-xs underline" style={{ color: "var(--text-muted)" }} data-testid="ai-regenerate-btn">
+                  {aiBusy ? "Rewriting..." : "Regenerate same style"}
                 </button>
               </div>
               <AiField label="Headline" value={aiText.headline} onChange={(v) => setAiText({ ...aiText, headline: v.slice(0, 60) })} maxLength={60} testid="ai-text-headline" />

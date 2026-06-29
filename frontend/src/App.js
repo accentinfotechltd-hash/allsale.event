@@ -28,6 +28,7 @@ import Admin from "@/pages/Admin";
 import AdminRevenue from "@/pages/AdminRevenue";
 import AuthCallback from "@/pages/AuthCallback";
 import BecomeOrganizer from "@/pages/BecomeOrganizer";
+import BecomePartner from "@/pages/BecomePartner";
 import About from "@/pages/About";
 import Contact from "@/pages/Contact";
 import OrganizerProfile from "@/pages/OrganizerProfile";
@@ -103,6 +104,7 @@ function AppRouter() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/become-organizer" element={<BecomeOrganizer />} />
+        <Route path="/become-partner" element={<BecomePartner />} />
         <Route path="/about" element={<About />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/terms" element={<Terms />} />
