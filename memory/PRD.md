@@ -31,6 +31,13 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Admin Settings → buyer-side price preview widget (Feb 28 2026, iter_31)**:
+  - New `BuyerPricePreview` component embedded in the Commission & fees form. Reads `percent` + `flat` LIVE as the admin types and shows a 3-row table ($25 / $50 / $100 sample tickets) with: `+ Fees` shown on listings, total the buyer pays at Stripe, the admin's cut, and the organizer's net.
+  - Math is identical to `lib/fees.js::estimateBuyerFees` so the preview matches what buyers actually see on listing pages — no more "save → check a listing → undo" loops.
+  - Stripe rate (2.7% + $0.30) is hard-coded since it's contractual; admin can only tune the platform % + flat.
+  - Footnote on the widget links to `/admin/revenue` so admin can cross-check past bookings.
+  - **Tests:** 5 new Jest cases (`BuyerPricePreview.math.test.js`) lock the preview math to the live formula. All pass alongside the 8 existing `fees.test.js` cases → 13 total.
+
 - **Fee-settings cache propagation fix (Feb 28 2026, iter_30)** — follow-up to iter_29:
   - User reported they changed the admin commission rate but listing pages still showed the old fee amount.
   - **Root cause**: `frontend/src/lib/fees.js::loadFeeSettings()` was an unbounded single-flight cache — once a page loaded the `/fees/public-settings` response, the in-memory promise was retained forever and never re-fetched. Admin rate changes therefore stayed invisible to live buyer browsers until a full hard refresh.

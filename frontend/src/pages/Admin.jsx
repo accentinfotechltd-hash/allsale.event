@@ -1051,6 +1051,11 @@ function SettingsTab() {
               <Row label="Net to organizer" value={`NZ$${(1000 - (1000 * parseFloat(percent || 0) / 100) - (50 * parseFloat(flat || 0))).toFixed(2)}`} accent="var(--success)" bold />
             </div>
           </div>
+
+          {/* Buyer-side preview at 3 representative price points — uses the SAME math
+              as the live `lib/fees.js::estimateBuyerFees` so admin sees the exact
+              numbers buyers will see on listing pages before clicking Save. */}
+          <BuyerPricePreview percent={percent} flat={flat} />
           <div className="pt-3 border-t" style={{ borderColor: "var(--border)" }}>
             <label className="flex items-start gap-3 cursor-pointer" data-testid="auto-payout-toggle">
               <input
@@ -1084,6 +1089,84 @@ function Row({ label, value, accent, bold }) {
     </div>
   );
 }
+
+
+// Buyer-side fee preview shown below the rate inputs. Uses the SAME formula
+// as `lib/fees.js::estimateBuyerFees` so admin sees the exact numbers a buyer
+// would see on a listing for `face_value` tickets before saving any change.
+//
+// Reads `percent` + `flat` as STRINGS from the form inputs (so live as you
+// type), and uses the hard-coded Stripe 2.7% + $0.30 (those aren't admin
+// configurable — they're contractual with Stripe NZ).
+function BuyerPricePreview({ percent, flat }) {
+  const pPct = (parseFloat(percent) || 0) / 100;
+  const pFlat = parseFloat(flat) || 0;
+  const sPct = 0.027;
+  const sFlat = 0.30;
+  const SAMPLE_PRICES = [25, 50, 100];
+
+  const rows = SAMPLE_PRICES.map((face) => {
+    const platform = face * pPct + pFlat;
+    const total = (face + platform + sFlat) / (1 - sPct);
+    const fees = total - face;
+    const stripeFee = total - face - platform;
+    return {
+      face,
+      fees: round2(fees),
+      total: round2(total),
+      platformCut: round2(platform),
+      stripeFee: round2(stripeFee),
+      // Organizer net = what the organizer keeps = face value (exclusive mode)
+      organizerNet: round2(face),
+    };
+  });
+
+  return (
+    <div
+      className="pt-3 border-t"
+      style={{ borderColor: "var(--border)" }}
+      data-testid="buyer-price-preview"
+    >
+      <div className="text-xs uppercase tracking-widest mb-3" style={{ color: "var(--text-dim)" }}>
+        Preview · what BUYERS will see
+      </div>
+      <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--border)" }}>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-xs uppercase tracking-wider" style={{ background: "var(--bg-soft, rgba(0,0,0,0.03))", color: "var(--text-dim)" }}>
+              <th className="text-left p-2.5 font-medium">Ticket price</th>
+              <th className="text-right p-2.5 font-medium">+ Fees</th>
+              <th className="text-right p-2.5 font-medium">Buyer pays</th>
+              <th className="text-right p-2.5 font-medium" title="Your platform commission (net of Stripe processing)">Your cut</th>
+              <th className="text-right p-2.5 font-medium" title="Organizer's net (= face value in exclusive mode)">Organizer</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr
+                key={r.face}
+                style={{ borderTop: i ? "1px solid var(--border)" : "none" }}
+                data-testid={`buyer-preview-row-${r.face}`}
+              >
+                <td className="p-2.5 tabular-nums">NZ${r.face.toFixed(2)}</td>
+                <td className="p-2.5 text-right tabular-nums" style={{ color: "var(--text-muted)" }}>+ NZ${r.fees.toFixed(2)}</td>
+                <td className="p-2.5 text-right tabular-nums font-medium" style={{ color: "var(--text)" }}>NZ${r.total.toFixed(2)}</td>
+                <td className="p-2.5 text-right tabular-nums" style={{ color: "var(--accent)" }}>NZ${r.platformCut.toFixed(2)}</td>
+                <td className="p-2.5 text-right tabular-nums" style={{ color: "var(--success)" }}>NZ${r.organizerNet.toFixed(2)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="text-[11px] mt-2 leading-relaxed" style={{ color: "var(--text-dim)" }}>
+        Includes Stripe 2.7% + NZ$0.30 (your contractual processing rate) — buyer sees
+        the &ldquo;+ Fees&rdquo; line on listings; your cut shows in <a href="/admin/revenue" className="underline">/admin/revenue</a> after each booking.
+      </div>
+    </div>
+  );
+}
+
+function round2(n) { return Math.round(n * 100) / 100; }
 
 
 // ============================================================================
