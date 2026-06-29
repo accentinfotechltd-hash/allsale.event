@@ -7,8 +7,8 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const STATUS_META = {
   connected: { dot: "🟢", label: "Connected", chip: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: CheckCircle2 },
-  onboarding_incomplete: { dot: "🟡", label: "Onboarding incomplete", chip: "bg-amber-50 text-amber-700 border-amber-200", icon: AlertTriangle },
-  not_connected: { dot: "🔴", label: "Not connected", chip: "bg-rose-50 text-rose-700 border-rose-200", icon: XCircle },
+  onboarding_incomplete: { dot: "🟡", label: "Onboarding", chip: "bg-amber-50 text-amber-700 border-amber-200", icon: AlertTriangle },
+  not_connected: { dot: "⚪", label: "Manual payouts", chip: "bg-slate-50 text-slate-600 border-slate-200", icon: XCircle },
 };
 
 const CURRENCY_SYMBOL = { NZD: "NZ$", AUD: "A$", USD: "US$", GBP: "£", EUR: "€", INR: "₹", AED: "د.إ" };
@@ -69,7 +69,7 @@ export default function AdminStripeConnectStatusTab() {
         { user_ids: [userId] },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      toast.success(`Sent ${r.data.sent} reminder${r.data.sent === 1 ? "" : "s"}`);
+      toast.success(`Sent ${r.data.sent} invite${r.data.sent === 1 ? "" : "s"}`);
       load();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed to send reminder");
@@ -79,7 +79,7 @@ export default function AdminStripeConnectStatusTab() {
   };
 
   const remindAll = async () => {
-    if (!confirm("Send reminder email to ALL organizers with revenue but no Stripe Connect?")) return;
+    if (!confirm("Send a friendly 'try Stripe Connect for faster payouts' invite to all organizers currently on manual payouts?")) return;
     setBlasting(true);
     try {
       const token = localStorage.getItem("auth_token");
@@ -87,7 +87,7 @@ export default function AdminStripeConnectStatusTab() {
         { user_ids: null },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      toast.success(`Queued ${r.data.sent} reminder${r.data.sent === 1 ? "" : "s"} (${r.data.skipped} skipped)`);
+      toast.success(`Queued ${r.data.sent} invite${r.data.sent === 1 ? "" : "s"} (${r.data.skipped} skipped)`);
       load();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Failed to blast reminders");
@@ -139,11 +139,11 @@ export default function AdminStripeConnectStatusTab() {
       <div>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-semibold text-slate-900">Stripe Connect status</h2>
+            <h2 className="text-2xl font-semibold text-slate-900">Stripe Connect adoption</h2>
             <p className="text-sm text-slate-600 mt-1 max-w-3xl">
-              For Stripe&apos;s native &quot;Collected fees&quot; tab to populate, organizers must complete Stripe
-              Connect onboarding BEFORE their next ticket sale. Bookings on disconnected organizers fall back to
-              the legacy platform-collects-100% flow — your platform cut is visible on <a href="/admin/revenue" className="underline">/admin/revenue</a> but not in Stripe.
+              Stripe Connect is an <b>optional upgrade</b> for organizers — they get instant payouts directly to their own Stripe balance.
+              Organizers who don&apos;t connect continue to be paid via your existing manual payout flow (no change needed).
+              When an organizer DOES connect, future ticket sales appear in Stripe&apos;s native <b>&quot;Collected fees&quot;</b> tab so you can see your platform cut without opening Allsale.
             </p>
           </div>
           <button
@@ -159,13 +159,13 @@ export default function AdminStripeConnectStatusTab() {
           <KpiCard label="Organizers total" value={data.summary.total} testid="kpi-total" />
           <KpiCard label="🟢 Connected" value={data.summary.connected} accent="emerald" testid="kpi-connected" />
           <KpiCard label="🟡 Onboarding" value={data.summary.onboarding} accent="amber" testid="kpi-onboarding" />
-          <KpiCard label="🔴 Not connected" value={data.summary.not_connected} accent="rose" testid="kpi-not-connected" />
+          <KpiCard label="⚪ Manual payouts" value={data.summary.not_connected} accent="slate" testid="kpi-not-connected" />
         </div>
 
         {totalUncollectedFromRevenue > 0 && (
-          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" data-testid="uncollected-banner">
-            <b>NZ${totalUncollectedFromRevenue.toFixed(2)}</b> in past revenue went to organizers who haven&apos;t connected Stripe yet — those charges show on YOUR Stripe account as gross totals (Allsale Events), not split-out via Connect.
-            <span className="block text-xs mt-1 opacity-80">Stripe&apos;s &quot;Collected fees&quot; tab will only populate for NEW charges after these organizers complete onboarding.</span>
+          <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900" data-testid="uncollected-banner">
+            <b>NZ${totalUncollectedFromRevenue.toFixed(2)}</b> in revenue has been processed via manual payouts (Allsale collects, then bank-transfers to organizers). That&apos;s the default — it works fine and will continue.
+            <span className="block text-xs mt-1 opacity-80">If any of these organizers want faster (instant) payouts straight to their Stripe, send them an invite below.</span>
           </div>
         )}
       </div>
@@ -175,7 +175,7 @@ export default function AdminStripeConnectStatusTab() {
         <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 text-sm">
           {[
             { id: "all", label: "All" },
-            { id: "not_connected", label: "🔴 Not connected" },
+            { id: "not_connected", label: "⚪ Manual payouts" },
             { id: "onboarding_incomplete", label: "🟡 Onboarding" },
             { id: "connected", label: "🟢 Connected" },
           ].map((b) => (
@@ -204,10 +204,10 @@ export default function AdminStripeConnectStatusTab() {
             data-testid="connect-status-remind-all"
             onClick={remindAll}
             disabled={blasting || data.summary.not_connected === 0}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white text-sm font-medium"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:bg-slate-300 text-white text-sm font-medium"
           >
             {blasting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-            Email all 🔴 organizers ({data.summary.not_connected})
+            Invite {data.summary.not_connected} manual organizers to try Stripe
           </button>
         </div>
       </div>
@@ -225,7 +225,7 @@ export default function AdminStripeConnectStatusTab() {
                 <th className="p-3 font-semibold text-right">Lifetime revenue</th>
                 <th className="p-3 font-semibold text-right">Platform fees</th>
                 <th className="p-3 font-semibold">Last paid</th>
-                <th className="p-3 font-semibold">Last reminder</th>
+                <th className="p-3 font-semibold">Last invite sent</th>
                 <th className="p-3 font-semibold text-right">Action</th>
               </tr>
             </thead>
@@ -268,7 +268,7 @@ export default function AdminStripeConnectStatusTab() {
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 disabled:opacity-50"
                         >
                           {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
-                          {row.last_reminder_sent_at ? "Remind again" : "Send reminder"}
+                          {row.last_reminder_sent_at ? "Invite again" : "Invite to Stripe"}
                         </button>
                       )}
                     </td>
@@ -288,6 +288,7 @@ function KpiCard({ label, value, accent, testid }) {
     emerald: "border-emerald-200 bg-emerald-50/40",
     amber: "border-amber-200 bg-amber-50/40",
     rose: "border-rose-200 bg-rose-50/40",
+    slate: "border-slate-300 bg-slate-50/60",
   };
   return (
     <div

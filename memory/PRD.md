@@ -31,7 +31,23 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
-- **Admin Stripe Connect Status Tab + Organizer Warning Banner (Feb 28 2026, iter_26)**:
+- **Mixed-model softening (Feb 28 2026, iter_26b)** — user decision: manual payouts stay as the platform's default; Stripe Connect is an *opt-in upgrade* for organizers who want instant payouts:
+  - **Email template `organizer_stripe_setup_nudge` rewritten** — old copy ("payouts will be held in escrow until you connect") → new soft tone ("Optional upgrade for faster payouts. No rush — manual bank transfers continue to work exactly as before."). Subject changed to "Want faster payouts? Connect Stripe (optional)".
+  - **Organizer banner re-themed** (`OrganizerStripeConnectWarning.jsx`):
+    - Color: rose/amber alarm → sky/emerald gradient with a Zap icon.
+    - Copy: "ACTION REQUIRED · Stripe Connect not set up" → "Optional upgrade · faster payouts" with "Want your ticket revenue to land instantly?" headline.
+    - Now **dismissible** (X button + "Maybe later") → stores `stripe_connect_invite_dismissed_at` in localStorage and hides for 7 days.
+    - CTA copy: "Connect Stripe now" → "Try Stripe Connect".
+  - **Admin tab re-labeled** (`AdminStripeConnectStatusTab.jsx`):
+    - Title: "Stripe Connect status" → "Stripe Connect adoption". Nav label: "Connect status" → "Connect adoption".
+    - KPI card: "🔴 Not connected" → "⚪ Manual payouts" (slate-coloured, no alarm).
+    - Status badge: "🔴 Not connected" / rose chip → "⚪ Manual payouts" / slate chip.
+    - Uncollected-revenue banner re-themed: amber alarm → sky info ("This works fine and will continue. Invite the ones who want faster payouts below.")
+    - Bulk button: "Email all 🔴 organizers (52)" / emerald → "Invite 52 manual organizers to try Stripe" / sky.
+    - Per-row button: "Send reminder" → "Invite to Stripe".
+    - Confirm dialog softened: "Send reminder email to ALL organizers" → "Send a friendly 'try Stripe Connect for faster payouts' invite".
+
+
   - User context: Phase B deployed to production, but Stripe's "Collected fees" tab is still empty because 0 production organizers have completed Stripe Connect onboarding. All historical 38 paid charges happened pre-Phase-B, structured as single charges on Allsale's master account (Settlement merchant: Allsale Events / Transferred to: —) — those are immutable, will never show app fees in Stripe.
   - **Admin tab `/admin?tab=stripe-connect`** (component: `AdminStripeConnectStatusTab.jsx`):
     - 4 KPI cards: Total organizers, 🟢 Connected, 🟡 Onboarding incomplete, 🔴 Not connected.

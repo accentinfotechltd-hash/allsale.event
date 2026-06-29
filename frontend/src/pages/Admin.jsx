@@ -53,7 +53,7 @@ export default function Admin() {
           <TabBtn id="users" current={tab} onClick={setTab} icon={<Users className="w-4 h-4" />} label="Users" />
           <TabBtn id="payouts" current={tab} onClick={setTab} icon={<Wallet className="w-4 h-4" />} label="Payouts" />
           <TabBtn id="stripe" current={tab} onClick={setTab} icon={<ShieldCheck className="w-4 h-4" />} label="Stripe" />
-          <TabBtn id="stripe-connect" current={tab} onClick={setTab} icon={<Handshake className="w-4 h-4" />} label="Connect status" />
+          <TabBtn id="stripe-connect" current={tab} onClick={setTab} icon={<Handshake className="w-4 h-4" />} label="Connect adoption" />
           <TabBtn id="emails" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Emails" />
           <TabBtn id="chats" current={tab} onClick={setTab} icon={<MessageCircle className="w-4 h-4" />} label="Live chat" />
           <TabBtn id="org-chat" current={tab} onClick={setTab} icon={<MessagesSquare className="w-4 h-4" />} label="Organizer chat" />
