@@ -31,6 +31,20 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Phase B: Stripe Connect Destination Charges — admin's #1 ask fulfilled (Feb 28 2026)**:
+  - User reported: "I can see the charges but I can't see the collection fees. I can't see my cut." Phase A (Admin Revenue Dashboard at `/admin/revenue`) exposed the platform cut in-app; Phase B makes it visible **natively in the Stripe Dashboard** as a separate `application_fee` line per charge.
+  - **Backend (`routers/payments.py`):**
+    - 3 new helpers: `_should_use_destination_charge(booking, organizer)`, `_application_fee_cents(booking)`, `_build_destination_charge_session(...)`.
+    - `checkout_session` now routes through `stripe.checkout.Session.create(payment_intent_data={application_fee_amount, transfer_data: {destination: <organizer_stripe_account>}})` when the organizer has Connect + `stripe_charges_enabled=true` AND the booking has no gift-card redemption (gift cards stay on legacy to avoid underfunding the connected account).
+    - Math: `application_fee_amount = booking.amount - booking.face_value` (= `service_fee` + any protection surcharge). Both exclusive and absorb_fees modes covered — verified by unit tests against `fees.compute_fees()`.
+    - Graceful fallback: any error during destination-charge creation (e.g., Stripe rejects a stale acct_id) is logged and falls through to the legacy emergent-wrapper path. No 500s for the buyer.
+    - Bookings flagged `stripe_destination_charge=True` + `stripe_connect_account_id` for downstream auditing.
+  - **Backend (`routers/payouts.py`):** `_eligible_bookings_for_payout` now excludes `stripe_destination_charge=True` bookings — those were already settled to the organizer's connected account at checkout; including them would double-pay. Mongo's `$ne: True` correctly matches legacy bookings (missing field).
+  - **Effect on admin's Stripe dashboard:** every Connect-routed charge now shows the platform's `application_fee_amount` as its own line — admin can finally see their 1% + $0.50 cut without a custom report.
+  - **Tests:** 15 new pytest cases in `test_stripe_destination_charges.py` (gating + math + payout exclusion) + 9 new HTTP integration cases in `test_iter25_phase_b_integration.py` (smoke + legacy organizer + fake-acct fallback + payouts exclusion + admin revenue + public settings shape). **24/24 pass.** Testing agent (iter_25): no critical issues, no action items.
+  - **Pre-existing fix:** also corrected `platform_settings.commission_percent` from 8.0 → 1.0 in the DB (test environment had drifted) and patched `tests/test_stripe_connect.py` to include the now-mandatory `phone` field on auth/register.
+  - **Hold/payout semantics (note for ops):** Funds split at charge time means organizer's connected account holds the money per Stripe's default rolling payout schedule (typically 7-day for new accounts). To enforce the 5-day-after-event hold, set the connected account's payout schedule to `manual` and trigger payouts post-event via a future scheduler tick. This is operator-configurable — not a blocker for Phase B.
+
 - **Fee math fix: platform_flat split from stripe_flat — 1% + $0.50 now collected correctly (Feb 26 2026)**:
   - User reported: "I could see the fee in my stripe account, we charge 1% + 0.50 cent fees."
   - **RCA:** The old `compute_fees()` only had `stripe_flat` parameter. Admin's `commission_flat_fee_per_ticket` ($0.50 platform flat) was being passed as `stripe_flat`, OVERWRITING Stripe's actual $0.30. Net effect: platform was under-collecting by $0.30 per ticket — the $0.50 was being used to cover Stripe's $0.30 instead of being kept by the platform. Also the env default was wrong (5% platform fee instead of the user's actual 1%).
