@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Download, DollarSign, TrendingUp, Calendar } from "lucide-react";
+import { Download, DollarSign, TrendingUp, TrendingDown, Calendar, ArrowUpRight } from "lucide-react";
 import api from "@/lib/api";
 import { formatMoney } from "@/lib/currencies";
 
@@ -18,12 +18,26 @@ import { formatMoney } from "@/lib/currencies";
  */
 export default function AdminRevenue() {
   const [data, setData] = useState({ items: [], totals: null, currency: "NZD", mixed_currencies: false });
+  const [headline, setHeadline] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [offset, setOffset] = useState(0);
   const limit = 200;
+
+  // Headline (this-month vs last-month) loads once and is independent of
+  // the date-range filter — admins always want to see "this month so far".
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: d } = await api.get("/admin/revenue/headline");
+        setHeadline(d);
+      } catch {
+        // Silently fail — headline is nice-to-have, table is the source of truth.
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -98,6 +112,79 @@ export default function AdminRevenue() {
           <Download className="w-4 h-4" /> Export CSV
         </button>
       </div>
+
+      {/* Hero card: total earned THIS MONTH so far */}
+      {headline && (
+        <div
+          className="rounded-2xl p-6 mb-6 relative overflow-hidden border"
+          style={{
+            borderColor: "var(--accent)",
+            background: "linear-gradient(135deg, #FFF9F0 0%, #FFEEDB 100%)",
+          }}
+          data-testid="revenue-hero"
+        >
+          <div className="flex flex-col md:flex-row md:items-end gap-5 justify-between">
+            <div>
+              <div
+                className="text-[11px] uppercase tracking-[0.22em] font-semibold mb-1"
+                style={{ color: "var(--accent)" }}
+              >
+                Your platform earnings · {headline.current_month.label}
+              </div>
+              <div className="flex items-baseline gap-3 flex-wrap">
+                <div
+                  className="serif text-5xl md:text-6xl tabular-nums"
+                  style={{ color: "var(--accent)" }}
+                  data-testid="revenue-hero-amount"
+                >
+                  {formatMoney(headline.current_month.platform_fees, headline.current_month.currency)}
+                </div>
+                {headline.delta_percent !== null && (
+                  <span
+                    className="inline-flex items-center gap-1 text-sm font-medium px-2.5 py-1 rounded-full"
+                    style={{
+                      background: headline.delta_percent >= 0 ? "#DCFCE7" : "#FEE2E2",
+                      color: headline.delta_percent >= 0 ? "#15803D" : "#B91C1C",
+                    }}
+                    data-testid="revenue-hero-delta"
+                  >
+                    {headline.delta_percent >= 0 ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
+                    {headline.delta_percent >= 0 ? "+" : ""}{headline.delta_percent}% vs last month
+                  </span>
+                )}
+              </div>
+              <div className="text-sm mt-2" style={{ color: "var(--text-muted)" }}>
+                From <b>{headline.current_month.count}</b> paid {headline.current_month.count === 1 ? "booking" : "bookings"} so far this month
+                {headline.today_fees > 0 && (
+                  <> · <span style={{ color: "var(--accent)" }}>+{formatMoney(headline.today_fees, headline.current_month.currency)} today</span></>
+                )}
+              </div>
+            </div>
+
+            {/* Previous month comparison */}
+            <div
+              className="text-right md:text-left md:border-l md:pl-5 shrink-0"
+              style={{ borderColor: "rgba(0,0,0,0.08)" }}
+              data-testid="revenue-hero-previous"
+            >
+              <div className="text-[11px] uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                {headline.previous_month.label}
+              </div>
+              <div className="serif text-2xl tabular-nums" style={{ color: "var(--text)" }}>
+                {formatMoney(headline.previous_month.platform_fees, headline.previous_month.currency)}
+              </div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                {headline.previous_month.count} bookings
+              </div>
+            </div>
+          </div>
+          {headline.current_month.platform_fees === 0 && (
+            <div className="mt-4 text-xs px-3 py-2 rounded-lg inline-flex items-center gap-1.5" style={{ background: "rgba(255,255,255,0.6)", color: "var(--text-muted)" }}>
+              <ArrowUpRight className="w-3.5 h-3.5" /> No paid bookings yet this month — when buyers purchase tickets, your 1% + $0.50 platform fee will appear here.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Date filter */}
       <div className="flex items-end gap-3 mb-6 flex-wrap" data-testid="revenue-filters">

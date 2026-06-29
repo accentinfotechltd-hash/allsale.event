@@ -31,6 +31,12 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Revenue hero card on `/admin/revenue` (Feb 28 2026, iter_28)** — answered the user's question "where can I see my collection amount?" by surfacing it as the dominant visual element above the per-booking table:
+  - New endpoint `GET /api/admin/revenue/headline` aggregates current-month + previous-month + today buckets in 3 Mongo pipelines (cheap — uses ISO `paid_at` prefix comparison instead of date casting).
+  - Returns `{current_month: {gross, platform_fees, count, currency, label, start, end}, previous_month: {...}, delta_percent, today_fees, today_count}`.
+  - Frontend `AdminRevenue.jsx` hero card: huge serif "NZ$XX.YZ" platform-earnings amount + delta-vs-last-month chip (green +X% / red -X%) + "+ NZ$Y today" sub-line. Comparison block on the right shows previous month's total + count. Warm orange gradient background, accent-colored border. Empty-state message: "No paid bookings yet this month — when buyers purchase tickets, your 1% + $0.50 platform fee will appear here."
+  - **Tests:** 4 new pytest cases (`test_admin_revenue_headline.py`). All pass. Live screenshot confirmed: "YOUR PLATFORM EARNINGS · JUNE 2026 / NZ$13.50 / From 1 paid booking so far this month" + right-side MAY 2026 / NZ$0.00 comparison.
+
 - **AI flyer progress UI (Feb 28 2026, iter_27)** — fixed the 15-20s "looks broken" wait on `/events/{id}/share` → "Add AI text overlay":
   - New `AiFlyerProgress.jsx` inline progress card with rotating stage messages, asymptotic progress bar (capped at 95% until API returns), pulsing icon, elapsed-time counter, and a "taking longer than usual" honesty line after 15s.
   - 4 stages keyed to observed P50 latency: 0s "Reading your event details…", 5s "Drafting a punchy headline…", 10s "Polishing the tagline & CTA…", 16s "Almost done — finalising the text…".

@@ -1240,6 +1240,92 @@ async def admin_revenue(
     }
 
 
+@router.get("/revenue/headline")
+async def admin_revenue_headline(user: dict = Depends(get_current_user)):
+    """Lightweight headline KPI: total platform fees collected THIS MONTH
+    vs. previous month + delta. Powers the big "earned this month" hero
+    card at the top of /admin/revenue so admin can see their cut at a
+    glance without scrolling through the per-booking table.
+
+    Returns:
+        {
+          current_month:  {label, start, end, gross, platform_fees, count, currency},
+          previous_month: {label, start, end, gross, platform_fees, count, currency},
+          delta_percent:  +12.3,   # platform_fees: current vs previous (null if prev=0)
+          today_fees:     12.34,   # today's platform fees in headline_currency
+        }
+    """
+    _admin_only(user)
+
+    now = utc_now()
+    cur_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # Previous month start/end via calendar.
+    if cur_start.month == 1:
+        prev_start = cur_start.replace(year=cur_start.year - 1, month=12)
+    else:
+        prev_start = cur_start.replace(month=cur_start.month - 1)
+    prev_end = cur_start  # exclusive
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    async def _bucket(start_dt: "datetime", end_dt: Optional["datetime"]) -> dict:
+        """Aggregate paid bookings in [start, end) — uses prefix string compare
+        on `paid_at` (ISO 8601), which is cheap and correctly ordered."""
+        q: dict = {"status": "paid", "paid_at": {"$gte": start_dt.isoformat()}}
+        if end_dt is not None:
+            q["paid_at"]["$lt"] = end_dt.isoformat()
+        pipeline = [
+            {"$match": q},
+            {"$group": {
+                "_id": {"$ifNull": ["$currency", "NZD"]},
+                "gross": {"$sum": {"$ifNull": ["$amount", 0]}},
+                "platform_fees": {"$sum": {"$ifNull": ["$platform_fee", 0]}},
+                "stripe_fees": {"$sum": {"$ifNull": ["$stripe_fee_estimated", 0]}},
+                "count": {"$sum": 1},
+            }},
+        ]
+        by_ccy: dict = {}
+        async for row in db.bookings.aggregate(pipeline):
+            by_ccy[(row["_id"] or "NZD").upper()] = row
+        if not by_ccy:
+            return {"gross": 0.0, "platform_fees": 0.0, "stripe_fees": 0.0, "count": 0, "currency": "NZD"}
+        majority = max(by_ccy.items(), key=lambda kv: kv[1]["count"])
+        return {
+            "gross": round(float(majority[1]["gross"]), 2),
+            "platform_fees": round(float(majority[1]["platform_fees"]), 2),
+            "stripe_fees": round(float(majority[1]["stripe_fees"]), 2),
+            "count": int(majority[1]["count"]),
+            "currency": majority[0],
+        }
+
+    current = await _bucket(cur_start, None)
+    previous = await _bucket(prev_start, prev_end)
+    today = await _bucket(today_start, None)
+
+    delta = None
+    if previous["platform_fees"] > 0:
+        delta = round(
+            ((current["platform_fees"] - previous["platform_fees"]) / previous["platform_fees"]) * 100, 1
+        )
+
+    return {
+        "current_month": {
+            **current,
+            "label": cur_start.strftime("%B %Y"),
+            "start": cur_start.date().isoformat(),
+            "end": now.date().isoformat(),
+        },
+        "previous_month": {
+            **previous,
+            "label": prev_start.strftime("%B %Y"),
+            "start": prev_start.date().isoformat(),
+            "end": (prev_end - timedelta(days=1)).date().isoformat(),
+        },
+        "delta_percent": delta,
+        "today_fees": today["platform_fees"],
+        "today_count": today["count"],
+    }
+
+
 # ---------- Stripe Connect Status Tracker (admin) ----------
 # Lets the admin see which organizers haven't completed Stripe Connect
 # onboarding yet so they can chase the high-revenue ones onto the new
