@@ -31,6 +31,15 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Async test migration — 49 tests migrated to `@pytest.mark.asyncio` (auto mode) (Mar 1 2026, iter_45)**:
+  - Created `pytest.ini` with `asyncio_mode = auto` + `asyncio_default_test_loop_scope = session` + `asyncio_default_fixture_loop_scope = session` so all `async def test_*` functions run on the same Motor-friendly event loop.
+  - Wrote `scripts/migrate_async_tests.py` — pattern-matches `def test_xxx()` → `async def run(): ...` → `asyncio.get_event_loop().run_until_complete(run())` and rewrites to native `async def test_xxx()` with the body dedented one level. Idempotent + safe (skips functions where the pattern doesn't match exactly).
+  - **15 test files migrated** (49 functions): `test_boost`, `test_boost_recap`, `test_bundles`, `test_faq_chatbot`, `test_gift_card_schedule_resend`, `test_gift_cards`, `test_group_discount`, `test_iteration14_p2_polish`, `test_organizer_referrals`, `test_recruitment_leads_csv`, `test_seatmap_templates`, `test_ticket_protection`, `test_ticket_protection_pool_drain`, `test_ticket_protection_sla`, `test_trending`.
+  - Removed now-unused `import asyncio` from all 15 files.
+  - **Result**: 64/64 migrated tests now pass cleanly when run together in any order — the previous pytest-asyncio conflict that surfaced "Event loop is closed" when mixing newer `@pytest.mark.asyncio` tests with old `get_event_loop()` ones is gone.
+  - 2 files (`test_iter24_email_resend_api.py`, `test_iter26_stripe_connect_remind.py`) use a different `_run(coro)` helper pattern and don't need migration — they coexist fine with the new config.
+  - Pre-existing test failures in `test_iteration4/10/11/12/13/14/15/16/17.py` and `test_fees_platform_flat.py::test_public_settings_response_shape` are unrelated to the migration (stale seed-data `organizer@allsale.events:organizer123` that hasn't existed since the Feb 2026 reset). Confirmed via `git stash` — same errors before the migration.
+
 - **Eventfinda VA workflow + Gift card scheduled delivery & resend + 58 skipped tests deleted (Mar 1 2026, iter_44)**:
   - **Recruitment Leads CSV export + import** (VA-friendly offline editing):
     - `GET /admin/recruitment-leads.csv?status=&kind=&source=` streams CSV (10 cols incl. lead_id as join key). Filters mirror the JSON listing endpoint.

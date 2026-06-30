@@ -1,7 +1,6 @@
 """Boost recap — email template renders + scheduler picks up expired boosts."""
 from __future__ import annotations
 
-import asyncio
 import sys
 import uuid
 from datetime import timedelta
@@ -52,40 +51,38 @@ def test_boost_recap_template_handles_missing_stats():
     assert "—" in html
 
 
-def test_scheduler_marks_expired_boosts_and_stamps():
+async def test_scheduler_marks_expired_boosts_and_stamps():
     """Insert a fake expired boost → run the recap fn → row should be stamped."""
     from scheduler import _send_boost_recaps
 
-    async def run():
-        event_id = f"evt_{uuid.uuid4().hex[:10]}"
-        owner_id = f"u_{uuid.uuid4().hex[:8]}"
-        now = utc_now()
-        try:
-            await db.users.insert_one({
-                "user_id": owner_id, "email": "test-recap@example.com", "name": "Test Owner",
-            })
-            await db.events.insert_one({
-                "event_id": event_id,
-                "organizer_id": owner_id,
-                "title": "Expired Boost Test",
-                "date": (now + timedelta(days=10)).isoformat(),
-                "boosted_at": (now - timedelta(days=2)).isoformat(),
-                "boosted_until": (now - timedelta(hours=2)).isoformat(),
-                "last_boost_kind": "paid",
-                "last_boost_tier": "1day",
-            })
-            sent = await _send_boost_recaps(db)
-            assert sent >= 1
-            stamped = await db.events.find_one({"event_id": event_id}, {"_id": 0, "boost_recap_sent_at": 1})
-            assert stamped and stamped.get("boost_recap_sent_at")
-            # Second run is a no-op
-            sent2 = await _send_boost_recaps(db)
-            stamped2 = await db.events.find_one({"event_id": event_id}, {"_id": 0, "boost_recap_sent_at": 1})
-            assert stamped["boost_recap_sent_at"] == stamped2["boost_recap_sent_at"]
-            # sent2 should not increment for THIS event
-            assert sent2 <= sent  # may pick up other test residue, but our row didn't re-send
-        finally:
-            await db.events.delete_one({"event_id": event_id})
-            await db.users.delete_one({"user_id": owner_id})
+    event_id = f"evt_{uuid.uuid4().hex[:10]}"
+    owner_id = f"u_{uuid.uuid4().hex[:8]}"
+    now = utc_now()
+    try:
+        await db.users.insert_one({
+            "user_id": owner_id, "email": "test-recap@example.com", "name": "Test Owner",
+        })
+        await db.events.insert_one({
+            "event_id": event_id,
+            "organizer_id": owner_id,
+            "title": "Expired Boost Test",
+            "date": (now + timedelta(days=10)).isoformat(),
+            "boosted_at": (now - timedelta(days=2)).isoformat(),
+            "boosted_until": (now - timedelta(hours=2)).isoformat(),
+            "last_boost_kind": "paid",
+            "last_boost_tier": "1day",
+        })
+        sent = await _send_boost_recaps(db)
+        assert sent >= 1
+        stamped = await db.events.find_one({"event_id": event_id}, {"_id": 0, "boost_recap_sent_at": 1})
+        assert stamped and stamped.get("boost_recap_sent_at")
+        # Second run is a no-op
+        sent2 = await _send_boost_recaps(db)
+        stamped2 = await db.events.find_one({"event_id": event_id}, {"_id": 0, "boost_recap_sent_at": 1})
+        assert stamped["boost_recap_sent_at"] == stamped2["boost_recap_sent_at"]
+        # sent2 should not increment for THIS event
+        assert sent2 <= sent  # may pick up other test residue, but our row didn't re-send
+    finally:
+        await db.events.delete_one({"event_id": event_id})
+        await db.users.delete_one({"user_id": owner_id})
 
-    asyncio.get_event_loop().run_until_complete(run())

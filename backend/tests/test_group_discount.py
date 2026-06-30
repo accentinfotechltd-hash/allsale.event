@@ -8,7 +8,6 @@ Covers:
 """
 from __future__ import annotations
 
-import asyncio
 import sys
 import uuid
 from datetime import timedelta
@@ -71,85 +70,79 @@ async def _cleanup(event_id):
     await db.events.delete_one({"event_id": event_id})
 
 
-def test_group_discount_applies_when_threshold_met():
-    async def run():
-        event_id, user = await _seed_event({"min_qty": 5, "pct_off": 20})
-        try:
-            # Below threshold → no discount
-            b1 = await create_hold(
-                HoldIn(event_id=event_id, tier_name="GA", quantity=3),
-                _make_request(),
-                user,
-            )
-            assert b1["subtotal"] == 300.0
-            assert b1.get("group_discount_amount", 0) == 0
+async def test_group_discount_applies_when_threshold_met():
+    event_id, user = await _seed_event({"min_qty": 5, "pct_off": 20})
+    try:
+        # Below threshold → no discount
+        b1 = await create_hold(
+            HoldIn(event_id=event_id, tier_name="GA", quantity=3),
+            _make_request(),
+            user,
+        )
+        assert b1["subtotal"] == 300.0
+        assert b1.get("group_discount_amount", 0) == 0
 
-            # At threshold → 20% off 500 = 100
-            b2 = await create_hold(
-                HoldIn(event_id=event_id, tier_name="GA", quantity=5),
-                _make_request(),
-                user,
-            )
-            assert b2["group_discount_amount"] == 100.0
-            assert b2["group_discount_pct"] == 20
-            assert b2["subtotal"] == 400.0
-        finally:
-            await _cleanup(event_id)
-
-    asyncio.get_event_loop().run_until_complete(run())
+        # At threshold → 20% off 500 = 100
+        b2 = await create_hold(
+            HoldIn(event_id=event_id, tier_name="GA", quantity=5),
+            _make_request(),
+            user,
+        )
+        assert b2["group_discount_amount"] == 100.0
+        assert b2["group_discount_pct"] == 20
+        assert b2["subtotal"] == 400.0
+    finally:
+        await _cleanup(event_id)
 
 
-def test_group_discount_disabled_when_threshold_zero():
-    async def run():
-        event_id, user = await _seed_event({"min_qty": 0, "pct_off": 25})
-        try:
-            b = await create_hold(
-                HoldIn(event_id=event_id, tier_name="GA", quantity=10),
-                _make_request(),
-                user,
-            )
-            assert b.get("group_discount_amount", 0) == 0
-            assert b["subtotal"] == 1000.0
-        finally:
-            await _cleanup(event_id)
 
-    asyncio.get_event_loop().run_until_complete(run())
+async def test_group_discount_disabled_when_threshold_zero():
+    event_id, user = await _seed_event({"min_qty": 0, "pct_off": 25})
+    try:
+        b = await create_hold(
+            HoldIn(event_id=event_id, tier_name="GA", quantity=10),
+            _make_request(),
+            user,
+        )
+        assert b.get("group_discount_amount", 0) == 0
+        assert b["subtotal"] == 1000.0
+    finally:
+        await _cleanup(event_id)
 
 
-def test_group_discount_stacks_with_promo_code():
-    async def run():
-        event_id, user = await _seed_event({"min_qty": 4, "pct_off": 10})
-        code_id = f"dc_{uuid.uuid4().hex[:8]}"
-        code = f"GD{uuid.uuid4().hex[:4].upper()}"
-        ev = await db.events.find_one({"event_id": event_id}, {"organizer_id": 1})
-        await db.discount_codes.insert_one({
-            "code_id": code_id,
-            "event_id": event_id,
-            "code": code,
-            "kind": "fixed",
-            "value": 50.0,
-            "active": True,
-            "uses_count": 0,
-            "max_uses": None,
-            "min_quantity": 0,
-            "tier_name": None,
-            "created_by": ev["organizer_id"],
-            "created_at": utc_now().isoformat(),
-        })
-        try:
-            # qty=4 → subtotal $400, group 10% = $40 → $360, then promo $50 fixed → $310
-            b = await create_hold(
-                HoldIn(event_id=event_id, tier_name="GA", quantity=4, code=code),
-                _make_request(),
-                user,
-            )
-            assert b["group_discount_amount"] == 40.0
-            assert b["discount_code"] == code
-            assert b["discount_amount"] == 50.0
-            # face_value reflects the final pre-fee buyer amount
-            assert b["face_value"] == 310.0
-        finally:
-            await db.discount_codes.delete_one({"code_id": code_id})
-            await _cleanup(event_id)
 
-    asyncio.get_event_loop().run_until_complete(run())
+async def test_group_discount_stacks_with_promo_code():
+    event_id, user = await _seed_event({"min_qty": 4, "pct_off": 10})
+    code_id = f"dc_{uuid.uuid4().hex[:8]}"
+    code = f"GD{uuid.uuid4().hex[:4].upper()}"
+    ev = await db.events.find_one({"event_id": event_id}, {"organizer_id": 1})
+    await db.discount_codes.insert_one({
+        "code_id": code_id,
+        "event_id": event_id,
+        "code": code,
+        "kind": "fixed",
+        "value": 50.0,
+        "active": True,
+        "uses_count": 0,
+        "max_uses": None,
+        "min_quantity": 0,
+        "tier_name": None,
+        "created_by": ev["organizer_id"],
+        "created_at": utc_now().isoformat(),
+    })
+    try:
+        # qty=4 → subtotal $400, group 10% = $40 → $360, then promo $50 fixed → $310
+        b = await create_hold(
+            HoldIn(event_id=event_id, tier_name="GA", quantity=4, code=code),
+            _make_request(),
+            user,
+        )
+        assert b["group_discount_amount"] == 40.0
+        assert b["discount_code"] == code
+        assert b["discount_amount"] == 50.0
+        # face_value reflects the final pre-fee buyer amount
+        assert b["face_value"] == 310.0
+    finally:
+        await db.discount_codes.delete_one({"code_id": code_id})
+        await _cleanup(event_id)
+

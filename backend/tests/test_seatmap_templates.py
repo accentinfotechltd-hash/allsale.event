@@ -1,7 +1,6 @@
 """Seatmap templates — save / list / apply / delete round trip."""
 from __future__ import annotations
 
-import asyncio
 import sys
 import uuid
 from pathlib import Path
@@ -42,34 +41,32 @@ def test_template_fields_include_critical_seatmap_keys():
     assert not missing, f"Template snapshot missing: {missing}"
 
 
-def test_template_full_lifecycle_via_collection():
-    async def run():
-        owner = f"u_{uuid.uuid4().hex[:8]}"
-        tid_holder = {}
-        try:
-            # Insert
-            template_id = f"tmpl_{uuid.uuid4().hex[:12]}"
-            await db.seatmap_templates.insert_one({
-                "template_id": template_id,
-                "owner_id": owner,
-                "name": "Test Stage",
-                "layout": {"seat_rows": 4, "seat_cols": 8, "aisles": ["A-4"]},
-                "created_at": utc_now().isoformat(),
-                "updated_at": utc_now().isoformat(),
-            })
-            tid_holder["id"] = template_id
-            # List
-            cnt = await db.seatmap_templates.count_documents({"owner_id": owner})
-            assert cnt == 1
-            # Fetch by id
-            doc = await db.seatmap_templates.find_one({"template_id": template_id}, {"_id": 0})
-            assert doc and doc["layout"]["seat_rows"] == 4
-            # Delete
-            await db.seatmap_templates.delete_one({"template_id": template_id})
-            cnt2 = await db.seatmap_templates.count_documents({"owner_id": owner})
-            assert cnt2 == 0
-        finally:
-            if tid_holder.get("id"):
-                await db.seatmap_templates.delete_one({"template_id": tid_holder["id"]})
+async def test_template_full_lifecycle_via_collection():
+    owner = f"u_{uuid.uuid4().hex[:8]}"
+    tid_holder = {}
+    try:
+        # Insert
+        template_id = f"tmpl_{uuid.uuid4().hex[:12]}"
+        await db.seatmap_templates.insert_one({
+            "template_id": template_id,
+            "owner_id": owner,
+            "name": "Test Stage",
+            "layout": {"seat_rows": 4, "seat_cols": 8, "aisles": ["A-4"]},
+            "created_at": utc_now().isoformat(),
+            "updated_at": utc_now().isoformat(),
+        })
+        tid_holder["id"] = template_id
+        # List
+        cnt = await db.seatmap_templates.count_documents({"owner_id": owner})
+        assert cnt == 1
+        # Fetch by id
+        doc = await db.seatmap_templates.find_one({"template_id": template_id}, {"_id": 0})
+        assert doc and doc["layout"]["seat_rows"] == 4
+        # Delete
+        await db.seatmap_templates.delete_one({"template_id": template_id})
+        cnt2 = await db.seatmap_templates.count_documents({"owner_id": owner})
+        assert cnt2 == 0
+    finally:
+        if tid_holder.get("id"):
+            await db.seatmap_templates.delete_one({"template_id": tid_holder["id"]})
 
-    asyncio.get_event_loop().run_until_complete(run())

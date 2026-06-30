@@ -1,7 +1,6 @@
 """Self-serve boost endpoint — happy path, ownership, cooldown."""
 from __future__ import annotations
 
-import asyncio
 import sys
 import uuid
 from datetime import timedelta
@@ -35,67 +34,59 @@ async def _seed(organizer_id):
     return eid
 
 
-def test_boost_sets_boosted_until_and_listing_flag():
-    async def run():
-        org = f"org_{uuid.uuid4().hex[:6]}"
-        eid = await _seed(org)
-        try:
-            user = {"user_id": org, "role": "organizer", "name": "Me", "email": "me@t.local"}
-            r = await boost_event(eid, user)
-            assert r["ok"] is True
-            assert r["boosted_until"] > utc_now().isoformat()
-            # Listing now annotates is_boosted=True for this event
-            items = await list_events(q=None, category=None, city=None, country=None, past=False, limit=100)
-            mine = next((e for e in items if e["event_id"] == eid), None)
-            assert mine and mine["is_boosted"] is True
-        finally:
-            await db.events.delete_one({"event_id": eid})
-
-    asyncio.get_event_loop().run_until_complete(run())
+async def test_boost_sets_boosted_until_and_listing_flag():
+    org = f"org_{uuid.uuid4().hex[:6]}"
+    eid = await _seed(org)
+    try:
+        user = {"user_id": org, "role": "organizer", "name": "Me", "email": "me@t.local"}
+        r = await boost_event(eid, user)
+        assert r["ok"] is True
+        assert r["boosted_until"] > utc_now().isoformat()
+        # Listing now annotates is_boosted=True for this event
+        items = await list_events(q=None, category=None, city=None, country=None, past=False, limit=100)
+        mine = next((e for e in items if e["event_id"] == eid), None)
+        assert mine and mine["is_boosted"] is True
+    finally:
+        await db.events.delete_one({"event_id": eid})
 
 
-def test_boost_rejects_non_owner():
-    async def run():
-        owner = f"org_{uuid.uuid4().hex[:6]}"
-        other = f"org_{uuid.uuid4().hex[:6]}"
-        eid = await _seed(owner)
-        try:
-            user = {"user_id": other, "role": "organizer", "name": "Other", "email": "o@t.local"}
-            with pytest.raises(HTTPException) as ex:
-                await boost_event(eid, user)
-            assert ex.value.status_code == 403
-        finally:
-            await db.events.delete_one({"event_id": eid})
 
-    asyncio.get_event_loop().run_until_complete(run())
-
-
-def test_boost_cooldown_blocks_repeat_within_window():
-    async def run():
-        org = f"org_{uuid.uuid4().hex[:6]}"
-        eid = await _seed(org)
-        try:
-            user = {"user_id": org, "role": "organizer", "name": "Me", "email": "me@t.local"}
+async def test_boost_rejects_non_owner():
+    owner = f"org_{uuid.uuid4().hex[:6]}"
+    other = f"org_{uuid.uuid4().hex[:6]}"
+    eid = await _seed(owner)
+    try:
+        user = {"user_id": other, "role": "organizer", "name": "Other", "email": "o@t.local"}
+        with pytest.raises(HTTPException) as ex:
             await boost_event(eid, user)
-            with pytest.raises(HTTPException) as ex:
-                await boost_event(eid, user)
-            assert ex.value.status_code == 429
-            assert "cooldown" in ex.value.detail.lower()
-        finally:
-            await db.events.delete_one({"event_id": eid})
-
-    asyncio.get_event_loop().run_until_complete(run())
+        assert ex.value.status_code == 403
+    finally:
+        await db.events.delete_one({"event_id": eid})
 
 
-def test_boost_admin_can_boost_anyone():
-    async def run():
-        org = f"org_{uuid.uuid4().hex[:6]}"
-        eid = await _seed(org)
-        try:
-            admin = {"user_id": "admin", "role": "admin", "name": "Admin", "email": "admin@t.local"}
-            r = await boost_event(eid, admin)
-            assert r["ok"] is True
-        finally:
-            await db.events.delete_one({"event_id": eid})
 
-    asyncio.get_event_loop().run_until_complete(run())
+async def test_boost_cooldown_blocks_repeat_within_window():
+    org = f"org_{uuid.uuid4().hex[:6]}"
+    eid = await _seed(org)
+    try:
+        user = {"user_id": org, "role": "organizer", "name": "Me", "email": "me@t.local"}
+        await boost_event(eid, user)
+        with pytest.raises(HTTPException) as ex:
+            await boost_event(eid, user)
+        assert ex.value.status_code == 429
+        assert "cooldown" in ex.value.detail.lower()
+    finally:
+        await db.events.delete_one({"event_id": eid})
+
+
+
+async def test_boost_admin_can_boost_anyone():
+    org = f"org_{uuid.uuid4().hex[:6]}"
+    eid = await _seed(org)
+    try:
+        admin = {"user_id": "admin", "role": "admin", "name": "Admin", "email": "admin@t.local"}
+        r = await boost_event(eid, admin)
+        assert r["ok"] is True
+    finally:
+        await db.events.delete_one({"event_id": eid})
+
