@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Gift, Sparkles, Mail, ArrowRight, Copy, Check } from "lucide-react";
+import { Gift, Sparkles, Mail, ArrowRight, Copy, Check, Search } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -156,6 +156,8 @@ export default function GiftCards() {
         </button>
       </div>
 
+      <BalanceLookup />
+
       {user && myCards.length > 0 && (
         <div data-testid="my-gift-cards">
           <h2 className="serif text-2xl mb-4">Your gift cards</h2>
@@ -197,6 +199,107 @@ export default function GiftCards() {
         <Mail size={14} className="inline mr-1" />
         Gift cards arrive by email seconds after payment. No expiry. Apply at checkout on any event.
       </div>
+    </div>
+  );
+}
+
+
+function BalanceLookup() {
+  const [code, setCode] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [err, setErr] = useState("");
+
+  const check = async (e) => {
+    if (e) e.preventDefault();
+    const c = code.trim().toUpperCase().replace(/\s+/g, "");
+    if (!c) { setErr("Enter a gift card code"); return; }
+    setLoading(true);
+    setErr("");
+    setResult(null);
+    try {
+      const { data } = await api.get(`/gift-cards/${encodeURIComponent(c)}/balance`);
+      setResult(data);
+    } catch (e) {
+      setErr(e?.response?.data?.detail || "Couldn't find that gift card");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reset = () => { setCode(""); setResult(null); setErr(""); };
+
+  return (
+    <div className="rounded-2xl border p-6 mb-12" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }} data-testid="gift-card-balance-lookup">
+      <div className="flex items-center gap-2 mb-2">
+        <Search size={16} style={{ color: "var(--accent)" }} />
+        <h2 className="serif text-2xl">Check a gift card balance</h2>
+      </div>
+      <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
+        Got a code? Drop it in to see what&apos;s left on your card. No login needed.
+      </p>
+      <form onSubmit={check} className="flex flex-col sm:flex-row gap-2">
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="GC-XXXX-XXXX-XXXX"
+          className="flex-1 px-3 py-2 rounded-lg border bg-transparent text-sm font-mono tracking-wider"
+          style={{ borderColor: "var(--border)", color: "var(--text)" }}
+          data-testid="gift-card-code-input"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <button
+          type="submit"
+          disabled={loading || !code.trim()}
+          className="btn-primary"
+          data-testid="check-balance-btn"
+        >
+          {loading ? "Checking…" : "Check balance"}
+        </button>
+      </form>
+
+      {err && (
+        <div
+          className="mt-4 text-sm px-3 py-2 rounded-lg"
+          style={{ background: "rgba(239,68,68,0.08)", color: "var(--danger)" }}
+          data-testid="gift-card-lookup-error"
+        >
+          {err}
+        </div>
+      )}
+
+      {result && (
+        <div
+          className="mt-4 rounded-xl border p-4 flex items-center justify-between gap-3"
+          style={{ borderColor: "var(--border)", background: "var(--bg-elev)" }}
+          data-testid="gift-card-lookup-result"
+        >
+          <div className="flex-1 min-w-0">
+            <div className="font-mono text-sm" style={{ color: "var(--text)" }}>{result.code}</div>
+            <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+              {result.status === "depleted"
+                ? "This card has been fully used."
+                : `Worth ${result.currency || "NZD"} $${result.amount?.toFixed(2)} when issued.`}
+            </div>
+          </div>
+          <div className="text-right">
+            <div
+              className="serif text-3xl"
+              style={{ color: result.status === "depleted" ? "var(--text-muted)" : "var(--accent)" }}
+              data-testid="gift-card-balance-amount"
+            >
+              ${result.balance?.toFixed(2)}
+            </div>
+            <div className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+              {result.status === "depleted" ? "Used up" : "Available"}
+            </div>
+          </div>
+          <button onClick={reset} className="ml-2 text-xs underline" style={{ color: "var(--text-muted)" }} data-testid="gift-card-lookup-clear">
+            Clear
+          </button>
+        </div>
+      )}
     </div>
   );
 }

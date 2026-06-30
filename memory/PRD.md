@@ -31,6 +31,33 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Admin event drill-down — Open / Buyers / CSV (Feb 28 2026, iter_36)**:
+  - User reported "admin can also download and see the attendees per event — when clicking on event show all the details and download list of attendees".
+  - Backend admins already have full access via `user_can_manage_event` (returns True for role=admin). UI was the missing piece.
+  - **Fix shipped (`Admin.jsx` EventsTab `Section`)**: Each admin event row now has:
+    - **Open** → `/organizer/events/{id}` (full analytics, attendees panel auto-scrolls if hash present, transfers, swap seats, refund policy etc.)
+    - **Buyers** → `/organizer/buyers?event_id={id}` (the unified buyer report scoped to this event, with CSV export inside)
+    - **CSV** → triggers a direct download of `/api/organizer/events/{id}/attendees.csv` from the admin row (no clicks-through)
+  - Verified by Playwright count: 105 of each button rendered across all events.
+
+- **P2 — Organizer welcome email backfill (Feb 28 2026, iter_35)**:
+  - New `POST /api/admin/organizers/backfill-welcome-emails` (admin-only). Eligibility = role in (organizer, admin) AND `organizer_welcome_sent_at` missing. Stamps the user on send so re-runs skip them.
+  - Body: `{ "dry_run": true|false, "limit": int|null }`. Dry-run returns the eligible count; send mode honors `limit` so a 200-recipient blast can be split into smaller batches without re-stamping the wrong users.
+  - **UI**: New panel "Welcome email for legacy organizers" in Admin → Emails tab — Preview count + Send to X buttons with confirm prompt and live "X eligible" badge that re-fetches after each send.
+  - Production has 162 legacy organizers eligible at time of build (matches the ~154 in the original brief plus signups since).
+  - **Test**: `tests/test_feb_deliverables.py` — dry-run, send-with-limit, idempotency on already-stamped user, 403 for non-admin.
+
+- **P3 — Password change confirmation email (Feb 28 2026, iter_34)**:
+  - New `password_changed_alert` template (`emails.py`): security-first copy, clear "Was this you? / Wasn't you?" CTA with link to `/forgot-password`. Includes change timestamp + truncated IP & user-agent for spotting compromise.
+  - `PUT /api/auth/change-password` now fires `send_template_fireforget("password_changed_alert", ...)` after the hash is rotated. Best-effort — Resend outages never fail the password rotation itself.
+  - **Test**: `tests/test_feb_deliverables.py` — verifies the `email_logs` row is created with `template == "password_changed_alert"`, polls up to 4s because the send runs as a background task.
+
+- **P3 — Gift card self-service: public balance lookup (Feb 28 2026, iter_33)**:
+  - **What was already there**: `/gift-cards` purchase form + Stripe Checkout + "Your gift cards" listing for logged-in users. Footer link wired.
+  - **What was missing**: anyone with a code (incl. non-logged-in recipients) couldn't check the remaining balance without an account.
+  - **Fix**: New `BalanceLookup` panel on the page (no login required). Calls the existing `GET /api/gift-cards/{code}/balance` endpoint. Shows code, total amount, available balance, status ("Available" / "Used up"). Handles case-insensitive input + whitespace stripping.
+  - **Test**: `tests/test_feb_deliverables.py` — case-insensitive resolution, 404 on unknown codes.
+
 - **Buyers Report — discoverability fix (Feb 28 2026, iter_32)**:
   - User reported "organizer can't see the ticket buying report — who bought it, where to find?"
   - **Root cause**: the attendees table existed but was buried beneath ~12 panels on `/organizer/events/{id}` and there was no top-level entry point.

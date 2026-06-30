@@ -284,7 +284,7 @@ class ChangePasswordIn(BaseModel):
 
 
 @router.put("/change-password")
-async def change_password(payload: ChangePasswordIn, user: dict = Depends(get_current_user)):
+async def change_password(payload: ChangePasswordIn, request: Request, user: dict = Depends(get_current_user)):
     """Allow a logged-in user (partner, organizer, attendee, admin) to rotate
     their password.
 
@@ -308,13 +308,39 @@ async def change_password(payload: ChangePasswordIn, user: dict = Depends(get_cu
         raise HTTPException(status_code=400, detail="New password must be different from current password")
     if not verify_password(payload.current_password, full["password_hash"]):
         raise HTTPException(status_code=401, detail="Current password is incorrect")
+    now = utc_now()
     await db.users.update_one(
         {"user_id": user["user_id"]},
         {"$set": {
             "password_hash": hash_password(payload.new_password),
-            "password_reset_at": utc_now().isoformat(),
+            "password_reset_at": now.isoformat(),
         }},
     )
+
+    # Confirmation alert — security best practice. Fire-and-forget so a
+    # Resend outage never breaks the password rotation flow itself.
+    try:
+        from emails import send_template_fireforget
+        # Best-effort client fingerprint: first IP in X-Forwarded-For (proxy
+        # chain), falling back to the direct connection IP. Truncated UA.
+        xff = request.headers.get("x-forwarded-for") or ""
+        ip = (xff.split(",")[0].strip() if xff else (request.client.host if request.client else ""))
+        ua = (request.headers.get("user-agent") or "")[:140]
+        send_template_fireforget(
+            "password_changed_alert",
+            full["email"],
+            {
+                "user_name": full.get("name") or "there",
+                "changed_at": now.isoformat(),
+                "changed_at_human": now.strftime("%a, %b %-d %Y · %-I:%M %p UTC"),
+                "ip": ip,
+                "user_agent": ua,
+            },
+            db,
+        )
+    except Exception:  # pragma: no cover — never break password change on email failure
+        pass
+
     return {"ok": True, "message": "Password updated successfully"}
 
 

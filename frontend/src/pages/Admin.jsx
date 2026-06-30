@@ -5,7 +5,7 @@ import { invalidateFeeSettingsCache } from "@/lib/fees";
 import MessageReactions from "@/components/MessageReactions";
 import { useAuth } from "@/lib/auth";
 import useChatLive from "@/lib/useChatLive";
-import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send, Pencil, UserPlus, MessagesSquare, FileText, Handshake, Tag, DollarSign } from "lucide-react";
+import { Check, X, Star, Users, Calendar, Search, ShieldCheck, ShieldAlert, UserCog, Ban, RotateCcw, Mail, MessageCircle, CheckCircle2, AlertTriangle, MinusCircle, Wallet, Settings as SettingsIcon, Clock, XCircle, BanknoteIcon, Eye, Trash2, Sparkles, RefreshCw, Send, Pencil, UserPlus, MessagesSquare, FileText, Handshake, Tag, DollarSign, BarChart3, Download } from "lucide-react";
 import { toast } from "sonner";
 import AdminUserDetailDrawer from "@/components/AdminUserDetailDrawer";
 import StripeAdminDiagnostics from "@/components/StripeAdminDiagnostics";
@@ -234,6 +234,30 @@ function SubmissionTrend() {
 }
 
 function Section({ title, events, act, del, showApprove, showFeature }) {
+  const BACKEND = process.env.REACT_APP_BACKEND_URL;
+  const downloadAttendeesCsv = async (ev) => {
+    try {
+      const token = localStorage.getItem("aura_token");
+      const r = await fetch(`${BACKEND}/api/organizer/events/${ev.event_id}/attendees.csv`, {
+        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include",
+      });
+      if (!r.ok) throw new Error("Download failed");
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const safe = (ev.title || "event").replace(/[^a-z0-9_-]+/gi, "_").slice(0, 50);
+      a.download = `attendees_${safe}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`Downloaded attendees for "${ev.title}"`);
+    } catch {
+      toast.error("CSV download failed");
+    }
+  };
   return (
     <div className="mb-12">
       <h2 className="serif text-2xl mb-4">{title} <span className="text-sm" style={{ color: "var(--text-dim)" }}>({events.length})</span></h2>
@@ -281,6 +305,30 @@ function Section({ title, events, act, del, showApprove, showFeature }) {
                       <Star className="w-3 h-3" style={{ color: e.featured ? "var(--accent)" : "inherit" }} /> {e.featured ? "Unfeature" : "Feature"}
                     </button>
                   )}
+                  <Link
+                    to={`/organizer/events/${e.event_id}`}
+                    className="btn-ghost !py-1.5 !px-3 text-xs"
+                    data-testid={`admin-open-event-${e.event_id}`}
+                    title="Open the full event report (analytics, attendees, refunds)"
+                  >
+                    <BarChart3 className="w-3 h-3" /> Open
+                  </Link>
+                  <Link
+                    to={`/organizer/buyers?event_id=${e.event_id}`}
+                    className="btn-ghost !py-1.5 !px-3 text-xs"
+                    data-testid={`admin-buyers-${e.event_id}`}
+                    title="See everyone who bought tickets to this event"
+                  >
+                    <Users className="w-3 h-3" /> Buyers
+                  </Link>
+                  <button
+                    onClick={() => downloadAttendeesCsv(e)}
+                    className="btn-ghost !py-1.5 !px-3 text-xs"
+                    data-testid={`admin-csv-${e.event_id}`}
+                    title="Download attendees CSV for this event"
+                  >
+                    <Download className="w-3 h-3" /> CSV
+                  </button>
                   <Link
                     to={`/organizer/events/${e.event_id}/edit`}
                     className="btn-ghost !py-1.5 !px-3 text-xs"
@@ -738,6 +786,8 @@ function EmailsTab() {
         <Stat label="Skipped" value={data.stats.skipped} icon={<MinusCircle className="w-4 h-4" />} />
       </div>
 
+      <OrganizerWelcomeBackfill />
+
       <div className="flex flex-wrap gap-3 mb-5">
         <form onSubmit={(e) => { e.preventDefault(); load(); }} className="relative flex-1 min-w-[240px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "var(--text-dim)" }} />
@@ -803,6 +853,109 @@ function StatusPill({ status, reason }) {
     </span>
   );
 }
+
+// ============================================================================
+// Welcome-email backfill — one-shot re-engagement of legacy organizers
+// ============================================================================
+function OrganizerWelcomeBackfill() {
+  const [eligible, setEligible] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const dryRun = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.post("/admin/organizers/backfill-welcome-emails", { dry_run: true });
+      setEligible(data.eligible || 0);
+      setResult(null);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Couldn't preview");
+    } finally { setLoading(false); }
+  };
+
+  const send = async () => {
+    if (eligible == null) {
+      toast.error("Run a preview first");
+      return;
+    }
+    if (eligible === 0) {
+      toast.message("Nothing to send — every organizer already received the welcome email.");
+      return;
+    }
+    if (!window.confirm(
+      `Send the welcome email to ${eligible} organizer${eligible === 1 ? "" : "s"} who have never received it?\n\nThis is idempotent — re-runs will skip anyone already stamped.`
+    )) return;
+    setRunning(true);
+    try {
+      const { data } = await api.post("/admin/organizers/backfill-welcome-emails", { dry_run: false });
+      setResult(data);
+      // Refresh preview so the badge updates immediately.
+      await dryRun();
+      toast.success(`Sent ${data.sent} welcome email${data.sent === 1 ? "" : "s"}`);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Send failed");
+    } finally { setRunning(false); }
+  };
+
+  return (
+    <div
+      className="border rounded-2xl p-5 mb-6"
+      style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+      data-testid="organizer-welcome-backfill"
+    >
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex-1 min-w-[240px]">
+          <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--accent)" }}>
+            One-shot — backfill
+          </div>
+          <h3 className="serif text-xl mb-1">Welcome email for legacy organizers</h3>
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+            Sends the 3-step welcome (create event · connect Stripe · set refund policy) to every
+            organizer who joined before the email funnel existed. Idempotent — each user is
+            stamped on send and skipped on re-runs.
+          </p>
+          {eligible !== null && (
+            <div
+              className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm"
+              style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+              data-testid="welcome-backfill-eligible"
+            >
+              <strong>{eligible.toLocaleString()}</strong>
+              {eligible === 1 ? "organizer eligible" : "organizers eligible"}
+            </div>
+          )}
+          {result && (
+            <div className="mt-3 text-xs" style={{ color: "var(--text-muted)" }} data-testid="welcome-backfill-result">
+              Last run: sent <strong style={{ color: "var(--success)" }}>{result.sent}</strong>
+              {result.errors?.length ? <> · <span style={{ color: "var(--danger)" }}>{result.errors.length} failed</span></> : null}
+              {result.remaining ? <> · {result.remaining} remaining</> : null}
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={dryRun}
+            disabled={loading || running}
+            className="btn-ghost"
+            data-testid="welcome-backfill-preview-btn"
+          >
+            {loading ? "Counting…" : "Preview count"}
+          </button>
+          <button
+            onClick={send}
+            disabled={running || loading || eligible == null || eligible === 0}
+            className="btn-primary"
+            data-testid="welcome-backfill-send-btn"
+          >
+            {running ? "Sending…" : eligible == null ? "Send welcome emails" : `Send to ${eligible.toLocaleString()}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 // ============================================================================
 // PAYOUTS TAB

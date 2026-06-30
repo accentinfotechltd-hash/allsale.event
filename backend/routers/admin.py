@@ -1518,3 +1518,81 @@ async def admin_send_stripe_reminders(payload: _RemindIn, user: dict = Depends(g
 
     return {"sent": sent, "skipped": skipped, "errors": errors, "queued_at": now_iso}
 
+
+
+
+# ============================================================================
+# Welcome-email backfill — one-shot tool to re-engage legacy organizers
+# ============================================================================
+class _BackfillWelcomeIn(BaseModel):
+    dry_run: bool = True
+    limit: Optional[int] = None  # safety cap when sending; None = send all eligible
+
+
+@router.post("/organizers/backfill-welcome-emails")
+async def backfill_organizer_welcome(
+    payload: _BackfillWelcomeIn,
+    user: dict = Depends(get_current_user),
+):
+    """Send the `organizer_welcome_1_signup` template to every organizer who
+    has never received it.
+
+    Idempotent: stamps `organizer_welcome_sent_at` on each user so re-runs
+    skip them. `dry_run=True` (default) only returns the eligible count so
+    admins can preview before firing thousands of emails.
+
+    Eligibility: `role` in (organizer, admin) AND has an email AND
+    `organizer_welcome_sent_at` is missing.
+    """
+    _admin_only(user)
+
+    query: dict = {
+        "role": {"$in": ["organizer", "admin"]},
+        "email": {"$exists": True, "$nin": [None, ""]},
+        "$or": [
+            {"organizer_welcome_sent_at": {"$exists": False}},
+            {"organizer_welcome_sent_at": None},
+        ],
+    }
+    eligible = await db.users.count_documents(query)
+    if payload.dry_run:
+        return {"dry_run": True, "eligible": eligible, "would_send": min(eligible, payload.limit or eligible)}
+
+    if eligible == 0:
+        return {"dry_run": False, "eligible": 0, "sent": 0, "errors": []}
+
+    sent = 0
+    errors: list = []
+    now_iso = utc_now().isoformat()
+    cap = payload.limit if (payload.limit and payload.limit > 0) else eligible
+
+    cursor = db.users.find(query, {"_id": 0, "user_id": 1, "email": 1, "name": 1})
+    async for u in cursor:
+        if sent >= cap:
+            break
+        if not u.get("email"):
+            continue
+        try:
+            send_template_fireforget(
+                "organizer_welcome_1_signup",
+                u["email"],
+                {"organizer_name": u.get("name") or "there"},
+                db,
+            )
+            await db.users.update_one(
+                {"user_id": u["user_id"]},
+                {"$set": {"organizer_welcome_sent_at": now_iso,
+                           "organizer_welcome_sent_by": user["user_id"]}},
+            )
+            sent += 1
+        except Exception as exc:  # noqa: BLE001 — log and continue
+            errors.append({"user_id": u["user_id"], "error": str(exc)[:120]})
+
+    return {
+        "dry_run": False,
+        "eligible": eligible,
+        "sent": sent,
+        "remaining": max(0, eligible - sent),
+        "errors": errors,
+        "started_at": now_iso,
+    }

@@ -576,6 +576,7 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "organizer_welcome_2_publish": lambda ctx: _t_organizer_welcome_2_publish(ctx),
     "organizer_welcome_3_first_sale": lambda ctx: _t_organizer_welcome_3_first_sale(ctx),
     "organizer_welcome_4_reactivate": lambda ctx: _t_organizer_welcome_4_reactivate(ctx),
+    "password_changed_alert": lambda ctx: _t_password_changed_alert(ctx),
     "gift_card_delivered": lambda ctx: _t_gift_card_delivered(ctx),
     "organizer_features_flyer": _t_organizer_features_flyer,
     "influencer_features_flyer": _t_influencer_features_flyer,
@@ -1425,6 +1426,45 @@ def _t_organizer_welcome_4_reactivate(ctx: Dict[str, Any]) -> tuple[str, str, st
         """
     )
     text = f"Hey {name}, time for your next event? Plan: https://www.allsale.events/organizer/new"
+    return subj, html, text
+
+
+def _t_password_changed_alert(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Confirmation alert sent when a logged-in user changes their password.
+
+    Security-oriented: the user is told exactly *when* the change happened and
+    is given a clear path to reset their password if it WASN'T them (lost
+    device, account takeover). Plain language, no marketing fluff.
+    """
+    name = (ctx.get("user_name") or "there")[:80]
+    when = (ctx.get("changed_at_human") or ctx.get("changed_at") or "just now")[:50]
+    ip = (ctx.get("ip") or "")[:80]
+    ua = (ctx.get("user_agent") or "")[:140]
+    subj = "Your Allsale Events password was just changed"
+    meta_rows = ""
+    if when:
+        meta_rows += f'<li>When: <strong>{_h(when)}</strong></li>'
+    if ip:
+        meta_rows += f'<li>From IP: <code>{_h(ip)}</code></li>'
+    if ua:
+        meta_rows += f'<li>Device: <code style="font-size:11px">{_h(ua)}</code></li>'
+    html = _wrap_html(
+        f"""
+        <p>Hi {_h(name)},</p>
+        <p>This is a confirmation that the password on your Allsale Events account was just changed.</p>
+        <ul style="line-height:1.7;color:#444">{meta_rows}</ul>
+        <p style="margin-top:24px"><strong>Was this you?</strong> No further action needed — you're good to go.</p>
+        <p><strong>Wasn't you?</strong> Reset your password immediately and review recent activity:</p>
+        <p><a href="https://www.allsale.events/forgot-password" style="display:inline-block;background:#FF4F00;color:#fff;padding:12px 24px;border-radius:9999px;text-decoration:none;font-weight:600">Reset password →</a></p>
+        <p style="color:#999;font-size:12px;margin-top:24px">If you didn't request this and can't access your account, reply to this email and our team will lock it for you.</p>
+        <p style="color:#999;font-size:12px">– The Allsale crew</p>
+        """
+    )
+    text = (
+        f"Hi {name},\n\nYour Allsale Events password was just changed ({when}).\n\n"
+        f"Was this you? No further action needed.\n"
+        f"Wasn't you? Reset immediately: https://www.allsale.events/forgot-password\n"
+    )
     return subj, html, text
 
 
