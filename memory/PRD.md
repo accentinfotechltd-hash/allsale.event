@@ -31,6 +31,20 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Ticket Protection — P2a + P2b: SLA digest, canned denial templates, pool-drain accounting (Mar 1 2026, iter_43)**:
+  - **P2b (Pool-drain accounting + destination-charge refund correctness)**:
+    - `approve_claim` now stamps `pool_drain` (= booking.amount − booking.face_value) + `face_value_loss` on both the claim AND booking docs. The 6.5% premium pool absorbs `pool_drain`; the organizer absorbs `face_value_loss`.
+    - For Stripe **destination charges** (Phase B Connect bookings), the refund now sets `reverse_transfer=True` + `refund_application_fee=True` so funds are correctly clawed back from the connected account (face_value) AND the application_fee is returned to Allsale's master account. Without this, destination-charge refunds would silently drain the platform balance.
+    - Admin `/admin/ticket-protection/stats` rewritten: `claims_paid_lifetime` now equals pool_drain (true pool outflow), not the gross refund. Legacy claims without `pool_drain` fall back to per-booking lookup. New `gross_refunded_lifetime` field surfaces the buyer-side total separately.
+    - Tests: `test_ticket_protection_pool_drain.py` — 4 cases covering non-destination stamping, destination-charge kwargs, stats correctness with mixed new+legacy claims, idempotency. All pass.
+  - **P2a (24h SLA digest + canned denial templates)**:
+    - **SLA digest scheduler hook** (`scheduler._send_protection_claim_sla_digest`): runs in the hourly loop, fires once daily at 09:00–10:00 UTC, finds any pending claims older than 24h, emails ALL admins via new `protection_claims_sla_digest` template. Dedupe stamp on `platform_meta` ensures one digest per day even if the loop iterates multiple times.
+    - **6 canned denial templates** + `GET /admin/ticket-protection/denial-templates` endpoint (admin-only). Reasons: no_evidence, not_covered, post_event, change_of_mind, duplicate, suspected_abuse. Each has a pre-written buyer-facing explanation paragraph.
+    - **DenyClaimModal** in `Admin.jsx`: replaces the old `window.prompt` flow. Dropdown to pick a canned reason auto-fills the textarea; admin can edit before sending. Submitting calls the existing deny endpoint.
+    - **Buyer denial email** (`protection_claim_denied` template): when admin denies a claim, the buyer now receives an email with the admin's note baked in (instead of silent denial). Best-effort fire-and-forget — never blocks the API.
+    - Tests: `test_ticket_protection_sla.py` — 6 cases covering templates endpoint, denial email contract, both email templates rendering, scheduler picks up overdue claims + skips fresh ones + dedupes the day + window enforcement. All pass.
+  - **Lint clean** across `ticket_protection.py`, `emails.py`, `scheduler.py`, `Admin.jsx`.
+
 - **Eventfinda lead harvest — 70 NZ venues seeded into recruitment pipeline (Mar 1 2026, iter_42)**:
   - User pasted `crawl_tool` output from Eventfinda's Auckland / Wellington / Canterbury "What's on" pages (Cloudflare-protected — direct fetch fails, but `crawl_tool` succeeds).
   - **Script** (`/app/backend/scripts/harvest_eventfinda_seed.py`): curated SEED list (71 venues across 3 regions), uses placeholder emails `research-needed+<slug>@allsale.events` (admin overwrites with real owner email post-research). Idempotent — re-runs upsert by email. Bug-fixed import paths (`.parent.parent`) + `load_dotenv` so script runs cleanly from any cwd.

@@ -2841,6 +2841,8 @@ function ProtectionClaimsTab() {
   const [filter, setFilter] = useState("pending");
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState(null);
+  const [denialTemplates, setDenialTemplates] = useState([]);
+  const [denyModal, setDenyModal] = useState({ open: false, claim: null, templateId: "custom", noteText: "", submitting: false });
 
   const load = async () => {
     setLoading(true);
@@ -2864,44 +2866,82 @@ function ProtectionClaimsTab() {
     } catch { /* widget will just hide */ }
   };
 
-  useEffect(() => { load();   }, [filter]);
-  useEffect(() => { loadStats(); }, []);
+  const loadDenialTemplates = async () => {
+    try {
+      const { data } = await api.get("/admin/ticket-protection/denial-templates");
+      setDenialTemplates(data?.templates || []);
+    } catch { /* dropdown will just be empty; admin can free-type */ }
+  };
 
-  const decide = async (claim, decision) => {
-    const isApprove = decision === "approve";
-    // Approving now refunds immediately — be crystal clear before they click.
-    if (isApprove) {
-      const confirmed = window.confirm(
-        `Approve this claim AND refund ${claim.currency || "NZD"} $${(claim.amount || 0).toFixed(2)} to ${claim.user_name || claim.user_email}?\n\n` +
-        `• Stripe refund fires immediately\n` +
-        `• Seats are released back to inventory\n` +
-        `• Buyer gets a confirmation email\n\n` +
-        `This cannot be undone.`
-      );
-      if (!confirmed) return;
+  useEffect(() => { load();   }, [filter]);
+  useEffect(() => { loadStats(); loadDenialTemplates(); }, []);
+
+  const openDenyModal = (claim) => {
+    setDenyModal({ open: true, claim, templateId: "custom", noteText: "", submitting: false });
+  };
+
+  const closeDenyModal = () => {
+    setDenyModal({ open: false, claim: null, templateId: "custom", noteText: "", submitting: false });
+  };
+
+  const onPickTemplate = (templateId) => {
+    if (templateId === "custom") {
+      setDenyModal((m) => ({ ...m, templateId, noteText: "" }));
+      return;
     }
-    const note = window.prompt(`Optional internal note for this ${decision}:`, "") || "";
+    const tpl = denialTemplates.find((t) => t.id === templateId);
+    setDenyModal((m) => ({ ...m, templateId, noteText: tpl?.text || "" }));
+  };
+
+  const submitDeny = async () => {
+    if (!denyModal.claim || !denyModal.noteText.trim()) {
+      toast.error("Please pick a reason or type a custom note.");
+      return;
+    }
+    setDenyModal((m) => ({ ...m, submitting: true }));
+    try {
+      await api.post(
+        `/admin/ticket-protection/claims/${denyModal.claim.claim_id}/deny`,
+        { admin_note: denyModal.noteText.trim() }
+      );
+      toast.success("Claim denied — buyer notified");
+      closeDenyModal();
+      load();
+      loadStats();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Couldn't deny claim");
+      setDenyModal((m) => ({ ...m, submitting: false }));
+    }
+  };
+
+  const approve = async (claim) => {
+    // Approving now refunds immediately — be crystal clear before they click.
+    const confirmed = window.confirm(
+      `Approve this claim AND refund ${claim.currency || "NZD"} $${(claim.amount || 0).toFixed(2)} to ${claim.user_name || claim.user_email}?\n\n` +
+      `• Stripe refund fires immediately\n` +
+      `• Seats are released back to inventory\n` +
+      `• Buyer gets a confirmation email\n\n` +
+      `This cannot be undone.`
+    );
+    if (!confirmed) return;
+    const note = window.prompt(`Optional internal note for this approval:`, "") || "";
     try {
       const { data } = await api.post(
-        `/admin/ticket-protection/claims/${claim.claim_id}/${decision}`,
+        `/admin/ticket-protection/claims/${claim.claim_id}/approve`,
         { admin_note: note }
       );
-      if (isApprove) {
-        const amt = (data?.amount_refunded || 0).toFixed(2);
-        if (data?.already_refunded) {
-          toast.success(`Claim approved — booking was already refunded ($${amt})`);
-        } else if (data?.refund_status === "succeeded") {
-          toast.success(`Approved & refunded $${amt} via Stripe (${data.stripe_refund_id || "no id"})`);
-        } else {
-          toast.success(`Claim approved — refund staged ($${amt})`);
-        }
+      const amt = (data?.amount_refunded || 0).toFixed(2);
+      if (data?.already_refunded) {
+        toast.success(`Claim approved — booking was already refunded ($${amt})`);
+      } else if (data?.refund_status === "succeeded") {
+        toast.success(`Approved & refunded $${amt} via Stripe (${data.stripe_refund_id || "no id"})`);
       } else {
-        toast.success("Claim denied");
+        toast.success(`Claim approved — refund staged ($${amt})`);
       }
       load();
       loadStats();
     } catch (e) {
-      toast.error(e?.response?.data?.detail || `Couldn't ${decision} claim`);
+      toast.error(e?.response?.data?.detail || "Couldn't approve claim");
     }
   };
 
@@ -2987,14 +3027,14 @@ function ProtectionClaimsTab() {
                 {c.status === "pending" ? (
                   <div className="flex gap-2">
                     <button
-                      onClick={() => decide(c, "approve")}
+                      onClick={() => approve(c)}
                       className="btn-primary !py-1.5 !px-3 text-xs"
                       data-testid={`approve-claim-${c.claim_id}`}
                     >
                       <Check className="w-3 h-3" /> Approve &amp; refund now
                     </button>
                     <button
-                      onClick={() => decide(c, "deny")}
+                      onClick={() => openDenyModal(c)}
                       className="btn-ghost !py-1.5 !px-3 text-xs"
                       data-testid={`deny-claim-${c.claim_id}`}
                     >
@@ -3011,6 +3051,107 @@ function ProtectionClaimsTab() {
           })}
         </div>
       )}
+
+      {denyModal.open && (
+        <DenyClaimModal
+          modal={denyModal}
+          templates={denialTemplates}
+          onPickTemplate={onPickTemplate}
+          onChangeNote={(t) => setDenyModal((m) => ({ ...m, noteText: t }))}
+          onCancel={closeDenyModal}
+          onSubmit={submitDeny}
+        />
+      )}
+    </div>
+  );
+}
+
+function DenyClaimModal({ modal, templates, onPickTemplate, onChangeNote, onCancel, onSubmit }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+      data-testid="deny-claim-modal"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl border p-5"
+        style={{ background: "var(--bg-card)", borderColor: "var(--border)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-xs uppercase tracking-widest mb-1" style={{ color: "var(--accent)" }}>Deny claim</div>
+            <div className="serif text-lg" style={{ color: "var(--text)" }}>
+              {modal.claim?.event_title || "Claim"}
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: "var(--text-dim)" }}>
+              {modal.claim?.user_name || modal.claim?.user_email} · {modal.claim?.currency || "NZD"} ${(modal.claim?.amount || 0).toFixed(2)}
+            </div>
+          </div>
+          <button
+            onClick={onCancel}
+            className="p-1.5 rounded-lg hover:bg-white/5 transition"
+            style={{ color: "var(--text-muted)" }}
+            data-testid="deny-modal-close"
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <label className="block text-xs uppercase tracking-widest mb-1.5" style={{ color: "var(--text-dim)" }}>
+          Pick a canned reason (or write your own)
+        </label>
+        <select
+          value={modal.templateId}
+          onChange={(e) => onPickTemplate(e.target.value)}
+          className="w-full mb-3 px-3 py-2 rounded-lg border text-sm"
+          style={{ background: "var(--bg-elev)", borderColor: "var(--border)", color: "var(--text)" }}
+          data-testid="deny-template-select"
+        >
+          <option value="custom">— Write a custom message —</option>
+          {templates.map((t) => (
+            <option key={t.id} value={t.id}>{t.label}</option>
+          ))}
+        </select>
+
+        <label className="block text-xs uppercase tracking-widest mb-1.5" style={{ color: "var(--text-dim)" }}>
+          Message to buyer
+        </label>
+        <textarea
+          value={modal.noteText}
+          onChange={(e) => onChangeNote(e.target.value)}
+          rows={6}
+          placeholder="Explain why this claim is being denied. The buyer will receive this message in their notification email."
+          className="w-full mb-3 px-3 py-2 rounded-lg border text-sm"
+          style={{ background: "var(--bg-elev)", borderColor: "var(--border)", color: "var(--text)" }}
+          data-testid="deny-note-textarea"
+        />
+
+        <div className="text-xs mb-3 italic" style={{ color: "var(--text-dim)" }}>
+          The buyer will receive an email with this message. Edit the canned text if you need to tailor it.
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            disabled={modal.submitting}
+            className="btn-ghost !py-1.5 !px-3 text-xs"
+            data-testid="deny-modal-cancel"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onSubmit}
+            disabled={modal.submitting || !modal.noteText.trim()}
+            className="btn-primary !py-1.5 !px-3 text-xs"
+            data-testid="deny-modal-submit"
+          >
+            {modal.submitting ? "Sending…" : "Deny & notify buyer"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

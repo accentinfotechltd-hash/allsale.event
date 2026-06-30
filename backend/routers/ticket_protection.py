@@ -167,18 +167,50 @@ async def admin_protection_stats(user: dict = Depends(get_current_user)) -> Dict
         "protection_amount",
     )
 
-    # Claims approved — full booking amount refunded back to attendee.
-    claims_lifetime = await _sum(
-        db.protection_claims.find({"status": "approved"}, {"_id": 0, "amount": 1}),
-        "amount",
-    )
-    claims_30d = await _sum(
-        db.protection_claims.find(
-            {"status": "approved", "decided_at": {"$gte": cutoff}},
-            {"_id": 0, "amount": 1},
-        ),
-        "amount",
-    )
+    # Pool outflow = ONLY the platform_fee + stripe_fee + protection_premium
+    # the platform refunds to the buyer. face_value is the organizer's loss
+    # (reversed via destination-charge transfer or held back from payout); it
+    # does NOT drain the platform's premium pool.
+    # For backwards compat with legacy approved claims (no pool_drain field),
+    # we conservatively fall back to claim.amount - booking.face_value via a
+    # secondary roundtrip; on a clean DB this stays cheap because approved
+    # claims are rare. New approvals stamp pool_drain directly.
+    async def _sum_pool_drain(filter_q: Dict[str, Any]) -> float:
+        total = 0.0
+        async for c in db.protection_claims.find(
+            filter_q, {"_id": 0, "pool_drain": 1, "amount": 1, "booking_id": 1}
+        ):
+            if c.get("pool_drain") is not None:
+                total += float(c["pool_drain"])
+            else:
+                # Legacy claim — derive on the fly.
+                bk = await db.bookings.find_one(
+                    {"booking_id": c.get("booking_id")},
+                    {"_id": 0, "face_value": 1, "amount": 1},
+                )
+                if bk:
+                    total += max(
+                        float(bk.get("amount") or c.get("amount") or 0)
+                        - float(bk.get("face_value") or 0),
+                        0.0,
+                    )
+                else:
+                    total += float(c.get("amount") or 0)
+        return round(total, 2)
+
+    claims_lifetime = await _sum_pool_drain({"status": "approved"})
+    claims_30d = await _sum_pool_drain({"status": "approved", "decided_at": {"$gte": cutoff}})
+
+    # Also expose the gross-refunded sum so admin can see the full
+    # buyer-side impact (= pool_drain + face_value_loss). Per-claim:
+    # prefer the explicit `refund_amount` stamped at approve time; fall
+    # back to legacy `amount` for old claims.
+    gross_refunded_lifetime = 0.0
+    async for c in db.protection_claims.find(
+        {"status": "approved"}, {"_id": 0, "refund_amount": 1, "amount": 1}
+    ):
+        gross_refunded_lifetime += float(c.get("refund_amount") or c.get("amount") or 0)
+    gross_refunded_lifetime = round(gross_refunded_lifetime, 2)
 
     # Claim counts by status.
     pending_count = await db.protection_claims.count_documents({"status": "pending"})
@@ -209,6 +241,7 @@ async def admin_protection_stats(user: dict = Depends(get_current_user)) -> Dict
         "premiums_30d": prem_30d,
         "claims_paid_lifetime": claims_lifetime,
         "claims_paid_30d": claims_30d,
+        "gross_refunded_lifetime": gross_refunded_lifetime,
         "net_pool_lifetime": net_lifetime,
         "net_pool_30d": net_30d,
         "claim_ratio_pct": claim_ratio_lifetime,
@@ -217,6 +250,7 @@ async def admin_protection_stats(user: dict = Depends(get_current_user)) -> Dict
         "approved_count": approved_count,
         "denied_count": denied_count,
         "protection_pct_bps": TICKET_PROTECTION_PCT_BPS,
+        "notes": "claims_paid = pool drain (platform_fee + stripe_fee + premium). face_value losses are the organizer's, not the pool's.",
     }
 
 
@@ -227,6 +261,84 @@ async def _require_admin(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin only")
     return user
+
+
+# Canned denial reason templates — admin can pick one from a dropdown in the
+# UI instead of re-typing the same denial reasoning every time. Used by the
+# Admin Ticket Protection tab to populate the "Reason for denial" dropdown.
+DENIAL_TEMPLATES: List[Dict[str, str]] = [
+    {
+        "id": "no_evidence",
+        "label": "No evidence provided",
+        "text": (
+            "Thank you for filing your Ticket Protection claim. Unfortunately we "
+            "weren't able to verify your reason for requesting a refund — no "
+            "supporting documentation (doctor's note, transit-disruption notice, "
+            "etc.) was attached. If you can provide evidence, please reply to "
+            "this email and we'll happily reconsider."
+        ),
+    },
+    {
+        "id": "not_covered",
+        "label": "Reason not covered by Ticket Protection",
+        "text": (
+            "Thank you for filing your Ticket Protection claim. After review, "
+            "the reason provided isn't on our covered-events list (illness, "
+            "transit delays, severe weather, family emergency, or mandatory "
+            "work/school commitments). If we've misread your situation, please "
+            "reply with more detail."
+        ),
+    },
+    {
+        "id": "post_event",
+        "label": "Filed after event finished",
+        "text": (
+            "Thank you for filing your Ticket Protection claim. Unfortunately "
+            "claims must be submitted before the event start time so the "
+            "organiser can resell your seat. We weren't able to approve this "
+            "one because the event has already concluded."
+        ),
+    },
+    {
+        "id": "change_of_mind",
+        "label": "Change of mind (not covered)",
+        "text": (
+            "Thank you for filing your Ticket Protection claim. Our policy "
+            "specifically excludes change-of-mind refunds — Ticket Protection "
+            "covers genuine inability-to-attend events. You're welcome to "
+            "transfer your ticket to a friend instead via the 'Transfer "
+            "ticket' option in your account."
+        ),
+    },
+    {
+        "id": "duplicate",
+        "label": "Duplicate / already refunded",
+        "text": (
+            "Thank you for filing your Ticket Protection claim. Our records "
+            "show this booking has already been refunded under a previous "
+            "request — no further action is required. Please reply if you "
+            "believe this is in error."
+        ),
+    },
+    {
+        "id": "suspected_abuse",
+        "label": "Suspected abuse of the protection programme",
+        "text": (
+            "Thank you for filing your Ticket Protection claim. After review, "
+            "we're unable to approve this request. If you'd like more detail "
+            "on the decision, please reply to this email and a member of our "
+            "support team will follow up."
+        ),
+    },
+]
+
+
+@router.get("/admin/ticket-protection/denial-templates")
+async def list_denial_templates(user: dict = Depends(_require_admin)) -> Dict[str, Any]:
+    """Return the canned denial reason templates so the admin UI can render
+    them as a dropdown when denying a claim. Read-only; templates are
+    hard-coded so they stay version-controlled."""
+    return {"templates": DENIAL_TEMPLATES}
 
 
 @router.get("/admin/ticket-protection/claims")
@@ -286,6 +398,17 @@ async def approve_claim(claim_id: str, payload: DecisionIn, user: dict = Depends
     if refund_amount <= 0:
         raise HTTPException(status_code=400, detail="Booking has no charge to refund")
 
+    # Pool-drain accounting:
+    #   pool_drain    = what comes out of the 6.5% premium pool to make the
+    #                   buyer whole on platform_fee + stripe_fee + premium
+    #   face_value_loss = the organizer's lost ticket revenue (org never sees
+    #                     this; reversed via destination-charge transfer or
+    #                     deducted from their next payout)
+    face_value = float(booking.get("face_value") or 0)
+    pool_drain = round(max(refund_amount - face_value, 0.0), 2)
+
+    is_destination_charge = bool(booking.get("stripe_destination_charge"))
+
     pi = booking.get("stripe_payment_intent") or booking.get("payment_intent_id")
     session_id = booking.get("stripe_session_id")
     refund_id: Optional[str] = None
@@ -302,9 +425,18 @@ async def approve_claim(claim_id: str, payload: DecisionIn, user: dict = Depends
                     "event_id": claim.get("event_id") or booking.get("event_id"),
                     "user_id": claim["user_id"],
                     "reason": "ticket_protection_claim_approved",
+                    "pool_drain": f"{pool_drain:.2f}",
+                    "face_value_loss": f"{face_value:.2f}",
                 },
                 "reason": "requested_by_customer",
             }
+            # Destination charges settle the face_value to the connected
+            # account at checkout. To make the buyer whole AND claw face_value
+            # back from the organizer (and the application_fee back to us),
+            # we must set reverse_transfer + refund_application_fee.
+            if is_destination_charge:
+                kwargs["reverse_transfer"] = True
+                kwargs["refund_application_fee"] = True
             if pi:
                 kwargs["payment_intent"] = pi
             elif session_id:
@@ -326,7 +458,7 @@ async def approve_claim(claim_id: str, payload: DecisionIn, user: dict = Depends
 
     now_iso = utc_now().isoformat()
 
-    # Stamp the claim
+    # Stamp the claim with full audit trail of where the money went.
     await db.protection_claims.update_one(
         {"claim_id": claim_id},
         {"$set": {
@@ -335,17 +467,23 @@ async def approve_claim(claim_id: str, payload: DecisionIn, user: dict = Depends
             "decided_at": now_iso,
             "decided_by": user["user_id"],
             "refund_amount": refund_amount,
+            "pool_drain": pool_drain,
+            "face_value_loss": face_value,
+            "stripe_destination_charge": is_destination_charge,
             "stripe_refund_id": refund_id,
             "refund_status": refund_status,
         }},
     )
 
-    # Mark the booking refunded
+    # Mark the booking refunded (stamps pool-drain breakdown too so the admin
+    # P&L widget can sum pool drains by querying bookings directly if needed).
     await db.bookings.update_one(
         {"booking_id": booking["booking_id"]},
         {"$set": {
             "status": "refunded",
             "amount_refunded": refund_amount,
+            "protection_pool_drain": pool_drain,
+            "protection_face_value_loss": face_value,
             "stripe_refund_id": refund_id,
             "refund_reason": "ticket_protection_claim_approved",
             "protection_claim_approved": True,
@@ -383,11 +521,15 @@ async def approve_claim(claim_id: str, payload: DecisionIn, user: dict = Depends
 
     logger.info(
         f"[protection] claim approved + refunded {claim_id} → "
-        f"booking {booking['booking_id']} → refund {refund_id} (${refund_amount:.2f})"
+        f"booking {booking['booking_id']} → refund {refund_id} "
+        f"(${refund_amount:.2f} = ${pool_drain:.2f} pool + ${face_value:.2f} org loss)"
     )
     return {
         "ok": True,
         "amount_refunded": refund_amount,
+        "pool_drain": pool_drain,
+        "face_value_loss": face_value,
+        "stripe_destination_charge": is_destination_charge,
         "stripe_refund_id": refund_id,
         "refund_status": refund_status,
     }
@@ -400,13 +542,31 @@ async def deny_claim(claim_id: str, payload: DecisionIn, user: dict = Depends(_r
         raise HTTPException(status_code=404, detail="Claim not found")
     if claim["status"] != "pending":
         raise HTTPException(status_code=400, detail=f"Claim is already {claim['status']}")
+    admin_note = (payload.admin_note or "").strip() or None
     await db.protection_claims.update_one(
         {"claim_id": claim_id},
         {"$set": {
             "status": "denied",
-            "admin_note": (payload.admin_note or "").strip() or None,
+            "admin_note": admin_note,
             "decided_at": utc_now().isoformat(),
             "decided_by": user["user_id"],
         }},
     )
+    # Fire-and-forget denial email to the buyer using the admin's note as the
+    # reason body. Always sent so the buyer isn't left wondering.
+    try:
+        from emails import send_template_fireforget
+        send_template_fireforget(
+            "protection_claim_denied",
+            claim.get("user_email"),
+            {
+                "user_name": claim.get("user_name") or "there",
+                "event_title": claim.get("event_title") or "your event",
+                "reason_text": admin_note or "If you'd like more detail, please reply to this email.",
+                "booking_id": claim.get("booking_id"),
+            },
+            db,
+        )
+    except Exception:  # noqa: BLE001
+        pass
     return {"ok": True}

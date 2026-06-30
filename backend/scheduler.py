@@ -1027,6 +1027,92 @@ async def _send_stale_partner_application_reminder(db) -> int:
     return sent
 
 
+async def _send_protection_claim_sla_digest(db) -> int:
+    """Daily 09:00–10:00 UTC: if any Ticket Protection claims have been
+    sitting in `pending` for >24 h, email admin(s) a single digest so the
+    SLA promise to buyers (quick decision) is kept.
+
+    Dedupe key: stamps `protection_sla_digest_day` on `platform_meta` so we
+    only send one digest per day per admin even if the scheduler runs
+    multiple times in the window.
+    """
+    now = datetime.now(timezone.utc)
+    if now.hour < 9 or now.hour >= 10:
+        return 0
+
+    day_key = now.strftime("%Y-%m-%d")
+    meta = await db.platform_meta.find_one({"key": "protection_sla_digest"}) or {}
+    if meta.get("day") == day_key:
+        return 0
+
+    cutoff_iso = (now - timedelta(hours=24)).isoformat()
+    cur = db.protection_claims.find(
+        {"status": "pending", "created_at": {"$lte": cutoff_iso}},
+        {
+            "_id": 0, "claim_id": 1, "user_name": 1, "user_email": 1,
+            "event_title": 1, "reason": 1, "amount": 1, "currency": 1,
+            "created_at": 1,
+        },
+    ).sort("created_at", 1).limit(50)
+    overdue = [doc async for doc in cur]
+    if not overdue:
+        # Stamp the day anyway so we don't re-query repeatedly inside the window.
+        await db.platform_meta.update_one(
+            {"key": "protection_sla_digest"},
+            {"$set": {"day": day_key, "checked_at": now.isoformat(), "overdue_count": 0}},
+            upsert=True,
+        )
+        return 0
+
+    rows = []
+    for c in overdue:
+        try:
+            age_hours = int(
+                (now - datetime.fromisoformat(c["created_at"].replace("Z", "+00:00"))).total_seconds() / 3600
+            )
+        except Exception:
+            age_hours = 24
+        rows.append({
+            "claim_id": c.get("claim_id") or "",
+            "user_name": c.get("user_name") or "(unknown)",
+            "user_email": c.get("user_email") or "",
+            "event_title": c.get("event_title") or "(no event)",
+            "reason": c.get("reason") or "",
+            "amount": c.get("amount") or 0,
+            "currency": c.get("currency") or "NZD",
+            "age_hours": age_hours,
+        })
+
+    admin_emails = [u["email"] async for u in db.users.find(
+        {"role": "admin", "email": {"$exists": True, "$ne": None}}, {"_id": 0, "email": 1}
+    )]
+    sent = 0
+    for admin_email in admin_emails:
+        try:
+            send_template_fireforget(
+                "protection_claims_sla_digest",
+                admin_email,
+                {"claims": rows, "count": len(rows)},
+                db,
+            )
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[protection-sla] email to %s failed: %s", admin_email, str(exc)[:200])
+
+    await db.platform_meta.update_one(
+        {"key": "protection_sla_digest"},
+        {"$set": {
+            "day": day_key,
+            "sent_at": now.isoformat(),
+            "overdue_count": len(rows),
+            "admins_notified": sent,
+        }},
+        upsert=True,
+    )
+    logger.info("[protection-sla] reminded %d admins about %d overdue claims", sent, len(rows))
+    return sent
+
+
 async def fast_loop(db: Any, interval_seconds: int = 60) -> None:
     """High-cadence loop for tasks that need minute-level precision.
 
@@ -1057,13 +1143,14 @@ async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
             n_recap = await _send_event_recaps(db)
             n_statements = await _send_monthly_partner_statements(db)
             n_stale_apps = await _send_stale_partner_application_reminder(db)
+            n_protection_sla = await _send_protection_claim_sla_digest(db)
             payout_batch = await _run_monthly_partner_payouts(db)
             webhook_alert = await _check_webhook_silent_failure(db)
             payout_summary = await run_due_event_payouts(db)
-            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or n_boost or n_recap or n_statements or n_stale_apps or payout_batch or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
+            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or n_boost or n_recap or n_statements or n_stale_apps or n_protection_sla or payout_batch or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
                 logger.info(
-                    "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s boost_recaps=%s event_recaps=%s monthly_statements=%s partner_payout_batch=%s webhook_alert=%s payouts=%s",
-                    n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, n_boost, n_recap, n_statements, payout_batch, webhook_alert, payout_summary,
+                    "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s boost_recaps=%s event_recaps=%s monthly_statements=%s partner_payout_batch=%s webhook_alert=%s protection_sla=%s payouts=%s",
+                    n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, n_boost, n_recap, n_statements, payout_batch, webhook_alert, n_protection_sla, payout_summary,
                 )
         except Exception as exc:  # pragma: no cover
             logger.exception("[scheduler] tick failed: %s", exc)

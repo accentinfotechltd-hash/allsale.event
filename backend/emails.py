@@ -633,6 +633,8 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "partner_application_admin_notify": lambda ctx: _t_partner_application_admin_notify(ctx),
     "partner_application_approved": lambda ctx: _t_partner_application_approved(ctx),
     "partner_applications_stale_digest": lambda ctx: _t_partner_applications_stale_digest(ctx),
+    "protection_claims_sla_digest": lambda ctx: _t_protection_claims_sla_digest(ctx),
+    "protection_claim_denied": lambda ctx: _t_protection_claim_denied(ctx),
 }
 
 
@@ -743,6 +745,92 @@ def _t_partner_applications_stale_digest(ctx: Dict[str, Any]) -> tuple[str, str,
         text_lines.append(f"  • {r.get('full_name','(no name)')} <{r.get('email','')}> — {int(r.get('age_days') or 0)} days")
     text_lines.append("")
     text_lines.append(f"Review: {APP_PUBLIC_URL}/admin?tab=partner-applications")
+    text = _text_fallback(text_lines)
+    return subject, html, text
+
+
+def _t_protection_claim_denied(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Notify the buyer that their Ticket Protection claim was denied.
+
+    ctx fields:
+      - user_name (required)
+      - event_title (required)
+      - reason_text (required) — the admin's explanation; usually from one of
+        the canned denial templates
+      - booking_id (optional)
+    """
+    name = _h(ctx.get("user_name") or "there")
+    event_title = _h(ctx.get("event_title") or "your event")
+    reason_text = _h(ctx.get("reason_text") or "Please contact support for more detail.")
+    body = f"""
+    <p style="color:{TEXT};">Hi {name},</p>
+    <p style="color:{TEXT_MUTED};">Thanks for filing a Ticket Protection claim for <b style="color:{TEXT};">{event_title}</b>. After review, we&apos;ve unfortunately had to decline this claim.</p>
+    <p style="color:{TEXT_MUTED};border-left:3px solid {BRAND_COLOR};padding-left:12px;">{reason_text}</p>
+    <p style="color:{TEXT_MUTED};">If you believe this decision is in error or would like to provide additional information, please reply to this email and a member of our support team will personally review it.</p>
+    """
+    subject = f"Your Ticket Protection claim — update"
+    html = _layout(subject, "Ticket Protection claim update", body, "View your bookings", APP_PUBLIC_URL + "/me/bookings")
+    text = _text_fallback([
+        f"Hi {ctx.get('user_name') or 'there'},",
+        "",
+        f"Thanks for filing a Ticket Protection claim for {ctx.get('event_title') or 'your event'}. After review we've had to decline it.",
+        "",
+        ctx.get("reason_text") or "",
+        "",
+        "Reply to this email if you'd like us to take another look.",
+    ])
+    return subject, html, text
+
+
+def _t_protection_claims_sla_digest(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Daily digest reminding admin of Ticket Protection claims that have
+    been sitting in `pending` for more than 24 hours. One email per day
+    even if there are many claims — admin clears them in a single sweep.
+
+    ctx fields:
+      - claims (list of dicts: claim_id, user_name, user_email, event_title,
+                              reason, amount, currency, age_hours)
+      - count (int, total claims overdue)
+    """
+    rows = ctx.get("claims") or []
+    count = ctx.get("count") or len(rows)
+    rows_html = "".join([
+        f"<tr>"
+        f"<td style=\"padding:10px 14px;border-bottom:1px solid {BORDER};color:{TEXT};vertical-align:top;\">"
+        f"<b>{r.get('user_name') or '(unknown)'}</b>"
+        f"<br/><span style=\"color:{TEXT_MUTED};font-size:13px;\">{r.get('event_title','')}</span>"
+        f"<br/><span style=\"color:{TEXT_MUTED};font-size:12px;font-style:italic;\">"
+        f"&ldquo;{(r.get('reason') or '')[:120]}{'…' if len(r.get('reason') or '') > 120 else ''}&rdquo;</span>"
+        f"</td>"
+        f"<td style=\"padding:10px 14px;border-bottom:1px solid {BORDER};color:{BRAND_COLOR};text-align:right;white-space:nowrap;vertical-align:top;\">"
+        f"<b>{int(r.get('age_hours') or 0)}h</b>"
+        f"<br/><span style=\"color:{TEXT_MUTED};font-size:13px;font-weight:normal;\">{r.get('currency','NZD')} {float(r.get('amount') or 0):.2f}</span>"
+        f"</td>"
+        f"</tr>"
+        for r in rows
+    ])
+    body = f"""
+    <p style="color:{TEXT};">Hey admin,</p>
+    <p style="color:{TEXT_MUTED};">You have <b style="color:{TEXT};">{count} Ticket Protection claim{'s' if count != 1 else ''}</b> that have been waiting for review for more than <b>24 hours</b>. Our promise to buyers is a quick decision &mdash; let&apos;s clear them.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:14px 0;border:1px solid {BORDER};border-radius:10px;overflow:hidden;">
+      {rows_html}
+    </table>
+    <p style="color:{TEXT_MUTED};font-size:13px;">One click below opens the protection tab where you can approve (refunds automatically via Stripe) or deny each claim.</p>
+    """
+    subject = f"{count} Ticket Protection claim{'s' if count != 1 else ''} waiting on you (24h+ overdue)"
+    html = _layout(subject, "Pending claims past SLA", body, "Review claims", APP_PUBLIC_URL + "/admin?tab=ticket-protection")
+    text_lines = [
+        f"{count} Ticket Protection claim{'s' if count != 1 else ''} pending >24h:",
+        "",
+    ]
+    for r in rows:
+        text_lines.append(
+            f"  • {r.get('user_name','(unknown)')} <{r.get('user_email','')}> — "
+            f"{r.get('event_title','')} — {int(r.get('age_hours') or 0)}h — "
+            f"{r.get('currency','NZD')} {float(r.get('amount') or 0):.2f}"
+        )
+    text_lines.append("")
+    text_lines.append(f"Review: {APP_PUBLIC_URL}/admin?tab=ticket-protection")
     text = _text_fallback(text_lines)
     return subject, html, text
 
