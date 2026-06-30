@@ -91,6 +91,13 @@ async def register(payload: RegisterIn, response: Response):
         await attach_pending_team_invites(doc)
     except Exception:
         pass
+    # Stamp any matching recruitment lead as "signed_up" so the admin
+    # pipeline shows the conversion attribution. Best-effort.
+    try:
+        from routers.admin import maybe_convert_recruitment_lead
+        await maybe_convert_recruitment_lead(doc)
+    except Exception:
+        pass
     # Notify all admins about the new signup (fire-and-forget, never blocks).
     await _notify_admins_of_signup(doc)
     # Fire welcome email #1 to organizers — fire-and-forget, never blocks signup.
@@ -414,6 +421,11 @@ async def google_code(payload: GoogleCodeIn, response: Response):
             await attach_pending_team_invites(new_user_doc)
         except Exception:
             pass
+        try:
+            from routers.admin import maybe_convert_recruitment_lead
+            await maybe_convert_recruitment_lead(new_user_doc)
+        except Exception:
+            pass
         # Notify all admins about the new Google signup
         await _notify_admins_of_signup(new_user_doc)
 
@@ -476,6 +488,11 @@ async def google_session(payload: GoogleSessionIn, response: Response):
         try:
             from routers.team import attach_pending_team_invites
             await attach_pending_team_invites(new_user_doc)
+        except Exception:
+            pass
+        try:
+            from routers.admin import maybe_convert_recruitment_lead
+            await maybe_convert_recruitment_lead(new_user_doc)
         except Exception:
             pass
         # Notify all admins about the new Google signup (legacy Emergent path)

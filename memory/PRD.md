@@ -31,7 +31,20 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
-- **Admin event drill-down — Open / Buyers / CSV (Feb 28 2026, iter_36)**:
+- **Recruitment Leads admin pipeline (Feb 28 2026, iter_38)**:
+  - Eventfinda discussion → user wanted a way to harvest top NZ organizers and recruit them to Allsale without ToS-breaking scraping.
+  - **Backend** (`routers/admin.py`): new `recruitment_leads` collection + 5 endpoints (`POST` bulk-upsert with email dedupe, `GET` list with summary chips + filters, `PATCH` status/notes, `DELETE`, `POST /send-flyer` bulk-mail the right flyer per lead.kind).
+  - **Auto-conversion hook** (`routers/auth.py`): both `/register` and Google sign-up paths now stamp matching lead → `signed_up` with `signed_up_user_id` linked, so the pipeline shows attribution automatically.
+  - **Frontend** (`AdminRecruitmentLeadsTab.jsx`, new file): status-chip summary, search + kind filter, bulk-select + "Send flyer to N", add-leads modal with bulk paste parser ("Name, email" / "Name &lt;email&gt;" / CSV-style columns) AND single-add form. Wired into Admin.jsx as a new "Leads" tab between Flyers and Creators.
+  - **Tests**: `test_recruitment_leads.py::test_recruitment_leads_full_lifecycle` covers 7 scenarios (bulk upsert, dedupe, filter, send-flyer + status flip + correct flyer per kind, auto-conversion via /register, delete with 404 on re-delete, 403 for non-admin).
+  - **Workflow now possible**: VA spends 30 min harvesting NZ event promoters from public Eventfinda/IG/news pages → pastes into Add Leads modal → admin selects + Send flyer → leads who sign up auto-link → admin sees full funnel.
+
+- **Recruitment flyer copy refresh — both templates (Feb 28 2026, iter_37)**:
+  - Organizer flyer: added Buyers Report, Event Boost, Waitlist + Demand pricing, Embed widget (now 14 services).
+  - Influencer flyer: added Creator codes per event, Influencer hub, UTM-based tracking (now 12 services).
+  - Both text fallbacks synced. Verified by hitting admin preview endpoint — HTML compiles cleanly.
+
+- **Privacy fix — organizers no longer see buyer-paid amounts (Feb 28 2026, iter_36b)**:
   - User reported "admin can also download and see the attendees per event — when clicking on event show all the details and download list of attendees".
   - Backend admins already have full access via `user_can_manage_event` (returns True for role=admin). UI was the missing piece.
   - **Fix shipped (`Admin.jsx` EventsTab `Section`)**: Each admin event row now has:

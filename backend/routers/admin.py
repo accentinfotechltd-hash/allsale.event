@@ -1596,3 +1596,225 @@ async def backfill_organizer_welcome(
         "errors": errors,
         "started_at": now_iso,
     }
+
+
+
+# ============================================================================
+# Recruitment leads — admin's pipeline for organizers/influencers to invite
+# ============================================================================
+class _LeadIn(BaseModel):
+    name: str
+    email: str
+    source: Optional[str] = "manual"   # "eventfinda" | "manual" | "csv" | "linkedin" | etc.
+    source_url: Optional[str] = None
+    event_count: Optional[int] = None   # how many events they ran (sortable signal)
+    notes: Optional[str] = None
+    kind: Optional[str] = "organizer"   # "organizer" | "influencer"
+
+
+class _LeadsBulkIn(BaseModel):
+    leads: list[_LeadIn]
+
+
+class _LeadPatchIn(BaseModel):
+    status: Optional[str] = None        # "new" | "contacted" | "signed_up" | "declined" | "ignored"
+    notes: Optional[str] = None
+    name: Optional[str] = None
+    event_count: Optional[int] = None
+    kind: Optional[str] = None
+    source: Optional[str] = None
+
+
+class _LeadSendIn(BaseModel):
+    lead_ids: list[str]
+    # Optional override — defaults to lead.kind to pick the right flyer
+    flyer_kind: Optional[str] = None    # "organizer_features_flyer" | "influencer_features_flyer"
+
+
+_LEAD_VALID_STATUSES = {"new", "contacted", "signed_up", "declined", "ignored"}
+
+
+@router.post("/recruitment-leads")
+async def create_recruitment_leads(payload: _LeadsBulkIn, user: dict = Depends(get_current_user)):
+    """Bulk-insert recruitment leads. Idempotent on (email) — re-uploading
+    the same person updates their last fields instead of duplicating."""
+    _admin_only(user)
+    if not payload.leads:
+        return {"created": 0, "updated": 0, "skipped": 0}
+
+    now = utc_now().isoformat()
+    created = updated = skipped = 0
+    for lead in payload.leads:
+        email = (lead.email or "").strip().lower()
+        name = (lead.name or "").strip()
+        if not email or "@" not in email or not name:
+            skipped += 1
+            continue
+        existing = await db.recruitment_leads.find_one({"email": email}, {"_id": 0})
+        if existing:
+            await db.recruitment_leads.update_one(
+                {"email": email},
+                {"$set": {
+                    "name": name or existing.get("name"),
+                    "source": lead.source or existing.get("source") or "manual",
+                    "source_url": lead.source_url or existing.get("source_url"),
+                    "event_count": lead.event_count if lead.event_count is not None else existing.get("event_count"),
+                    "notes": lead.notes or existing.get("notes"),
+                    "kind": lead.kind or existing.get("kind") or "organizer",
+                    "updated_at": now,
+                }},
+            )
+            updated += 1
+        else:
+            await db.recruitment_leads.insert_one({
+                "lead_id": f"lead_{uuid.uuid4().hex[:10]}",
+                "name": name,
+                "email": email,
+                "source": lead.source or "manual",
+                "source_url": lead.source_url,
+                "event_count": lead.event_count,
+                "notes": lead.notes,
+                "kind": lead.kind or "organizer",
+                "status": "new",
+                "created_at": now,
+                "created_by": user["user_id"],
+            })
+            created += 1
+    return {"created": created, "updated": updated, "skipped": skipped}
+
+
+@router.get("/recruitment-leads")
+async def list_recruitment_leads(
+    user: dict = Depends(get_current_user),
+    status: Optional[str] = None,
+    kind: Optional[str] = None,
+    source: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 200,
+):
+    """List leads with optional filters. Returns leads + summary counts so
+    the admin tab can show a status breakdown without a second roundtrip."""
+    _admin_only(user)
+    query: dict = {}
+    if status and status != "all":
+        query["status"] = status
+    if kind:
+        query["kind"] = kind
+    if source:
+        query["source"] = source
+    if q:
+        ql = re.escape(q.strip())
+        if ql:
+            query["$or"] = [
+                {"name": {"$regex": ql, "$options": "i"}},
+                {"email": {"$regex": ql, "$options": "i"}},
+                {"notes": {"$regex": ql, "$options": "i"}},
+            ]
+
+    safe_limit = max(1, min(int(limit or 200), 1000))
+    items = []
+    async for lead in db.recruitment_leads.find(query, {"_id": 0}).sort([
+        ("event_count", -1), ("created_at", -1)
+    ]).limit(safe_limit):
+        items.append(lead)
+
+    # Summary across ALL leads (ignoring filters) for the chips
+    summary: dict[str, int] = {"new": 0, "contacted": 0, "signed_up": 0, "declined": 0, "ignored": 0, "total": 0}
+    async for row in db.recruitment_leads.aggregate([
+        {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+    ]):
+        summary[row["_id"] or "new"] = row["count"]
+        summary["total"] += row["count"]
+    return {"items": items, "summary": summary}
+
+
+@router.patch("/recruitment-leads/{lead_id}")
+async def update_recruitment_lead(lead_id: str, payload: _LeadPatchIn, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    update = {k: v for k, v in payload.dict(exclude_unset=True).items() if v is not None}
+    if "status" in update and update["status"] not in _LEAD_VALID_STATUSES:
+        raise HTTPException(status_code=400, detail=f"status must be one of {_LEAD_VALID_STATUSES}")
+    if not update:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    update["updated_at"] = utc_now().isoformat()
+    res = await db.recruitment_leads.update_one({"lead_id": lead_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return {"ok": True}
+
+
+@router.delete("/recruitment-leads/{lead_id}")
+async def delete_recruitment_lead(lead_id: str, user: dict = Depends(get_current_user)):
+    _admin_only(user)
+    res = await db.recruitment_leads.delete_one({"lead_id": lead_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    return {"ok": True}
+
+
+@router.post("/recruitment-leads/send-flyer")
+async def send_flyer_to_leads(payload: _LeadSendIn, user: dict = Depends(get_current_user)):
+    """Bulk-send the appropriate recruitment flyer to selected leads.
+    Stamps `contacted_at` + flips status from new → contacted so we never
+    spam someone twice unless an admin manually resets them.
+    """
+    _admin_only(user)
+    if not payload.lead_ids:
+        raise HTTPException(status_code=400, detail="No leads selected")
+
+    leads = []
+    async for lead in db.recruitment_leads.find(
+        {"lead_id": {"$in": payload.lead_ids}}, {"_id": 0}
+    ):
+        leads.append(lead)
+    if not leads:
+        return {"sent": 0, "errors": []}
+
+    sent = 0
+    errors: list = []
+    now_iso = utc_now().isoformat()
+    for lead in leads:
+        # Pick the flyer based on the lead kind, unless the admin overrode it.
+        flyer_kind = payload.flyer_kind or (
+            "influencer_features_flyer" if lead.get("kind") == "influencer"
+            else "organizer_features_flyer"
+        )
+        try:
+            send_template_fireforget(
+                flyer_kind,
+                lead["email"],
+                {"name": lead.get("name") or "there", "user_name": lead.get("name") or "there"},
+                db,
+            )
+            await db.recruitment_leads.update_one(
+                {"lead_id": lead["lead_id"]},
+                {"$set": {
+                    "status": "contacted",
+                    "contacted_at": now_iso,
+                    "contacted_by": user["user_id"],
+                    "last_flyer_kind": flyer_kind,
+                }},
+            )
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"lead_id": lead["lead_id"], "error": str(exc)[:120]})
+    return {"sent": sent, "errors": errors, "queued_at": now_iso}
+
+
+async def maybe_convert_recruitment_lead(user_doc: dict) -> bool:
+    """Called from the user registration path. If a recruitment lead with this
+    email exists, flip its status to `signed_up` and link the new user_id so
+    the admin pipeline shows the conversion. Returns True if a lead was
+    matched (informational — never blocks signup).
+    """
+    if not user_doc.get("email"):
+        return False
+    res = await db.recruitment_leads.update_one(
+        {"email": user_doc["email"].lower(), "status": {"$ne": "signed_up"}},
+        {"$set": {
+            "status": "signed_up",
+            "signed_up_user_id": user_doc["user_id"],
+            "signed_up_at": utc_now().isoformat(),
+        }},
+    )
+    return res.modified_count > 0
