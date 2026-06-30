@@ -44,6 +44,7 @@ def _register(role: str = "attendee") -> tuple[str, str]:
     r = requests.post(f"{API}/api/auth/register", json={
         "email": f"upgr15_{suffix}@example.com", "password": "TestPass123!",
         "name": f"Upgr15 {suffix}", "role": role,
+        "phone": "+64 21 555 0099",  # mandatory since Feb 2026
     }, timeout=10)
     r.raise_for_status()
     return r.json()["token"], r.json()["user_id"]
@@ -101,7 +102,7 @@ def test_attendee_cannot_create_event_before_upgrade():
         "title": "blocked", "description": "x", "category": "music",
         "venue": "x", "city": "x", "date": "2026-12-31T20:00:00Z",
         "image_url": "https://example.com/img.png",
-        "tiers": [{"name": "GA", "price": 10, "capacity": 10}],
+        "tiers": [{"name": "GA", "price": 0, "capacity": 10}],
     }
     r = requests.post(f"{API}/api/events",
                       headers={"Authorization": f"Bearer {token}"},
@@ -113,12 +114,16 @@ def test_attendee_can_create_event_after_upgrade():
     token, _ = _register("attendee")
     requests.post(f"{API}/api/auth/become-organizer",
                   headers={"Authorization": f"Bearer {token}"}, timeout=10)
+    # Use a free tier so the post-upgrade attendee bypasses the paid-event
+    # Stripe-Connect gate (added in Feb 2026). The point of this test is to
+    # prove the role flip lets them call POST /events at all — payment
+    # routing is exercised elsewhere.
     payload = {
         "title": f"After Upgrade {uuid.uuid4().hex[:6]}",
         "description": "x", "category": "music",
         "venue": "x", "city": "x", "date": "2026-12-31T20:00:00Z",
         "image_url": "https://example.com/img.png",
-        "tiers": [{"name": "GA", "price": 10, "capacity": 10}],
+        "tiers": [{"name": "GA", "price": 0, "capacity": 10}],
     }
     r = requests.post(f"{API}/api/events",
                       headers={"Authorization": f"Bearer {token}"},

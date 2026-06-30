@@ -40,7 +40,7 @@ def _cleanup_module():
 
 def _organizer_token() -> str:
     r = requests.post(f"{API}/api/auth/login", json={
-        "email": "organizer@allsale.events", "password": "organizer123",
+        "email": "orgtester@allsale.events", "password": "orgtest123",
     }, timeout=10)
     r.raise_for_status()
     return r.json()["token"]
@@ -49,7 +49,9 @@ def _organizer_token() -> str:
 async def _seed_event(capacity: int = 100, with_sales: int = 0) -> str:
     client = AsyncIOMotorClient(os.environ["MONGO_URL"])
     db = client[os.environ["DB_NAME"]]
-    org = await db.users.find_one({"email": "organizer@allsale.events"}, {"_id": 0})
+    org = await db.users.find_one({"email": "orgtester@allsale.events"}, {"_id": 0})
+    if not org:
+        org = await db.users.find_one({"role": "admin"}, {"_id": 0})
     eid = f"evt_demand_test_{uuid.uuid4().hex[:6]}"
     await db.events.insert_one({
         "event_id": eid, "title": "Demand Test",
@@ -169,6 +171,7 @@ def test_velocity_blocks_other_organizers():
     r = requests.post(f"{API}/api/auth/register", json={
         "email": f"vel_other_{suffix}@example.com", "password": "TestPass123!",
         "name": f"Other {suffix}", "role": "organizer",
+        "phone": "+64 21 555 0098",  # mandatory since Feb 2026
     }, timeout=10)
     other_token = r.json()["token"]
     r = requests.get(f"{API}/api/organizer/events/{eid}/velocity",
