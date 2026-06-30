@@ -31,6 +31,20 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Eventfinda lead harvest — 70 NZ venues seeded into recruitment pipeline (Mar 1 2026, iter_42)**:
+  - User pasted `crawl_tool` output from Eventfinda's Auckland / Wellington / Canterbury "What's on" pages (Cloudflare-protected — direct fetch fails, but `crawl_tool` succeeds).
+  - **Script** (`/app/backend/scripts/harvest_eventfinda_seed.py`): curated SEED list (71 venues across 3 regions), uses placeholder emails `research-needed+<slug>@allsale.events` (admin overwrites with real owner email post-research). Idempotent — re-runs upsert by email. Bug-fixed import paths (`.parent.parent`) + `load_dotenv` so script runs cleanly from any cwd.
+  - **Run output**: created=70 / updated=1 / skipped=0. Sweet Axe Throwing Co. dedup'd (appears in both Auckland and Wellington — kept latest URL).
+  - **Verified** via `GET /api/admin/recruitment-leads?source=eventfinda` → 70 items, sorted by event_count desc (Stonehenge Aotearoa = 4 events ranks #1).
+  - **Next step for admin**: research owner emails, replace placeholder emails via PATCH, then bulk-select + Send flyer in the Admin Leads tab.
+
+- **Ticket Protection — 1-click Stripe refund on claim approval (Feb 28 2026, iter_41)**:
+  - User asked: "what is the benefit to us?" — explained 6.5% premium pool with 80-85% margin (insurance economics: very low claim rate).
+  - **Backend** (`routers/ticket_protection.py::approve_claim`): admin clicking Approve now atomically (1) marks the claim approved, (2) creates a Stripe refund for `booking.face_value` against the original Payment Intent, (3) releases the held seats back to inventory, (4) emails the buyer the refund confirmation. Previously admin had to manually trigger the Stripe refund from the dashboard.
+  - **Refund amount**: face_value only (organizer's net). The platform's 6.5% premium stays in the protection pool to cover other claims + margin.
+  - **Idempotency**: re-approving a claim is a no-op (`status=approved` already); the refund_id is stamped on the claim doc for audit.
+  - **Tested** via existing `test_iter17_ticket_protection.py` flow + manual `curl` of the approve endpoint.
+
 - **Eventbrite migration wizard (Feb 28 2026, iter_40)**:
   - User flow: organizer pastes their Eventbrite event URL → backend fetches the public page → JSON-LD structured data is parsed → preview card renders title, date/time, venue, hero image, currency, source organizer, ticket tiers → one click to continue into `/organizer/new` with the form pre-populated via sessionStorage.
   - **Backend** (new `routers/migrations.py`): `POST /api/migrate/eventbrite` validates URL is an eventbrite.com / .co.nz `/e/...` URL, fetches with polite UA, parses `<script type="application/ld+json">` `Event` block, normalises to Allsale's create-event shape. Strips Free/RSVP/zero-priced offers, flags SoldOut tiers but keeps them. Falls back to `<title>` if JSON-LD missing.

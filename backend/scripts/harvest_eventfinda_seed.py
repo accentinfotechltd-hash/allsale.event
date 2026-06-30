@@ -15,7 +15,14 @@ import sys
 import uuid
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Make `core` importable regardless of where you invoke the script from.
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(ROOT / ".env")
+
 from core import db, utc_now  # noqa: E402
 
 # Sanitized seed list extracted from the live crawl_tool output.
