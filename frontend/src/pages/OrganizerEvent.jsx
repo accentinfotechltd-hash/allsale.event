@@ -48,6 +48,25 @@ export default function OrganizerEvent() {
     })();
   }, [eventId]);
 
+  // Jump to a specific panel (e.g. #attendees) once the data hydrates and
+  // the section actually renders. Tries a few times because some panels
+  // mount asynchronously after their child fetch resolves.
+  useEffect(() => {
+    if (!data) return;
+    const hash = window.location.hash.replace("#", "");
+    if (!hash) return;
+    let tries = 0;
+    const tick = () => {
+      const el = document.getElementById(hash);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      if (tries++ < 10) setTimeout(tick, 120);
+    };
+    tick();
+  }, [data]);
+
   const downloadCsv = async () => {
     try {
       const token = localStorage.getItem("aura_token");
@@ -309,6 +328,7 @@ export default function OrganizerEvent() {
       </Panel>
 
       {/* Attendees */}
+      <div id="attendees">
       <Panel title="Attendees" sub={`${attendees.length} confirmed`}>
         {attendees.length === 0 ? (
           <Empty>No attendees yet.</Empty>
@@ -367,6 +387,7 @@ export default function OrganizerEvent() {
           </div>
         )}
       </Panel>
+      </div>
 
       {/* Waitlist panel */}
       <WaitlistPanel eventId={eventId} />

@@ -50,6 +50,7 @@ import BundleDetail from "@/pages/BundleDetail";
 import BundleSuccess from "@/pages/BundleSuccess";
 import BundleManager from "@/pages/BundleManager";
 import OrganizerReferral from "@/pages/OrganizerReferral";
+import OrganizerBuyers from "@/pages/OrganizerBuyers";
 import EventShare from "@/pages/EventShare";
 import Blog from "@/pages/Blog";
 import BlogPost from "@/pages/BlogPost";
@@ -140,6 +141,7 @@ function AppRouter() {
         <Route path="/organizer/transfers" element={<RequireOrganizer><OrganizerTransfers /></RequireOrganizer>} />
         <Route path="/organizer/bundles" element={<RequireOrganizer><BundleManager /></RequireOrganizer>} />
         <Route path="/organizer/referral" element={<RequireOrganizer><OrganizerReferral /></RequireOrganizer>} />
+        <Route path="/organizer/buyers" element={<RequireOrganizer><OrganizerBuyers /></RequireOrganizer>} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/admin/revenue" element={<AdminRevenue />} />
       </Routes>

@@ -219,6 +219,237 @@ async def org_attendees(event_id: str, user: dict = Depends(get_current_user)):
     return items
 
 
+async def _organizer_visible_event_ids(user: dict) -> tuple[set[str], dict[str, dict]]:
+    """Return (event_ids, events_by_id) the user can manage as organizer/team.
+
+    Mirrors `org_events` visibility: owned + team-granted (per-event or
+    org-wide). Admins see every event so they can audit any organizer.
+    """
+    query: dict
+    if user.get("role") == "admin":
+        query = {}
+    else:
+        owned_ids: set[str] = set()
+        async for e in db.events.find({"organizer_id": user["user_id"]}, {"event_id": 1, "_id": 0}):
+            owned_ids.add(e["event_id"])
+
+        org_owners: set[str] = set()
+        team_event_ids: set[str] = set()
+        async for tm in db.team_members.find(
+            {"member_user_id": user["user_id"], "status": "active"}, {"_id": 0},
+        ):
+            if tm.get("scope") == "organization" and tm.get("owner_user_id"):
+                org_owners.add(tm["owner_user_id"])
+            elif tm.get("scope") == "event" and tm.get("event_id"):
+                team_event_ids.add(tm["event_id"])
+
+        or_clauses: list[dict] = [{"organizer_id": user["user_id"]}]
+        if org_owners:
+            or_clauses.append({"organizer_id": {"$in": list(org_owners)}})
+        if team_event_ids:
+            or_clauses.append({"event_id": {"$in": list(team_event_ids - owned_ids)}})
+        query = {"$or": or_clauses}
+
+    events_by_id: dict[str, dict] = {}
+    async for e in db.events.find(query, {"_id": 0}):
+        events_by_id[e["event_id"]] = e
+
+    return set(events_by_id.keys()), events_by_id
+
+
+@router.get("/buyers")
+async def org_buyers(
+    user: dict = Depends(get_current_user),
+    event_id: Optional[str] = None,
+    status: Optional[str] = "paid",
+    q: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    limit: int = 200,
+    offset: int = 0,
+):
+    """Unified buyers report across ALL events the user can manage.
+
+    Returns paid bookings (or any status when `status='all'`) flattened
+    with the event title/date so the UI can render a single table. Filterable
+    by event, free-text (name/email/booking id), date range, and status.
+    """
+    await require_role(user, "organizer", "admin")
+
+    visible_ids, events_by_id = await _organizer_visible_event_ids(user)
+    if not visible_ids:
+        return {"items": [], "total": 0, "events": [], "limit": limit, "offset": offset}
+
+    target_ids = visible_ids
+    if event_id:
+        if event_id not in visible_ids:
+            raise HTTPException(status_code=403, detail="Not allowed for this event")
+        target_ids = {event_id}
+
+    query: dict = {"event_id": {"$in": list(target_ids)}}
+    if status and status != "all":
+        query["status"] = status
+    if q:
+        ql = q.strip()
+        if ql:
+            import re
+            esc = re.escape(ql)
+            query["$or"] = [
+                {"user_name": {"$regex": esc, "$options": "i"}},
+                {"user_email": {"$regex": esc, "$options": "i"}},
+                {"booking_id": {"$regex": esc, "$options": "i"}},
+            ]
+    # Date range filter applied to paid_at (fallback to created_at).
+    if from_date:
+        query.setdefault("$and", []).append({"$or": [
+            {"paid_at": {"$gte": from_date}},
+            {"$and": [{"paid_at": {"$in": [None, ""]}}, {"created_at": {"$gte": from_date}}]},
+        ]})
+    if to_date:
+        # inclusive upper bound: append a 'z' so any time on that ISO date matches
+        upper = to_date + "z"
+        query.setdefault("$and", []).append({"$or": [
+            {"paid_at": {"$lte": upper}},
+            {"$and": [{"paid_at": {"$in": [None, ""]}}, {"created_at": {"$lte": upper}}]},
+        ]})
+
+    total = await db.bookings.count_documents(query)
+    safe_limit = max(1, min(int(limit or 200), 500))
+    safe_offset = max(0, int(offset or 0))
+
+    items = []
+    cursor = (
+        db.bookings.find(query, {"_id": 0})
+        .sort([("paid_at", -1), ("created_at", -1)])
+        .skip(safe_offset)
+        .limit(safe_limit)
+    )
+    async for b in cursor:
+        ev = events_by_id.get(b["event_id"]) or {}
+        items.append({
+            "booking_id": b.get("booking_id"),
+            "event_id": b.get("event_id"),
+            "event_title": b.get("event_title") or ev.get("title"),
+            "event_date": b.get("event_date") or ev.get("date"),
+            "event_venue": b.get("event_venue") or ev.get("venue"),
+            "user_name": b.get("user_name"),
+            "user_email": b.get("user_email"),
+            "tier_name": b.get("tier_name"),
+            "seats": b.get("seats") or [],
+            "quantity": b.get("quantity", 0),
+            "amount": round(b.get("amount", 0) or 0, 2),
+            "currency": (b.get("currency") or ev.get("currency") or "NZD").upper(),
+            "status": b.get("status"),
+            "paid_at": b.get("paid_at"),
+            "created_at": b.get("created_at"),
+            "checked_in": bool(b.get("checked_in")),
+            "checked_in_at": b.get("checked_in_at"),
+            "discount_code": b.get("discount_code"),
+            "discount_amount": round(b.get("discount_amount", 0) or 0, 2),
+            "transferred_at": b.get("transferred_at"),
+        })
+
+    events_list = sorted(
+        [
+            {"event_id": e["event_id"], "title": e.get("title"), "date": e.get("date")}
+            for e in events_by_id.values()
+        ],
+        key=lambda e: e.get("date") or "",
+        reverse=True,
+    )
+
+    return {
+        "items": items,
+        "total": total,
+        "events": events_list,
+        "limit": safe_limit,
+        "offset": safe_offset,
+    }
+
+
+@router.get("/buyers.csv")
+async def org_buyers_csv(
+    user: dict = Depends(get_current_user),
+    event_id: Optional[str] = None,
+    status: Optional[str] = "paid",
+    q: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+):
+    """Stream the unified buyers report (paid bookings across all visible
+    events) as CSV. Filters mirror `/organizer/buyers`."""
+    await require_role(user, "organizer", "admin")
+
+    visible_ids, events_by_id = await _organizer_visible_event_ids(user)
+    if not visible_ids:
+        return Response(
+            content=b"Booking ID,Event,Event date,Buyer,Email,Tier / Seats,Qty,Amount,Currency,Status,Booked at,Checked in\n",
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="buyers.csv"'},
+        )
+
+    target_ids = visible_ids
+    if event_id:
+        if event_id not in visible_ids:
+            raise HTTPException(status_code=403, detail="Not allowed for this event")
+        target_ids = {event_id}
+
+    query: dict = {"event_id": {"$in": list(target_ids)}}
+    if status and status != "all":
+        query["status"] = status
+    if q:
+        ql = q.strip()
+        if ql:
+            import re
+            esc = re.escape(ql)
+            query["$or"] = [
+                {"user_name": {"$regex": esc, "$options": "i"}},
+                {"user_email": {"$regex": esc, "$options": "i"}},
+                {"booking_id": {"$regex": esc, "$options": "i"}},
+            ]
+    if from_date:
+        query.setdefault("$and", []).append({"$or": [
+            {"paid_at": {"$gte": from_date}},
+            {"$and": [{"paid_at": {"$in": [None, ""]}}, {"created_at": {"$gte": from_date}}]},
+        ]})
+    if to_date:
+        upper = to_date + "z"
+        query.setdefault("$and", []).append({"$or": [
+            {"paid_at": {"$lte": upper}},
+            {"$and": [{"paid_at": {"$in": [None, ""]}}, {"created_at": {"$lte": upper}}]},
+        ]})
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([
+        "Booking ID", "Event", "Event date", "Buyer", "Email",
+        "Tier / Seats", "Qty", "Amount", "Currency", "Status",
+        "Booked at", "Checked in",
+    ])
+    async for b in db.bookings.find(query, {"_id": 0}).sort([("paid_at", -1), ("created_at", -1)]):
+        seats = ", ".join(b.get("seats") or []) if b.get("seats") else (b.get("tier_name") or "")
+        ev = events_by_id.get(b["event_id"]) or {}
+        writer.writerow([
+            b.get("booking_id", ""),
+            b.get("event_title") or ev.get("title", ""),
+            (b.get("event_date") or ev.get("date") or "")[:10],
+            b.get("user_name", ""),
+            b.get("user_email", ""),
+            seats,
+            b.get("quantity", 0),
+            f"{(b.get('amount') or 0):.2f}",
+            (b.get("currency") or ev.get("currency") or "NZD").upper(),
+            b.get("status", ""),
+            b.get("paid_at") or b.get("created_at", ""),
+            "Yes" if b.get("checked_in") else "No",
+        ])
+    return Response(
+        content=buf.getvalue().encode("utf-8"),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="buyers.csv"'},
+    )
+
+
 class TransferIn(BaseModel):
     """Body for re-assigning a paid booking to a different attendee."""
     email: EmailStr

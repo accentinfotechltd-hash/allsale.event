@@ -2,7 +2,7 @@ import { useEffect, useState, Fragment } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet, ScanLine, Pencil, Trash2, Package, Sparkles, Flame } from "lucide-react";
+import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet, ScanLine, Pencil, Trash2, Package, Sparkles, Flame, Users } from "lucide-react";
 import { toast } from "sonner";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { formatMoney } from "@/lib/currencies";
@@ -97,6 +97,9 @@ export default function Organizer() {
           <h1 className="serif text-5xl">Hello, {user.name.split(" ")[0]}</h1>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Link to="/organizer/buyers" className="btn-ghost" data-testid="view-buyers-btn">
+            <Users className="w-4 h-4" /> Buyers
+          </Link>
           <Link to="/organizer/codes" className="btn-ghost" data-testid="manage-codes-btn">
             <Tag className="w-4 h-4" /> Discount codes
           </Link>
@@ -198,6 +201,15 @@ export default function Organizer() {
                   <td className="p-4 text-right">{formatMoney(perE.revenue || 0, e.currency)}</td>
                   <td className="p-4 text-right">
                     <div className="flex items-center gap-1.5 justify-end flex-wrap">
+                      <Link
+                        to={`/organizer/buyers?event_id=${e.event_id}`}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs border"
+                        style={{ borderColor: "var(--border)", color: "var(--text)" }}
+                        data-testid={`view-buyers-${e.event_id}`}
+                        title="View who bought tickets"
+                      >
+                        <Users className="w-3 h-3" /> Buyers
+                      </Link>
                       <Link
                         to={`/organizer/events/${e.event_id}/edit`}
                         className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs border"

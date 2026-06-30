@@ -31,6 +31,17 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Buyers Report — discoverability fix (Feb 28 2026, iter_32)**:
+  - User reported "organizer can't see the ticket buying report — who bought it, where to find?"
+  - **Root cause**: the attendees table existed but was buried beneath ~12 panels on `/organizer/events/{id}` and there was no top-level entry point.
+  - **Fix shipped**:
+    1. New **unified Buyers Report page** at `/organizer/buyers` (`OrganizerBuyers.jsx`) — searchable across all events with filters for event / date range / status / free-text (name / email / booking id), summary stats, paginated table (100/page), and CSV export.
+    2. New backend endpoints: `GET /api/organizer/buyers` (filterable, paginated) and `GET /api/organizer/buyers.csv`. Enforces organizer/team scope — Org A cannot query Org B's event_id (403). Admin sees everything.
+    3. Top-bar **Buyers** link added to the organizer dashboard navigation (`Organizer.jsx`).
+    4. Per-event row **Buyers** button on the events table deep-links to `/organizer/buyers?event_id=...` (URL is synced both ways).
+    5. Existing event page Attendees panel now has `#attendees` anchor + auto-scrolls when navigated to with that hash.
+  - **Tests:** `tests/test_organizer_buyers.py::test_buyers_report_full_flow` covers 6 scenarios (default filter, status=all, name search, email search, cross-organizer 403, CSV export). Passes.
+
 - **Admin Settings → buyer-side price preview widget (Feb 28 2026, iter_31)**:
   - New `BuyerPricePreview` component embedded in the Commission & fees form. Reads `percent` + `flat` LIVE as the admin types and shows a 3-row table ($25 / $50 / $100 sample tickets) with: `+ Fees` shown on listings, total the buyer pays at Stripe, the admin's cut, and the organizer's net.
   - Math is identical to `lib/fees.js::estimateBuyerFees` so the preview matches what buyers actually see on listing pages — no more "save → check a listing → undo" loops.
