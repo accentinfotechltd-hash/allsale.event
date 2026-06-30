@@ -230,6 +230,7 @@ export default function Layout({ children }) {
               <li><Link to={user?.is_influencer ? "/influencer" : "/influencer/onboarding"} style={{ color: "var(--text-muted)" }} data-testid="footer-become-creator-link">Become a creator</Link></li>
               <li><Link to="/become-partner" style={{ color: "var(--text-muted)" }} data-testid="footer-become-partner-link">Become a partner</Link></li>
               <li><Link to="/scan" style={{ color: "var(--text-muted)" }} data-testid="footer-scanner-link">Door scanner app</Link></li>
+              <li><Link to="/vs-eventbrite" style={{ color: "var(--text-muted)" }} data-testid="footer-vs-eventbrite-link">Allsale vs Eventbrite</Link></li>
             </ul>
           </div>
           <div>
