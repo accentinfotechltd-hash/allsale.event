@@ -31,6 +31,12 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **test_iter24_email_resend_api stale booking ref fixed (Mar 1 2026, iter_47)**:
+  - The hard-coded `TARGET_BOOKING = "bk_partner_test_001"` had been deleted from the DB long ago, causing 5 of 6 tests in this file to fail.
+  - Replaced the module-level constant with a `target_booking` pytest fixture that dynamically queries `db.bookings.find_one({"status": "paid", "user_email": {"$exists": True, "$ne": None}}, sort=[("created_at", -1)])` at test time. If no paid booking exists, the entire module skips cleanly instead of hard-failing.
+  - All 3 dependent tests (`test_target_booking_exists_and_is_paid`, `test_admin_resend_booking_returns_200`, `test_email_log_row_was_sent_with_resend_id`) updated to request the fixture and use `target_booking["booking_id"]` + `target_booking["user_email"]` instead of the constant.
+  - **Result**: 6/6 pass cleanly. Survives any seed-data reset going forward.
+
 - **Test rot cleanup: stale `organizer@allsale.events` references purged (Mar 1 2026, iter_46)**:
   - **11 superseded files deleted** (followed the same pattern as the test_iteration5/7/8 deletion in iter_44):
     - `test_iteration2.py` (uploads/aisles/seat reservation — covered by seatmap_templates, uploads tests)

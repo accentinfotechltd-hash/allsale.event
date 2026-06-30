@@ -27,7 +27,6 @@ if not BASE_URL:
 
 ADMIN_EMAIL = "admin@allsale.events"
 ADMIN_PASSWORD = "admin123"
-TARGET_BOOKING = "bk_partner_test_001"
 BYTES_BUG_REASON = "Object of type bytes is not JSON serializable"
 
 
@@ -53,6 +52,25 @@ def mongo_db():
     return client[os.environ["DB_NAME"]]
 
 
+@pytest.fixture(scope="module")
+def target_booking(mongo_db) -> dict:
+    """Resolve the most recent paid booking with a user_email at test time.
+    Skips the entire module if no such booking exists in the DB. The previous
+    hard-coded `bk_partner_test_001` is gone — we look it up dynamically so
+    these tests survive seed-data resets.
+    """
+    booking = _run(
+        mongo_db.bookings.find_one(
+            {"status": "paid", "user_email": {"$exists": True, "$ne": None}},
+            {"_id": 0},
+            sort=[("created_at", -1)],
+        )
+    )
+    if not booking:
+        pytest.skip("no paid booking with user_email in DB — nothing to resend")
+    return booking
+
+
 def _run(coro):
     return asyncio.get_event_loop().run_until_complete(coro) if not asyncio.get_event_loop().is_closed() else asyncio.new_event_loop().run_until_complete(coro)
 
@@ -60,48 +78,49 @@ def _run(coro):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
-def test_target_booking_exists_and_is_paid(mongo_db):
-    booking = _run(mongo_db.bookings.find_one({"booking_id": TARGET_BOOKING}, {"_id": 0}))
-    assert booking is not None, f"seed booking {TARGET_BOOKING} missing"
-    assert booking.get("status") == "paid"
-    assert booking.get("user_email")
+def test_target_booking_exists_and_is_paid(target_booking):
+    assert target_booking is not None, "expected a paid booking with user_email in DB"
+    assert target_booking.get("status") == "paid"
+    assert target_booking.get("user_email")
 
 
-def test_admin_resend_booking_returns_200(admin_session: requests.Session):
+def test_admin_resend_booking_returns_200(admin_session: requests.Session, target_booking):
+    bid = target_booking["booking_id"]
     r = admin_session.post(
         f"{BASE_URL}/api/admin/email/resend-booking",
-        json={"booking_id": TARGET_BOOKING},
+        json={"booking_id": bid},
         timeout=30,
     )
     assert r.status_code == 200, f"resend failed: {r.status_code} {r.text}"
     body = r.json()
     assert body.get("ok") is True
-    assert body.get("booking_id") == TARGET_BOOKING
+    assert body.get("booking_id") == bid
     assert body.get("to")
 
 
-def test_email_log_row_was_sent_with_resend_id(admin_session, mongo_db):
+def test_email_log_row_was_sent_with_resend_id(admin_session, mongo_db, target_booking):
     """Resend the email then verify the latest email_logs row for this
     booking_confirmation has status='sent' and non-empty resend_id.
     """
+    bid = target_booking["booking_id"]
+    to_addr = target_booking["user_email"]
     # Respect Resend's 2 req/s limit (previous test fired one resend).
     time.sleep(1.5)
 
     # Retry around transient rate-limits — they're NOT the bug we're testing.
-    last_body = None
+    latest = None
     for attempt in range(3):
         r = admin_session.post(
             f"{BASE_URL}/api/admin/email/resend-booking",
-            json={"booking_id": TARGET_BOOKING},
+            json={"booking_id": bid},
             timeout=30,
         )
         assert r.status_code == 200, f"resend failed: {r.status_code} {r.text}"
-        last_body = r.json()
         # Allow log row to flush
         time.sleep(0.8)
         latest = _run(
             mongo_db.email_logs.find_one(
-                {"template": "booking_confirmation", "to": "buyer@test.com"},
+                {"template": "booking_confirmation", "to": to_addr},
                 sort=[("created_at", -1)],
             )
         )
