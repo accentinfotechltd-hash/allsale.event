@@ -234,11 +234,11 @@ export default function VsEventbrite() {
           </div>
 
           <div className="mt-10 flex gap-3 flex-wrap">
-            <Link to="/signup?role=organizer" className="btn-primary" data-testid="migration-cta-signup">
-              Start your free Allsale account <ArrowRight className="w-4 h-4" />
+            <Link to="/migrate-eventbrite" className="btn-primary" data-testid="migration-cta-wizard">
+              <Sparkles className="w-4 h-4" /> Import from Eventbrite in 60 seconds <ArrowRight className="w-4 h-4" />
             </Link>
-            <Link to="/contact" className="btn-ghost" data-testid="migration-cta-contact">
-              Talk to a migration helper
+            <Link to="/signup?role=organizer" className="btn-ghost" data-testid="migration-cta-signup">
+              Start your free Allsale account
             </Link>
           </div>
         </div>

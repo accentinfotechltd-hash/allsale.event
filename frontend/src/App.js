@@ -52,6 +52,7 @@ import BundleManager from "@/pages/BundleManager";
 import OrganizerReferral from "@/pages/OrganizerReferral";
 import OrganizerBuyers from "@/pages/OrganizerBuyers";
 import VsEventbrite from "@/pages/VsEventbrite";
+import MigrateEventbrite from "@/pages/MigrateEventbrite";
 import EventShare from "@/pages/EventShare";
 import Blog from "@/pages/Blog";
 import BlogPost from "@/pages/BlogPost";
@@ -109,6 +110,7 @@ function AppRouter() {
         <Route path="/become-partner" element={<BecomePartner />} />
         <Route path="/about" element={<About />} />
         <Route path="/vs-eventbrite" element={<VsEventbrite />} />
+        <Route path="/migrate-eventbrite" element={<MigrateEventbrite />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/organizers/:id" element={<OrganizerProfile />} />

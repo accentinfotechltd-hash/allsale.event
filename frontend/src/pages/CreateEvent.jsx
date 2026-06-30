@@ -133,6 +133,23 @@ export default function CreateEvent() {
     })();
   }, [isAdmin, isEdit]);
 
+  // Eventbrite migration prefill — set by /migrate-eventbrite then we
+  // navigate here with ?from=eventbrite. We consume the prefill once and
+  // drop it so a refresh doesn't keep re-applying stale data.
+  useEffect(() => {
+    if (isEdit) return;
+    try {
+      const raw = sessionStorage.getItem("allsale_eventbrite_prefill");
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed.form) setForm((f) => ({ ...f, ...parsed.form }));
+      if (Array.isArray(parsed.tiers) && parsed.tiers.length) setTiers(parsed.tiers);
+      sessionStorage.removeItem("allsale_eventbrite_prefill");
+      toast.success("Imported from Eventbrite — review the fields and publish when ready");
+    } catch { /* sessionStorage may be unavailable in some browsers */ }
+  }, [isEdit]);
+
+
   // Load existing event when in edit mode
   useEffect(() => {
     if (!isEdit) return;

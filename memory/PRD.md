@@ -31,6 +31,17 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Eventbrite migration wizard (Feb 28 2026, iter_40)**:
+  - User flow: organizer pastes their Eventbrite event URL → backend fetches the public page → JSON-LD structured data is parsed → preview card renders title, date/time, venue, hero image, currency, source organizer, ticket tiers → one click to continue into `/organizer/new` with the form pre-populated via sessionStorage.
+  - **Backend** (new `routers/migrations.py`): `POST /api/migrate/eventbrite` validates URL is an eventbrite.com / .co.nz `/e/...` URL, fetches with polite UA, parses `<script type="application/ld+json">` `Event` block, normalises to Allsale's create-event shape. Strips Free/RSVP/zero-priced offers, flags SoldOut tiers but keeps them. Falls back to `<title>` if JSON-LD missing.
+  - **Server.py**: registered `migrations` router in the auto-loader list.
+  - **Frontend** (new `pages/MigrateEventbrite.jsx`): paste box → fetch → preview card with hero image, all fields, tier list (sold-out badges + empty-state message), "Try another URL" + "Continue to event setup" actions. Unauth users bounce to `/signup?role=organizer` with prefill preserved; attendees bounce to `/become-organizer`.
+  - **CreateEvent prefill hook**: reads `sessionStorage["allsale_eventbrite_prefill"]` on mount, merges into form + tier state, then drops the key so refreshes don't re-apply.
+  - **Routes** in App.js: `/migrate-eventbrite`. The `/vs-eventbrite` page's "Move in 10 minutes" CTA now links here instead of `/contact`.
+  - **Deps installed**: `beautifulsoup4==4.12.3` + `lxml==5.3.0` added to requirements.txt.
+  - **Tests** (`test_migrate_eventbrite.py`, 2 tests): pure parser unit test with canned Eventbrite-style JSON-LD (verifies tier dedupe + sold-out flag), and route-level URL-validation test (rejects non-eventbrite hosts / malformed URLs / discovery pages, requires auth).
+  - **End-to-end verified** via Playwright + real live Eventbrite NZ event URL: backend extracted title/date/venue/image/currency/organizer correctly, frontend preview rendered with actual poster art.
+
 - **Recruitment Leads admin pipeline (Feb 28 2026, iter_38)**:
   - Eventfinda discussion → user wanted a way to harvest top NZ organizers and recruit them to Allsale without ToS-breaking scraping.
   - **Backend** (`routers/admin.py`): new `recruitment_leads` collection + 5 endpoints (`POST` bulk-upsert with email dedupe, `GET` list with summary chips + filters, `PATCH` status/notes, `DELETE`, `POST /send-flyer` bulk-mail the right flyer per lead.kind).
