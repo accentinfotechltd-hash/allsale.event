@@ -2868,13 +2868,36 @@ function ProtectionClaimsTab() {
   useEffect(() => { loadStats(); }, []);
 
   const decide = async (claim, decision) => {
+    const isApprove = decision === "approve";
+    // Approving now refunds immediately — be crystal clear before they click.
+    if (isApprove) {
+      const confirmed = window.confirm(
+        `Approve this claim AND refund ${claim.currency || "NZD"} $${(claim.amount || 0).toFixed(2)} to ${claim.user_name || claim.user_email}?\n\n` +
+        `• Stripe refund fires immediately\n` +
+        `• Seats are released back to inventory\n` +
+        `• Buyer gets a confirmation email\n\n` +
+        `This cannot be undone.`
+      );
+      if (!confirmed) return;
+    }
     const note = window.prompt(`Optional internal note for this ${decision}:`, "") || "";
     try {
-      await api.post(
+      const { data } = await api.post(
         `/admin/ticket-protection/claims/${claim.claim_id}/${decision}`,
         { admin_note: note }
       );
-      toast.success(`Claim ${decision === "approve" ? "approved" : "denied"}`);
+      if (isApprove) {
+        const amt = (data?.amount_refunded || 0).toFixed(2);
+        if (data?.already_refunded) {
+          toast.success(`Claim approved — booking was already refunded ($${amt})`);
+        } else if (data?.refund_status === "succeeded") {
+          toast.success(`Approved & refunded $${amt} via Stripe (${data.stripe_refund_id || "no id"})`);
+        } else {
+          toast.success(`Claim approved — refund staged ($${amt})`);
+        }
+      } else {
+        toast.success("Claim denied");
+      }
       load();
       loadStats();
     } catch (e) {
@@ -2968,7 +2991,7 @@ function ProtectionClaimsTab() {
                       className="btn-primary !py-1.5 !px-3 text-xs"
                       data-testid={`approve-claim-${c.claim_id}`}
                     >
-                      <Check className="w-3 h-3" /> Approve & stage refund
+                      <Check className="w-3 h-3" /> Approve &amp; refund now
                     </button>
                     <button
                       onClick={() => decide(c, "deny")}

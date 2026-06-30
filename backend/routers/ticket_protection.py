@@ -28,6 +28,15 @@ from pydantic import BaseModel, Field
 
 from core import db, get_current_user, utc_now, logger
 
+# Stripe is optional in dev — guard the import so the rest of the router
+# still works when STRIPE_API_KEY isn't set.
+try:
+    import stripe as _stripe
+    _STRIPE = True
+except Exception:  # pragma: no cover
+    _stripe = None
+    _STRIPE = False
+
 router = APIRouter(tags=["ticket_protection"])
 
 # 6.5% by default — matches what major competitors (Booking Protect, XCover) charge.
@@ -235,37 +244,153 @@ class DecisionIn(BaseModel):
 
 @router.post("/admin/ticket-protection/claims/{claim_id}/approve")
 async def approve_claim(claim_id: str, payload: DecisionIn, user: dict = Depends(_require_admin)) -> Dict[str, Any]:
+    """One-click approve + Stripe-refund + release-seats + email-buyer.
+
+    Protection promise: when approved, the buyer is **always** refunded the
+    full `booking.amount` they were charged (face value + all fees +
+    protection premium). This bypasses the event's `refund_policy` window
+    because that's literally what they paid 6.5% for.
+    """
     claim = await db.protection_claims.find_one({"claim_id": claim_id}, {"_id": 0})
     if not claim:
         raise HTTPException(status_code=404, detail="Claim not found")
     if claim["status"] != "pending":
         raise HTTPException(status_code=400, detail=f"Claim is already {claim['status']}")
 
-    # Mark the claim approved and flip the booking into the refund pipeline.
-    # The actual Stripe refund is processed by the admin via the existing
-    # /admin → Bookings panel (one-click "Issue refund"). We just stage the
-    # ticket for refund here so the approval is auditable and the seat hold
-    # can be released.
+    booking = await db.bookings.find_one({"booking_id": claim["booking_id"]}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    # Already refunded? Idempotent — just mark the claim approved and bail.
+    if booking.get("status") == "refunded":
+        await db.protection_claims.update_one(
+            {"claim_id": claim_id},
+            {"$set": {
+                "status": "approved",
+                "admin_note": (payload.admin_note or "").strip() or None,
+                "decided_at": utc_now().isoformat(),
+                "decided_by": user["user_id"],
+                "refund_amount": booking.get("amount_refunded"),
+                "stripe_refund_id": booking.get("stripe_refund_id"),
+                "refund_status": "already_refunded",
+            }},
+        )
+        return {
+            "ok": True,
+            "already_refunded": True,
+            "amount_refunded": booking.get("amount_refunded"),
+            "stripe_refund_id": booking.get("stripe_refund_id"),
+        }
+
+    refund_amount = float(booking.get("amount") or 0)
+    if refund_amount <= 0:
+        raise HTTPException(status_code=400, detail="Booking has no charge to refund")
+
+    pi = booking.get("stripe_payment_intent") or booking.get("payment_intent_id")
+    session_id = booking.get("stripe_session_id")
+    refund_id: Optional[str] = None
+    refund_status = "skipped_no_stripe_key"
+
+    if _STRIPE and os.environ.get("STRIPE_API_KEY"):
+        _stripe.api_key = os.environ["STRIPE_API_KEY"]
+        try:
+            kwargs: Dict[str, Any] = {
+                "amount": int(round(refund_amount * 100)),
+                "metadata": {
+                    "claim_id": claim_id,
+                    "booking_id": booking["booking_id"],
+                    "event_id": claim.get("event_id") or booking.get("event_id"),
+                    "user_id": claim["user_id"],
+                    "reason": "ticket_protection_claim_approved",
+                },
+                "reason": "requested_by_customer",
+            }
+            if pi:
+                kwargs["payment_intent"] = pi
+            elif session_id:
+                sess = _stripe.checkout.Session.retrieve(session_id)
+                if not getattr(sess, "payment_intent", None):
+                    raise HTTPException(status_code=400, detail="Stripe charge not yet settled — try again in a few minutes.")
+                kwargs["payment_intent"] = sess.payment_intent
+            else:
+                raise HTTPException(status_code=400, detail="No Stripe charge found on this booking")
+
+            refund = _stripe.Refund.create(**kwargs, idempotency_key=f"protection-refund-{booking['booking_id']}")
+            refund_id = refund.get("id") if isinstance(refund, dict) else getattr(refund, "id", None)
+            refund_status = "succeeded"
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(f"[protection] stripe refund failed for claim {claim_id}: {exc}")
+            raise HTTPException(status_code=500, detail=f"Stripe refund failed: {str(exc)[:200]}")
+
+    now_iso = utc_now().isoformat()
+
+    # Stamp the claim
     await db.protection_claims.update_one(
         {"claim_id": claim_id},
         {"$set": {
             "status": "approved",
             "admin_note": (payload.admin_note or "").strip() or None,
-            "decided_at": utc_now().isoformat(),
+            "decided_at": now_iso,
             "decided_by": user["user_id"],
+            "refund_amount": refund_amount,
+            "stripe_refund_id": refund_id,
+            "refund_status": refund_status,
         }},
     )
+
+    # Mark the booking refunded
     await db.bookings.update_one(
-        {"booking_id": claim["booking_id"]},
+        {"booking_id": booking["booking_id"]},
         {"$set": {
+            "status": "refunded",
+            "amount_refunded": refund_amount,
+            "stripe_refund_id": refund_id,
+            "refund_reason": "ticket_protection_claim_approved",
             "protection_claim_approved": True,
             "protection_claim_id": claim_id,
-            "refund_requested_at": utc_now().isoformat(),
-            "refund_reason": "ticket_protection_claim_approved",
+            "refunded_at": now_iso,
+            "refunded_by": user["user_id"],
+            "refund_source": "ticket_protection",
         }},
     )
-    logger.info(f"[protection] claim approved {claim_id} — booking {claim['booking_id']} staged for refund")
-    return {"ok": True, "next_step": "Issue the Stripe refund from /admin → Bookings → Refund."}
+
+    # Release seats back to inventory so other buyers can grab them.
+    try:
+        from routers.refunds import _release_seats
+        await _release_seats(booking)
+    except Exception as exc:  # noqa: BLE001 — non-fatal
+        logger.warning(f"[protection] seat release failed for {booking['booking_id']}: {exc}")
+
+    # Fire-and-forget confirmation email to the buyer.
+    try:
+        from emails import send_template_fireforget
+        send_template_fireforget(
+            "refund_issued",
+            booking.get("user_email"),
+            {
+                "user_name": booking.get("user_name") or "there",
+                "event_title": booking.get("event_title"),
+                "amount": refund_amount,
+                "currency": booking.get("currency", "NZD"),
+                "booking_id": booking["booking_id"],
+            },
+            db,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+    logger.info(
+        f"[protection] claim approved + refunded {claim_id} → "
+        f"booking {booking['booking_id']} → refund {refund_id} (${refund_amount:.2f})"
+    )
+    return {
+        "ok": True,
+        "amount_refunded": refund_amount,
+        "stripe_refund_id": refund_id,
+        "refund_status": refund_status,
+    }
 
 
 @router.post("/admin/ticket-protection/claims/{claim_id}/deny")
