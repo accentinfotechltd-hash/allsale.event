@@ -216,7 +216,7 @@ export default function OrganizerBuyers() {
                 <th className="text-left p-4">Event</th>
                 <th className="text-left p-4">Tier / Seats</th>
                 <th className="text-right p-4">Qty</th>
-                <th className="text-right p-4">Paid</th>
+                <th className="text-right p-4">Revenue</th>
                 <th className="text-left p-4">Status</th>
                 <th className="text-right p-4"></th>
               </tr>

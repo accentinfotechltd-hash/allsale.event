@@ -341,7 +341,7 @@ export default function OrganizerEvent() {
                   <th className="text-left py-2">Email</th>
                   <th className="text-left py-2">Tier / Seats</th>
                   <th className="text-right py-2">Qty</th>
-                  <th className="text-right py-2">Paid</th>
+                  <th className="text-right py-2">Revenue</th>
                   <th className="text-right py-2">Actions</th>
                 </tr>
               </thead>

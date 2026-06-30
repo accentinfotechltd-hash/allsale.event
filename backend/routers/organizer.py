@@ -21,6 +21,24 @@ def _fmt_when(iso: str) -> str:
     except Exception:
         return iso or ""
 
+
+def _organizer_revenue(booking: dict) -> float:
+    """Organizer's gross revenue from a booking — the *face value* of the
+    ticket, NEVER the buyer-paid amount.
+
+    `amount` on the booking is what the buyer was charged on Stripe, which
+    bakes in platform commission + Stripe processing fees. Showing that to
+    organizers is misleading (they don't get all of it) and leaks the
+    platform's fee structure on every report row.
+
+    Falls back to `amount` for legacy bookings that pre-date the fees.py
+    refactor (face_value was added Feb 2026; older rows may not have it).
+    """
+    fv = booking.get("face_value")
+    if fv is not None:
+        return float(fv) or 0.0
+    return float(booking.get("amount") or 0)
+
 router = APIRouter(prefix="/organizer", tags=["organizer"])
 
 
@@ -85,7 +103,7 @@ async def org_analytics(user: dict = Depends(get_current_user)):
     async for b in db.bookings.find({"event_id": {"$in": event_ids}, "status": "paid"}, {"_id": 0}):
         bookings.append(b)
 
-    total_revenue = sum(b.get("amount", 0) for b in bookings)
+    total_revenue = sum(_organizer_revenue(b) for b in bookings)
     tickets_sold = sum(b.get("quantity", 0) for b in bookings)
 
     per_event = {}
@@ -93,13 +111,13 @@ async def org_analytics(user: dict = Depends(get_current_user)):
         eid = b["event_id"]
         if eid not in per_event:
             per_event[eid] = {"event_id": eid, "title": b["event_title"], "revenue": 0, "tickets": 0}
-        per_event[eid]["revenue"] += b.get("amount", 0)
+        per_event[eid]["revenue"] += _organizer_revenue(b)
         per_event[eid]["tickets"] += b.get("quantity", 0)
 
     series = {}
     for b in bookings:
         d = (b.get("paid_at") or b.get("created_at", ""))[:10]
-        series[d] = series.get(d, 0) + b.get("amount", 0)
+        series[d] = series.get(d, 0) + _organizer_revenue(b)
     series_list = [{"date": k, "revenue": round(v, 2)} for k, v in sorted(series.items())][-14:]
 
     return {
@@ -131,7 +149,7 @@ async def event_drilldown(event_id: str, user: dict = Depends(get_current_user))
     for b in bookings:
         t = b.get("tier_name", "Seat Selection")
         by_tier[t]["tickets"] += b.get("quantity", 0)
-        by_tier[t]["revenue"] += b.get("amount", 0)
+        by_tier[t]["revenue"] += _organizer_revenue(b)
     tiers = [{"tier": k, "tickets": v["tickets"], "revenue": round(v["revenue"], 2)} for k, v in by_tier.items()]
 
     # by day (last 30 entries)
@@ -139,7 +157,7 @@ async def event_drilldown(event_id: str, user: dict = Depends(get_current_user))
     for b in bookings:
         d = (b.get("paid_at") or b.get("created_at", ""))[:10]
         by_day[d]["tickets"] += b.get("quantity", 0)
-        by_day[d]["revenue"] += b.get("amount", 0)
+        by_day[d]["revenue"] += _organizer_revenue(b)
     days = [{"date": k, "tickets": v["tickets"], "revenue": round(v["revenue"], 2)} for k, v in sorted(by_day.items())]
 
     # by hour-of-day (when bookings were paid)
@@ -156,7 +174,7 @@ async def event_drilldown(event_id: str, user: dict = Depends(get_current_user))
     for b in bookings:
         key = b.get("discount_code") or "Direct"
         by_code[key]["tickets"] += b.get("quantity", 0)
-        by_code[key]["revenue"] += b.get("amount", 0)
+        by_code[key]["revenue"] += _organizer_revenue(b)
         by_code[key]["discount_given"] += b.get("discount_amount", 0)
     codes = [
         {"code": k, "tickets": v["tickets"], "revenue": round(v["revenue"], 2), "discount_given": round(v["discount_given"], 2)}
@@ -191,7 +209,7 @@ async def event_drilldown(event_id: str, user: dict = Depends(get_current_user))
             "dynamic_pricing": event.get("dynamic_pricing") or {},
         },
         "totals": {
-            "revenue": round(sum(b.get("amount", 0) for b in bookings), 2),
+            "revenue": round(sum(_organizer_revenue(b) for b in bookings), 2),
             "tickets_sold": tickets_sold,
             "capacity": total_capacity,
             "sell_through_pct": sell_through,
@@ -215,6 +233,14 @@ async def org_attendees(event_id: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Forbidden")
     items = []
     async for b in db.bookings.find({"event_id": event_id, "status": "paid"}, {"_id": 0}):
+        # Replace `amount` (buyer-paid total incl. platform + Stripe fees)
+        # with the organizer's own revenue (face_value, with legacy fallback)
+        # so the organizer never sees what the buyer was charged.
+        b.pop("amount", None)
+        b.pop("platform_fee", None)
+        b.pop("stripe_fee_estimated", None)
+        b.pop("service_fee", None)
+        b["amount"] = round(_organizer_revenue(b), 2)
         items.append(b)
     return items
 
@@ -337,7 +363,10 @@ async def org_buyers(
             "tier_name": b.get("tier_name"),
             "seats": b.get("seats") or [],
             "quantity": b.get("quantity", 0),
-            "amount": round(b.get("amount", 0) or 0, 2),
+            # NOTE: `amount` here is the ORGANIZER's revenue (face value),
+            # NOT what the buyer paid. We never expose buyer-paid totals,
+            # platform fees, or Stripe fees to organizers.
+            "amount": round(_organizer_revenue(b), 2),
             "currency": (b.get("currency") or ev.get("currency") or "NZD").upper(),
             "status": b.get("status"),
             "paid_at": b.get("paid_at"),
@@ -423,7 +452,7 @@ async def org_buyers_csv(
     writer = csv.writer(buf)
     writer.writerow([
         "Booking ID", "Event", "Event date", "Buyer", "Email",
-        "Tier / Seats", "Qty", "Amount", "Currency", "Status",
+        "Tier / Seats", "Qty", "Revenue", "Currency", "Status",
         "Booked at", "Checked in",
     ])
     async for b in db.bookings.find(query, {"_id": 0}).sort([("paid_at", -1), ("created_at", -1)]):
@@ -437,7 +466,7 @@ async def org_buyers_csv(
             b.get("user_email", ""),
             seats,
             b.get("quantity", 0),
-            f"{(b.get('amount') or 0):.2f}",
+            f"{_organizer_revenue(b):.2f}",
             (b.get("currency") or ev.get("currency") or "NZD").upper(),
             b.get("status", ""),
             b.get("paid_at") or b.get("created_at", ""),
@@ -738,7 +767,7 @@ async def org_attendees_csv(event_id: str, user: dict = Depends(get_current_user
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["Booking ID", "Name", "Email", "Tier / Seats", "Qty", "Amount (USD)", "Paid At", "Booking Status", "Checked In", "Checked In At"])
+    writer.writerow(["Booking ID", "Name", "Email", "Tier / Seats", "Qty", "Revenue", "Paid At", "Booking Status", "Checked In", "Checked In At"])
     async for b in db.bookings.find({"event_id": event_id, "status": "paid"}, {"_id": 0}).sort("paid_at", 1):
         seats = ", ".join(b.get("seats") or []) if b.get("seats") else b.get("tier_name", "")
         writer.writerow([
@@ -747,7 +776,7 @@ async def org_attendees_csv(event_id: str, user: dict = Depends(get_current_user
             b.get("user_email", ""),
             seats,
             b.get("quantity", 0),
-            f"{b.get('amount', 0):.2f}",
+            f"{_organizer_revenue(b):.2f}",
             b.get("paid_at") or b.get("created_at", ""),
             b.get("status", ""),
             "Yes" if b.get("checked_in") else "No",
@@ -1027,7 +1056,7 @@ async def attendance_report_csv(event_id: str, user: dict = Depends(get_current_
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    writer.writerow(["Status", "Name", "Email", "Booking ID", "Tier / Seats", "Quantity", "Amount Paid", "Checked In At", "Discount Code"])
+    writer.writerow(["Status", "Name", "Email", "Booking ID", "Tier / Seats", "Quantity", "Revenue", "Checked In At", "Discount Code"])
     for b in bookings:
         seats = ", ".join(b.get("seats") or []) if b.get("seats") else b.get("tier_name", "")
         writer.writerow([
@@ -1037,7 +1066,7 @@ async def attendance_report_csv(event_id: str, user: dict = Depends(get_current_
             b.get("booking_id", ""),
             seats,
             b.get("quantity", 0),
-            f"{b.get('amount', 0):.2f}",
+            f"{_organizer_revenue(b):.2f}",
             b.get("checked_in_at", ""),
             b.get("discount_code") or "",
         ])
