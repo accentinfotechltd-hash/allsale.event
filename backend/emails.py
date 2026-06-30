@@ -373,7 +373,7 @@ def _t_organizer_features_flyer(ctx: Dict[str, Any]) -> tuple[str, str, str]:
         ),
         _feature_row(
             "✨",
-            "AI Flyer Maker (new)",
+            "AI Flyer Maker",
             "One click generates Instagram-ready posters in three sizes with AI-written headlines. Download all formats as a single zip.",
         ),
         _feature_row(
@@ -392,6 +392,21 @@ def _t_organizer_features_flyer(ctx: Dict[str, Any]) -> tuple[str, str, str]:
             "Track sales, refund rate, scan-ins and demographics by event, tier or date. CSV exports your accountant will love.",
         ),
         _feature_row(
+            "👥",
+            "Buyers Report (new)",
+            "See every paid booking across all your events in one searchable table. Filter by event, date, or attendee — export to CSV in a click.",
+        ),
+        _feature_row(
+            "🚀",
+            "Event Boost — Trending placement",
+            "Promote your event to the top of the homepage in 1-/3-/7-day boosts. Goes live instantly, no ad managers, no creatives needed.",
+        ),
+        _feature_row(
+            "⏳",
+            "Waitlist &amp; Demand pricing",
+            "Auto-collect interest once you sell out and offer the next spots to the queue. Optional demand-based surge on the last 30% of stock.",
+        ),
+        _feature_row(
             "🎁",
             "Promo codes &amp; gift cards",
             "Run FIRST-50 launch campaigns automatically, issue per-tier codes, and sell gift cards — all from one dashboard.",
@@ -400,6 +415,11 @@ def _t_organizer_features_flyer(ctx: Dict[str, Any]) -> tuple[str, str, str]:
             "📣",
             "Creator marketplace + Partner program",
             "Open your event to influencers who get paid only on sales they drive. Connect marketing partners to multiply your reach.",
+        ),
+        _feature_row(
+            "🌐",
+            "Embed widget for your own site",
+            "Drop a live event list / Buy-now button into any website with one copy-paste — keep traffic on your domain, take sales on ours.",
         ),
         _feature_row(
             "🛡️",
@@ -442,9 +462,13 @@ def _t_organizer_features_flyer(ctx: Dict[str, Any]) -> tuple[str, str, str]:
         "• Instant QR e-tickets + door-scanner PWA",
         "• AI Flyer Maker — Instagram-ready posters in one click",
         "• Keep 100% of the ticket price (zero commission)",
-        "• Live analytics, promo codes, gift cards",
+        "• Live analytics + Buyers Report (search every paid booking, export CSV)",
+        "• Event Boost — promote your event to the top of the homepage",
+        "• Waitlist & demand-based surge pricing to recapture sold-out demand",
+        "• Promo codes, gift cards, refund policies you set per event",
         "• Creator marketplace + marketing partner program",
-        "• Self-serve refunds & free ticket transfers",
+        "• Embed widget — sell tickets directly on your own website",
+        "• Free ticket transfers — your guest list stays accurate",
         "",
         f"Sign up free: {APP_PUBLIC_URL}/signup?role=organizer",
     ])
@@ -489,9 +513,19 @@ def _t_influencer_features_flyer(ctx: Dict[str, Any]) -> tuple[str, str, str]:
             "Apply to promote any event opted into the marketplace — earn on individual events too, not only on the organisers attached to you.",
         ),
         _feature_row(
+            "🎟️",
+            "Creator codes per event",
+            "Your own unique discount code per event — fans get a perk, you get a tracked commission on every redemption.",
+        ),
+        _feature_row(
             "🔗",
-            "Trackable referral links",
-            "Every share you make is tracked back to your account. No coupon codes to remember, no clunky tracking pixels — it just works.",
+            "Trackable referral &amp; UTM links",
+            "Every share you make is tracked back to your account — full funnel attribution across socials, no coupon codes to remember, no clunky pixels.",
+        ),
+        _feature_row(
+            "🎯",
+            "Influencer hub — pick &amp; promote",
+            "Browse every event open to creators, pick the ones that fit your audience, apply in one click. Self-serve, no waiting on the organiser.",
         ),
         _feature_row(
             "🔐",
@@ -543,9 +577,11 @@ def _t_influencer_features_flyer(ctx: Dict[str, Any]) -> tuple[str, str, str]:
         "• Earn % commission on every paid booking, forever",
         "• Live earnings dashboard, statements on the 1st, payouts on the 5th",
         "• Instagram-ready marketing assets generated for every event",
-        "• Trackable referral links — no coupon codes to manage",
-        "• Stripe-level payout security",
-        "• Dedicated partner manager + creator marketplace access",
+        "• Open creator marketplace — apply to any event with one click",
+        "• Creator codes per event — your own discount, your own tracked commission",
+        "• Trackable referral + UTM links — full funnel attribution",
+        "• Influencer hub — self-serve, no waiting on the organiser",
+        "• Stripe-level payout security + dedicated partner manager",
         "",
         f"Apply: {APP_PUBLIC_URL}/partner",
     ])
