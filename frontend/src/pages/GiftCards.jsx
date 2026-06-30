@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Gift, Sparkles, Mail, ArrowRight, Copy, Check, Search } from "lucide-react";
+import { Gift, Sparkles, Mail, ArrowRight, Copy, Check, Search, Send, Calendar } from "lucide-react";
 import { toast } from "sonner";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -20,13 +20,22 @@ export default function GiftCards() {
   const [recipientEmail, setRecipientEmail] = useState("");
   const [recipientName, setRecipientName] = useState("");
   const [note, setNote] = useState("");
+  // Optional scheduled delivery: empty = email recipient immediately on
+  // payment success; YYYY-MM-DD = hold until that date (birthday/Christmas).
+  const [deliverAt, setDeliverAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [myCards, setMyCards] = useState([]);
   const [copied, setCopied] = useState(null);
+  const [resendingId, setResendingId] = useState(null);
+
+  const reloadCards = () => {
+    if (!user) return;
+    api.get("/me/gift-cards").then(({ data }) => setMyCards(data || [])).catch(() => {});
+  };
 
   useEffect(() => {
     if (!user) return;
-    api.get("/me/gift-cards").then(({ data }) => setMyCards(data || [])).catch(() => {});
+    reloadCards();
   }, [user]);
 
   const onPurchase = async () => {
@@ -46,6 +55,7 @@ export default function GiftCards() {
         personal_note: note.trim() || undefined,
         currency: "NZD",
         origin_url: window.location.origin,
+        deliver_at: deliverAt || undefined,
       });
       if (data.url) {
         window.location.href = data.url;
@@ -144,6 +154,27 @@ export default function GiftCards() {
           />
         </div>
 
+        <div className="mb-5">
+          <label className="text-xs uppercase tracking-widest mb-2 flex items-center gap-2" style={{ color: "var(--text-dim)" }}>
+            <Calendar size={12} /> Deliver on a specific date (optional)
+          </label>
+          <input
+            type="date"
+            value={deliverAt}
+            onChange={(e) => setDeliverAt(e.target.value)}
+            min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
+            max={new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10)}
+            className="w-full px-3 py-2 rounded-lg border bg-transparent text-sm"
+            style={{ borderColor: "var(--border)" }}
+            data-testid="deliver-at-input"
+          />
+          <p className="text-[11px] mt-1.5" style={{ color: "var(--text-muted)" }}>
+            {deliverAt
+              ? `Recipient gets the email on ${new Date(deliverAt).toLocaleDateString()} — surprise stays under wraps.`
+              : "Leave blank to deliver instantly after payment. Set a date for birthdays, Christmas, anniversaries…"}
+          </p>
+        </div>
+
         <button
           onClick={onPurchase}
           disabled={submitting || !recipientEmail.trim() || amount < 10}
@@ -180,6 +211,34 @@ export default function GiftCards() {
                     {c.purchased_by === user.user_id ? `Sent to ${c.recipient_email}` : `From ${c.purchaser_name || "a friend"}`}
                     {c.personal_note ? ` • "${c.personal_note.slice(0, 60)}"` : ""}
                   </div>
+                  {c.purchased_by === user.user_id && c.deliver_at && !c.delivered_at && (
+                    <div className="text-[11px] mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full" style={{ background: "rgba(255,165,0,0.12)", color: "var(--accent)" }}>
+                      <Calendar size={10} /> Scheduled for {new Date(c.deliver_at).toLocaleDateString()}
+                    </div>
+                  )}
+                  {c.purchased_by === user.user_id && c.status === "active" && c.delivered_at && (
+                    <button
+                      onClick={async () => {
+                        setResendingId(c.card_id);
+                        try {
+                          await api.post(`/me/gift-cards/${c.card_id}/resend`);
+                          toast.success(`Email resent to ${c.recipient_email}`);
+                          reloadCards();
+                        } catch (err) {
+                          toast.error(err?.response?.data?.detail || "Couldn't resend");
+                        } finally {
+                          setResendingId(null);
+                        }
+                      }}
+                      disabled={resendingId === c.card_id || Number(c.resend_count || 0) >= 3}
+                      className="text-[11px] inline-flex items-center gap-1 mt-1 underline opacity-70 hover:opacity-100 disabled:opacity-40 disabled:no-underline"
+                      title={Number(c.resend_count || 0) >= 3 ? "Resend limit reached (3 max)" : "Re-send the recipient email"}
+                      data-testid={`resend-${c.card_id}`}
+                    >
+                      <Send size={10} />
+                      {resendingId === c.card_id ? "Sending…" : `Resend email${c.resend_count ? ` (${c.resend_count}/3 used)` : ""}`}
+                    </button>
+                  )}
                 </div>
                 <div className="text-right">
                   <div className="serif text-2xl" style={{ color: c.status === "depleted" ? "var(--text-muted)" : "var(--accent)" }}>

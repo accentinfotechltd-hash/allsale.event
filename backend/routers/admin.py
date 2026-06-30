@@ -1752,6 +1752,138 @@ async def delete_recruitment_lead(lead_id: str, user: dict = Depends(get_current
     return {"ok": True}
 
 
+@router.get("/recruitment-leads.csv")
+async def export_recruitment_leads_csv(
+    user: dict = Depends(get_current_user),
+    status: Optional[str] = None,
+    kind: Optional[str] = None,
+    source: Optional[str] = None,
+):
+    """Download all leads (optionally filtered) as CSV. Designed for the VA
+    workflow: VA downloads, fills real owner emails in Excel, re-uploads via
+    /import-csv. The lead_id column is the join key on re-import.
+    """
+    _admin_only(user)
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    query: dict = {}
+    if status and status != "all":
+        query["status"] = status
+    if kind:
+        query["kind"] = kind
+    if source:
+        query["source"] = source
+
+    cols = [
+        "lead_id", "name", "email", "kind", "source", "source_url",
+        "event_count", "status", "notes", "created_at",
+    ]
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(cols)
+    async for lead in db.recruitment_leads.find(query, {"_id": 0}).sort([
+        ("event_count", -1), ("created_at", -1)
+    ]):
+        writer.writerow([lead.get(c, "") or "" for c in cols])
+    csv_bytes = buf.getvalue().encode("utf-8")
+    filename = f"recruitment_leads_{utc_now().strftime('%Y%m%d')}.csv"
+    return StreamingResponse(
+        iter([csv_bytes]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+class _LeadCsvImportIn(BaseModel):
+    csv_text: str   # raw pasted CSV content (or uploaded file body decoded to text)
+
+
+@router.post("/recruitment-leads/import-csv")
+async def import_recruitment_leads_csv(payload: _LeadCsvImportIn, user: dict = Depends(get_current_user)):
+    """Bulk-update existing leads from a CSV. The join key is `lead_id` —
+    only existing rows are updated; unknown lead_ids are reported but never
+    create new rows (prevents accidental duplication of placeholder emails).
+
+    Recognised columns (case-insensitive header row): lead_id, email, name,
+    kind, source, source_url, event_count, status, notes. Empty cells leave
+    the existing value alone. Email duplicates across rows are flagged.
+    """
+    _admin_only(user)
+    import csv
+    import io
+
+    text = (payload.csv_text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="CSV is empty")
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV has no header row")
+    headers = {h.lower().strip(): h for h in reader.fieldnames}
+    if "lead_id" not in headers:
+        raise HTTPException(status_code=400, detail="CSV must include a 'lead_id' column")
+
+    allowed = {"email", "name", "kind", "source", "source_url", "event_count", "status", "notes"}
+    now_iso = utc_now().isoformat()
+
+    updated = 0
+    not_found: list[str] = []
+    invalid_status: list[str] = []
+    seen_emails: dict[str, str] = {}
+    duplicate_emails: list[dict] = []
+
+    for row in reader:
+        lead_id = (row.get(headers["lead_id"]) or "").strip()
+        if not lead_id:
+            continue
+        update: dict = {}
+        for col_lower in allowed:
+            if col_lower not in headers:
+                continue
+            raw = row.get(headers[col_lower])
+            if raw is None:
+                continue
+            val = raw.strip()
+            if val == "":
+                continue
+            if col_lower == "email":
+                val = val.lower()
+                if "@" not in val:
+                    continue
+                if val in seen_emails and seen_emails[val] != lead_id:
+                    duplicate_emails.append({"lead_id": lead_id, "email": val, "other_lead_id": seen_emails[val]})
+                else:
+                    seen_emails[val] = lead_id
+            elif col_lower == "status":
+                if val not in _LEAD_VALID_STATUSES:
+                    invalid_status.append(lead_id)
+                    continue
+            elif col_lower == "event_count":
+                try:
+                    val = int(val)
+                except ValueError:
+                    continue
+            update[col_lower] = val
+        if not update:
+            continue
+        update["updated_at"] = now_iso
+        update["updated_by"] = user["user_id"]
+        res = await db.recruitment_leads.update_one({"lead_id": lead_id}, {"$set": update})
+        if res.matched_count == 0:
+            not_found.append(lead_id)
+        else:
+            updated += 1
+
+    return {
+        "updated": updated,
+        "not_found": not_found,
+        "invalid_status_rows": invalid_status,
+        "duplicate_emails": duplicate_emails,
+    }
+
+
 @router.post("/recruitment-leads/send-flyer")
 async def send_flyer_to_leads(payload: _LeadSendIn, user: dict = Depends(get_current_user)):
     """Bulk-send the appropriate recruitment flyer to selected leads.

@@ -1116,13 +1116,20 @@ async def _send_protection_claim_sla_digest(db) -> int:
 async def fast_loop(db: Any, interval_seconds: int = 60) -> None:
     """High-cadence loop for tasks that need minute-level precision.
 
-    Currently dispatches due `flyer_campaigns`. Could host future things like
-    flash-sale start triggers without disturbing the hourly scheduler.
+    Currently dispatches due `flyer_campaigns` and scheduled gift card
+    deliveries. Birthday/Christmas cards land within a minute of midnight.
     """
     await asyncio.sleep(15)
     while True:
         try:
             await _dispatch_due_flyer_campaigns(db)
+            try:
+                from routers.gift_cards import deliver_scheduled_gift_cards
+                n_gifts = await deliver_scheduled_gift_cards()
+                if n_gifts:
+                    logger.info("[fast-loop] delivered %d scheduled gift cards", n_gifts)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("[fast-loop] scheduled gift card delivery failed: %s", exc)
         except Exception as exc:  # pragma: no cover
             logger.exception("[fast-loop] tick failed: %s", exc)
         await asyncio.sleep(interval_seconds)

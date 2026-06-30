@@ -31,6 +31,25 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Eventfinda VA workflow + Gift card scheduled delivery & resend + 58 skipped tests deleted (Mar 1 2026, iter_44)**:
+  - **Recruitment Leads CSV export + import** (VA-friendly offline editing):
+    - `GET /admin/recruitment-leads.csv?status=&kind=&source=` streams CSV (10 cols incl. lead_id as join key). Filters mirror the JSON listing endpoint.
+    - `POST /admin/recruitment-leads/import-csv` accepts pasted CSV text → matches by `lead_id` → updates email/name/notes/etc. Empty cells leave existing values alone. Unknown lead_ids are reported back (NEVER creates new rows — prevents duplication of placeholder emails). Email duplicates across rows surfaced as `duplicate_emails`. Invalid status values reported as `invalid_status_rows` (the rest of the row still applies).
+    - **Admin Leads tab**: two new toolbar buttons — `Export CSV` (downloads filtered set) + `Import CSV` (hidden file input → POST). Toast summarises updated/skipped/duplicate counts.
+    - **Tests**: `test_recruitment_leads_csv.py` — 7 cases covering export headers, lead_id update path, unknown id reporting, invalid status flagging, duplicate email detection, missing lead_id column 400, non-admin 403. All pass.
+
+  - **Gift Card scheduled delivery + purchaser resend**:
+    - **deliver_at** field added to purchase model. `_parse_deliver_at` validates: future-only (>1h ago), within 365 days, accepts YYYY-MM-DD or full ISO. Stamped on the gift_card doc.
+    - `finalize_gift_card_purchase` (Stripe webhook hook) now respects deliver_at — when future, the card is activated but the recipient email is HELD. When null/past, fires immediately as before.
+    - **Scheduler `deliver_scheduled_gift_cards()`** runs every 60s in `fast_loop` (alongside flyer campaigns). Picks up active cards with deliver_at ≤ now and delivered_at=null, fires the recipient email, stamps delivered_at. Birthday/Christmas cards land within a minute of midnight UTC.
+    - **`POST /me/gift-cards/{card_id}/resend`** — purchaser self-serve resend. Rate-limited to 3 manual resends per card (429 after). Non-purchaser → 403; admin can resend any. Bumps `resend_count` atomically.
+    - **GiftCards.jsx UI**: date picker between "Personal note" and the Buy button (min = tomorrow, max = +365 days). Per-card "Scheduled for [date]" badge on undelivered scheduled cards. "Resend email (N/3 used)" link on delivered active cards.
+    - **Tests**: `test_gift_card_schedule_resend.py` — 10 cases covering deliver_at validation (4), finalize-holds-future + sends-immediate-null, scheduler delivers due-and-not-future + idempotency, resend increments + 3-cap + non-purchaser 403 + admin bypass. All pass.
+
+  - **58 superseded tests deleted** — `test_iteration5.py` + `test_iteration7.py` + `test_iteration8.py`. They self-documented as superseded by focused suites (test_iter23_creator_features, test_organizer_buyers, test_iter17_*, etc.). Test collection dropped from 676 → 618 (-58 exact).
+
+  - **Lint clean** across all touched files (Python + JS).
+
 - **Ticket Protection — P2a + P2b: SLA digest, canned denial templates, pool-drain accounting (Mar 1 2026, iter_43)**:
   - **P2b (Pool-drain accounting + destination-charge refund correctness)**:
     - `approve_claim` now stamps `pool_drain` (= booking.amount − booking.face_value) + `face_value_loss` on both the claim AND booking docs. The 6.5% premium pool absorbs `pool_drain`; the organizer absorbs `face_value_loss`.

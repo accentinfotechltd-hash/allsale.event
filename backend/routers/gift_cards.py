@@ -71,6 +71,34 @@ class GiftCardPurchaseIn(BaseModel):
     personal_note: Optional[str] = Field(default=None, max_length=400)
     currency: str = "NZD"
     origin_url: str
+    # Optional ISO 8601 date (YYYY-MM-DD) — when set, the recipient email is
+    # held until this date instead of firing the moment the Stripe charge
+    # succeeds. Useful for birthday/Christmas gifting. Max 365 days out.
+    deliver_at: Optional[str] = None
+
+
+def _parse_deliver_at(deliver_at: Optional[str]):
+    """Validate `deliver_at` is a future-ish ISO date string within 365 days.
+    Returns the parsed datetime (UTC midnight) or None for immediate delivery."""
+    if not deliver_at:
+        return None
+    from datetime import datetime, timezone, timedelta
+    try:
+        # Accept either YYYY-MM-DD or full ISO timestamp
+        if len(deliver_at) == 10:
+            dt = datetime.strptime(deliver_at, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        else:
+            dt = datetime.fromisoformat(deliver_at.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid deliver_at: {exc}")
+    now = utc_now()
+    if dt < now - timedelta(hours=1):
+        raise HTTPException(status_code=400, detail="deliver_at must be in the future")
+    if dt > now + timedelta(days=365):
+        raise HTTPException(status_code=400, detail="deliver_at must be within 365 days")
+    return dt
 
 
 @router.post("/gift-cards/purchase")
@@ -88,6 +116,10 @@ async def purchase_gift_card(
     card_id = f"gc_{uuid.uuid4().hex[:12]}"
     currency = (payload.currency or "NZD").upper()
 
+    # Validate scheduled-delivery date BEFORE creating the Stripe session so
+    # an invalid date doesn't waste a Stripe call.
+    deliver_dt = _parse_deliver_at(payload.deliver_at)
+
     await db.gift_cards.insert_one({
         "card_id": card_id,
         "code": code,
@@ -100,6 +132,9 @@ async def purchase_gift_card(
         "recipient_email": payload.recipient_email,
         "recipient_name": payload.recipient_name,
         "personal_note": (payload.personal_note or "").strip() or None,
+        "deliver_at": deliver_dt.isoformat() if deliver_dt else None,
+        "delivered_at": None,
+        "resend_count": 0,
         "status": "pending",
         "redemptions": [],
         "created_at": utc_now().isoformat(),
@@ -162,9 +197,30 @@ async def finalize_gift_card_purchase(card_id: str) -> bool:
     )
     if r.modified_count == 0:
         return False
-    # Fire-and-forget email to the recipient. Wrapped so a Resend hiccup
-    # never breaks the webhook (Stripe would retry the webhook and we'd
-    # double-activate).
+    # If the buyer scheduled delivery for a future date, don't email yet —
+    # the scheduler tick will pick it up. Send a confirmation to the
+    # purchaser instead so they know it's locked in.
+    if card.get("deliver_at"):
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(card["deliver_at"].replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if dt > utc_now():
+                logger.info(
+                    f"[gift_card] {card_id} scheduled for {card['deliver_at']} — "
+                    f"holding recipient email until then"
+                )
+                return True
+        except Exception:  # noqa: BLE001
+            pass  # if parsing fails, fall through to immediate delivery
+    return await _deliver_gift_card(card)
+
+
+async def _deliver_gift_card(card: dict) -> bool:
+    """Send the gift card delivery email to the recipient and stamp
+    delivered_at. Safe to retry — re-deliveries (via the purchaser resend
+    endpoint or the scheduled tick) increment resend_count separately."""
     try:
         from emails import send_template_fireforget
         send_template_fireforget(
@@ -181,9 +237,38 @@ async def finalize_gift_card_purchase(card_id: str) -> bool:
             },
             db,
         )
+        await db.gift_cards.update_one(
+            {"card_id": card["card_id"]},
+            {"$set": {"delivered_at": utc_now().isoformat()}},
+        )
+        return True
     except Exception:  # noqa: BLE001
-        logger.exception("Gift card delivery email failed")
-    return True
+        logger.exception("Gift card delivery email failed for %s", card.get("card_id"))
+        return False
+
+
+async def deliver_scheduled_gift_cards() -> int:
+    """Scheduler hook: find active cards whose `deliver_at` is now in the
+    past AND haven't been delivered yet, and fire the recipient email.
+    Returns the number of cards delivered this tick.
+
+    Called from the fast (60s) loop so birthday/Christmas cards land within
+    a minute of midnight, not an hour later.
+    """
+    now_iso = utc_now().isoformat()
+    sent = 0
+    async for card in db.gift_cards.find(
+        {
+            "status": "active",
+            "deliver_at": {"$lte": now_iso, "$ne": None},
+            "delivered_at": None,
+        },
+        {"_id": 0},
+    ).limit(50):
+        ok = await _deliver_gift_card(card)
+        if ok:
+            sent += 1
+    return sent
 
 
 @router.get("/gift-cards/{code}/balance")
@@ -196,6 +281,30 @@ async def gift_card_balance(code: str):
     if not c or c["status"] not in ("active", "depleted"):
         raise HTTPException(status_code=404, detail="Gift card not found")
     return c
+
+
+@router.post("/me/gift-cards/{card_id}/resend")
+async def resend_gift_card_email(card_id: str, user: dict = Depends(get_current_user)):
+    """Purchaser self-serve: re-send the delivery email to the recipient
+    (e.g. recipient deleted it / it landed in spam). Rate-limited to a
+    max of 3 manual resends per card to prevent abuse."""
+    card = await db.gift_cards.find_one({"card_id": card_id}, {"_id": 0})
+    if not card:
+        raise HTTPException(status_code=404, detail="Gift card not found")
+    if card.get("purchased_by") != user["user_id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Not your gift card")
+    if card["status"] not in ("active", "depleted"):
+        raise HTTPException(status_code=400, detail="Card is not active yet")
+    if int(card.get("resend_count") or 0) >= 3:
+        raise HTTPException(status_code=429, detail="Resend limit reached (3 max per card)")
+    ok = await _deliver_gift_card(card)
+    if not ok:
+        raise HTTPException(status_code=502, detail="Couldn't send the email — please retry")
+    await db.gift_cards.update_one(
+        {"card_id": card_id},
+        {"$inc": {"resend_count": 1}, "$set": {"last_resend_at": utc_now().isoformat()}},
+    )
+    return {"ok": True, "resend_count": int(card.get("resend_count") or 0) + 1}
 
 
 @router.get("/me/gift-cards")

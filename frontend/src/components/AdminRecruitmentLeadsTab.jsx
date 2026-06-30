@@ -1,7 +1,7 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import api from "@/lib/api";
 import { toast } from "sonner";
-import { Search, X, Plus, Upload, Send, Trash2, CheckCircle2, Clock, MinusCircle, Sparkles } from "lucide-react";
+import { Search, X, Plus, Upload, Send, Trash2, CheckCircle2, Clock, MinusCircle, Sparkles, Download, FileSpreadsheet } from "lucide-react";
 
 /**
  * AdminRecruitmentLeadsTab — pipeline for inviting organizers + influencers.
@@ -29,6 +29,56 @@ export default function AdminRecruitmentLeadsTab() {
   const [selected, setSelected] = useState(new Set());
   const [showAdd, setShowAdd] = useState(false);
   const [sending, setSending] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const csvFileInputRef = useRef(null);
+
+  // CSV export — VAs use this to take rows offline, fill real emails in
+  // Excel, then re-upload via the CSV import endpoint below. The lead_id
+  // column is the join key, so re-imports never duplicate or lose rows.
+  const exportCsv = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (status && status !== "all") params.set("status", status);
+      if (kind) params.set("kind", kind);
+      const url = `/admin/recruitment-leads.csv${params.toString() ? `?${params.toString()}` : ""}`;
+      const resp = await api.get(url, { responseType: "blob" });
+      const blob = new Blob([resp.data], { type: "text/csv" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = `recruitment_leads_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      toast.success("CSV downloaded");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Couldn't export CSV");
+    }
+  };
+
+  const importCsvFile = async (file) => {
+    if (!file) return;
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const { data: res } = await api.post("/admin/recruitment-leads/import-csv", { csv_text: text });
+      const parts = [`${res.updated} rows updated`];
+      if (res.not_found?.length) parts.push(`${res.not_found.length} unknown lead_ids skipped`);
+      if (res.invalid_status_rows?.length) parts.push(`${res.invalid_status_rows.length} invalid statuses skipped`);
+      if (res.duplicate_emails?.length) parts.push(`${res.duplicate_emails.length} duplicate emails`);
+      toast.success(parts.join(" · "));
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "CSV import failed");
+    } finally {
+      setImporting(false);
+      if (csvFileInputRef.current) csvFileInputRef.current.value = "";
+    }
+  };
+
+  const onCsvFilePicked = (e) => {
+    const file = e.target.files?.[0];
+    if (file) importCsvFile(file);
+  };
 
   const load = async () => {
     setLoading(true);
@@ -152,6 +202,31 @@ export default function AdminRecruitmentLeadsTab() {
         >
           <Plus className="w-4 h-4" /> Add leads
         </button>
+        <button
+          onClick={exportCsv}
+          className="btn-ghost"
+          title="Download all leads (matching current filters) as CSV — for offline VA editing"
+          data-testid="leads-export-csv-btn"
+        >
+          <Download className="w-4 h-4" /> Export CSV
+        </button>
+        <button
+          onClick={() => csvFileInputRef.current?.click()}
+          disabled={importing}
+          className="btn-ghost"
+          title="Re-import an edited CSV — matches by lead_id, never creates new rows"
+          data-testid="leads-import-csv-btn"
+        >
+          <FileSpreadsheet className="w-4 h-4" /> {importing ? "Importing…" : "Import CSV"}
+        </button>
+        <input
+          ref={csvFileInputRef}
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          onChange={onCsvFilePicked}
+          data-testid="leads-csv-file-input"
+        />
       </div>
 
       {/* Leads table */}
