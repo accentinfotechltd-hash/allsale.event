@@ -50,21 +50,25 @@ export default function Admin() {
       <AdminHeroStrip onClickProtection={() => setTab("protection")} onClickPartners={() => setTab("partners")} />
 
       <div className="border-b mb-8" style={{ borderColor: "var(--border)" }}>
-        <div className="flex gap-1">
+        <div
+          className="flex gap-0 overflow-x-auto scrollbar-thin"
+          style={{ scrollbarWidth: "thin" }}
+          data-testid="admin-tabs-row"
+        >
           <TabBtn id="events" current={tab} onClick={setTab} icon={<Calendar className="w-4 h-4" />} label="Events" />
           <TabBtn id="users" current={tab} onClick={setTab} icon={<Users className="w-4 h-4" />} label="Users" />
           <TabBtn id="payouts" current={tab} onClick={setTab} icon={<Wallet className="w-4 h-4" />} label="Payouts" />
           <TabBtn id="stripe" current={tab} onClick={setTab} icon={<ShieldCheck className="w-4 h-4" />} label="Stripe" />
-          <TabBtn id="stripe-connect" current={tab} onClick={setTab} icon={<Handshake className="w-4 h-4" />} label="Connect adoption" />
+          <TabBtn id="stripe-connect" current={tab} onClick={setTab} icon={<Handshake className="w-4 h-4" />} label="Connect" />
           <TabBtn id="emails" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Emails" />
           <TabBtn id="chats" current={tab} onClick={setTab} icon={<MessageCircle className="w-4 h-4" />} label="Live chat" />
-          <TabBtn id="org-chat" current={tab} onClick={setTab} icon={<MessagesSquare className="w-4 h-4" />} label="Organizer chat" />
-          <TabBtn id="protection" current={tab} onClick={setTab} icon={<ShieldAlert className="w-4 h-4" />} label="Protection claims" />
+          <TabBtn id="org-chat" current={tab} onClick={setTab} icon={<MessagesSquare className="w-4 h-4" />} label="Org chat" />
+          <TabBtn id="protection" current={tab} onClick={setTab} icon={<ShieldAlert className="w-4 h-4" />} label="Claims" />
           <TabBtn id="blog" current={tab} onClick={setTab} icon={<FileText className="w-4 h-4" />} label="Blog" />
-          <TabBtn id="partners" current={tab} onClick={setTab} icon={<Handshake className="w-4 h-4" />} label="Lead partners" />
+          <TabBtn id="partners" current={tab} onClick={setTab} icon={<Handshake className="w-4 h-4" />} label="Partners" />
           <TabBtn id="partner-applications" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Applications" />
-          <TabBtn id="flyers" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Recruitment flyers" />
-          <TabBtn id="creator-codes" current={tab} onClick={setTab} icon={<Tag className="w-4 h-4" />} label="Creator codes" />
+          <TabBtn id="flyers" current={tab} onClick={setTab} icon={<Mail className="w-4 h-4" />} label="Flyers" />
+          <TabBtn id="creator-codes" current={tab} onClick={setTab} icon={<Tag className="w-4 h-4" />} label="Creators" />
           <TabBtn id="settings" current={tab} onClick={setTab} icon={<SettingsIcon className="w-4 h-4" />} label="Settings" />
         </div>
       </div>
@@ -79,11 +83,12 @@ function TabBtn({ id, current, onClick, icon, label }) {
   return (
     <button
       onClick={() => onClick(id)}
-      className="flex items-center gap-2 px-5 py-3 text-sm transition relative"
+      className="flex items-center gap-1.5 px-2.5 py-2.5 text-xs whitespace-nowrap flex-shrink-0 transition relative hover:text-[color:var(--text)]"
       style={{ color: active ? "var(--accent)" : "var(--text-muted)" }}
       data-testid={`admin-tab-${id}`}
     >
-      {icon} {label}
+      <span className="inline-flex items-center" style={{ transform: "scale(0.9)" }}>{icon}</span>
+      <span>{label}</span>
       {active && <div className="absolute bottom-0 inset-x-0 h-0.5" style={{ background: "var(--accent)" }} />}
     </button>
   );
