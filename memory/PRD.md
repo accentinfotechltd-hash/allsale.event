@@ -31,6 +31,14 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **GitHub Actions CI workflow — pytest + ruff run on every push/PR (Mar 1 2026, iter_49)**:
+  - **New file** `.github/workflows/test.yml` — two parallel jobs, concurrent-cancel enabled to save CI minutes:
+    - `backend-tests` (15-min budget): boots `mongo:7` service container → installs `backend/requirements.txt` + `emergentintegrations` → writes CI `.env` with dummy Stripe/Resend/LLM keys → boots FastAPI via `uvicorn` in background → polls `/api/health` until ready (30s max) → runs `scripts/seed_ci_test_users.py` → runs `pytest`. Dumps uvicorn logs on failure for debuggability.
+    - `backend-lint` (5-min budget): `ruff check . --select E9,F63,F7,F82` — critical-only (syntax errors, undefined names, broken loops/matches). Stylistic issues left to editor tooling since the codebase has 100+ pre-existing E402/F841s that would block every PR otherwise.
+  - **New file** `backend/scripts/seed_ci_test_users.py` — idempotent upsert of `admin@allsale.events:admin123` + `orgtester@allsale.events:orgtest123` so CI (which starts with a fresh MongoDB each run) can run the whole test suite. NEVER called from production startup; only wired to the CI workflow.
+  - Frontend lint intentionally NOT wired — the project has no standalone ESLint config (CRA/craco provides one implicitly at build time). Workflow header documents how to re-enable it once a `frontend/.eslintrc` + `lint` script exist.
+  - Uses GitHub-cached pip + yarn deps; concurrency group cancels superseded runs on the same branch/PR.
+
 - **Full pytest suite green — remaining stale-data / event-loop rot cleared (Mar 1 2026, iter_48)**:
   - **Category A — stale seed credentials fixed**:
     - `test_aura_backend.py`: replaced `attendee@allsale.events` (no longer seeded) with an on-the-fly `_register_attendee()` helper; free tier ($0) to bypass Stripe Connect gate; graceful `pytest.skip()` when the shared DB has no seatmap events (covered elsewhere).

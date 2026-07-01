@@ -1,0 +1,159 @@
+name: Tests
+
+# Runs on every push to main + every PR. Green suite is required before merge.
+# Two parallel jobs:
+#   1. backend-tests  — MongoDB service + FastAPI + pytest (the bulk)
+#   2. backend-lint   — ruff over backend/
+#
+# Frontend lint intentionally NOT wired here: the project has no standalone
+# ESLint config (CRA/craco provides one implicitly at build time). Add
+# .eslintrc.js + a `lint` script to frontend/package.json and re-enable a
+# frontend-lint job here when you want it enforced on PRs.
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel superseded runs on the same branch to save CI minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Backend tests — the big one. Boots MongoDB + FastAPI on 8001 + runs pytest.
+  # --------------------------------------------------------------------------
+  backend-tests:
+    name: Backend pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        # Wait for mongod to answer before the job starts using it.
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      # Backend .env values — kept minimal, only what the app reads at import.
+      MONGO_URL: mongodb://localhost:27017
+      DB_NAME: allsale_ci
+      JWT_SECRET: ci-secret-not-for-production
+      APP_PUBLIC_URL: http://localhost:8001
+      # Stripe / Resend / LLM keys are deliberately dummies — tests either
+      # mock the SDKs or hit stub-safe endpoints. Real keys should NEVER be
+      # exposed in a public CI workflow.
+      STRIPE_API_KEY: sk_test_ci_dummy
+      STRIPE_WEBHOOK_SECRET: whsec_ci_dummy
+      RESEND_API_KEY: re_ci_dummy
+      EMERGENT_LLM_KEY: ci_dummy_llm_key
+      # Prevent the demo seed from creating events / extra users; the
+      # scripts/seed_ci_test_users.py step below creates only what tests need.
+      SEED_DEMO: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Also install emergentintegrations from Emergent's private index.
+          pip install emergentintegrations \
+            --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/
+
+      - name: Write backend/.env
+        working-directory: backend
+        run: |
+          cat > .env <<EOF
+          MONGO_URL=${MONGO_URL}
+          DB_NAME=${DB_NAME}
+          JWT_SECRET=${JWT_SECRET}
+          APP_PUBLIC_URL=${APP_PUBLIC_URL}
+          STRIPE_API_KEY=${STRIPE_API_KEY}
+          STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+          RESEND_API_KEY=${RESEND_API_KEY}
+          EMERGENT_LLM_KEY=${EMERGENT_LLM_KEY}
+          SEED_DEMO=${SEED_DEMO}
+          EOF
+
+      - name: Start FastAPI in the background
+        working-directory: backend
+        run: |
+          nohup uvicorn server:app --host 0.0.0.0 --port 8001 --log-level warning \
+            > /tmp/uvicorn.log 2>&1 &
+          echo $! > /tmp/uvicorn.pid
+          # Poll /api/health until the server responds (max 30s).
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8001/api/health > /dev/null; then
+              echo "backend up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "backend failed to start — dumping uvicorn.log:"
+          cat /tmp/uvicorn.log
+          exit 1
+
+      - name: Seed CI test users
+        working-directory: backend
+        run: python scripts/seed_ci_test_users.py
+
+      - name: Run pytest
+        working-directory: backend
+        env:
+          # Tests hit the local FastAPI directly at this URL (not a public preview).
+          EXTERNAL_API_URL: http://localhost:8001
+        run: |
+          python -m pytest --no-header -q --tb=short -p no:warnings
+
+      - name: Dump uvicorn logs on failure
+        if: failure()
+        run: |
+          echo "----- uvicorn.log (last 200 lines) -----"
+          tail -n 200 /tmp/uvicorn.log || true
+
+      - name: Stop FastAPI
+        if: always()
+        run: |
+          if [ -f /tmp/uvicorn.pid ]; then
+            kill "$(cat /tmp/uvicorn.pid)" 2>/dev/null || true
+          fi
+
+  # --------------------------------------------------------------------------
+  # Ruff — fast static analysis for backend/
+  # --------------------------------------------------------------------------
+  backend-lint:
+    name: Backend lint (ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install ruff
+        run: pip install ruff
+      - name: Lint backend (critical rules only)
+        working-directory: backend
+        # Only fail on actual bugs (syntax errors, undefined names, broken
+        # loops/matches). Stylistic issues are left to editor tooling —
+        # blocking merges on unused imports is a poor use of CI budget.
+        run: ruff check . --select E9,F63,F7,F82
