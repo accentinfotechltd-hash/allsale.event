@@ -15,37 +15,33 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pytest
+import pytest_asyncio
 import requests
 import websockets
 from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BACKEND_DIR / ".env")
 sys.path.insert(0, str(BACKEND_DIR))
 
-from core import seat_section_for_row, seat_price_for  # noqa: E402
+from core import db, seat_section_for_row, seat_price_for  # noqa: E402
 
 API = os.environ.get("EXTERNAL_API_URL") or "http://localhost:8001"
 WS_API = API.replace("http", "ws")
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _cleanup_module():
+@pytest_asyncio.fixture(scope="module", autouse=True, loop_scope="session")
+async def _cleanup_module():
     yield
-    async def _clean():
-        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-        db = client[os.environ["DB_NAME"]]
+    try:
         ids = [e["event_id"] async for e in db.events.find(
             {"event_id": {"$regex": "^evt_ws_test_"}}, {"_id": 0, "event_id": 1},
         )]
         if ids:
             await db.events.delete_many({"event_id": {"$in": ids}})
             await db.seat_reservations.delete_many({"event_id": {"$in": ids}})
-        client.close()
-    try: asyncio.run(_clean())
-    except Exception: pass
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -108,8 +104,6 @@ def test_seat_price_for_handles_invalid_seat_id():
 # WebSocket connection
 # ---------------------------------------------------------------------------
 async def _seed_tier_event() -> str:
-    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-    db = client[os.environ["DB_NAME"]]
     # Use the current Feb-2026+ seed; legacy organizer@allsale.events was removed.
     org = await db.users.find_one({"email": "orgtester@allsale.events"}, {"_id": 0})
     if not org:
@@ -125,20 +119,15 @@ async def _seed_tier_event() -> str:
         "has_seatmap": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    client.close()
     return eid
 
 
-def test_websocket_sends_initial_snapshot():
-    eid = asyncio.run(_seed_tier_event())
-
-    async def _run():
-        url = f"{WS_API}/api/ws/events/{eid}"
-        async with websockets.connect(url) as ws:
-            raw = await asyncio.wait_for(ws.recv(), timeout=5.0)
-        return json.loads(raw)
-
-    snap = asyncio.run(_run())
+async def test_websocket_sends_initial_snapshot():
+    eid = await _seed_tier_event()
+    url = f"{WS_API}/api/ws/events/{eid}"
+    async with websockets.connect(url) as ws:
+        raw = await asyncio.wait_for(ws.recv(), timeout=5.0)
+    snap = json.loads(raw)
     assert snap["type"] == "snapshot"
     assert "tier_status" in snap
     assert len(snap["tier_status"]) == 1
@@ -146,15 +135,12 @@ def test_websocket_sends_initial_snapshot():
     assert snap["sold_out"] is False
 
 
-def test_websocket_unknown_event_still_connects_with_empty_snapshot():
+async def test_websocket_unknown_event_still_connects_with_empty_snapshot():
     """A WS for a deleted/unknown event_id should not crash; returns empty snapshot."""
-    async def _run():
-        url = f"{WS_API}/api/ws/events/evt_nonexistent_xxx"
-        async with websockets.connect(url) as ws:
-            raw = await asyncio.wait_for(ws.recv(), timeout=5.0)
-        return json.loads(raw)
-
-    snap = asyncio.run(_run())
+    url = f"{WS_API}/api/ws/events/evt_nonexistent_xxx"
+    async with websockets.connect(url) as ws:
+        raw = await asyncio.wait_for(ws.recv(), timeout=5.0)
+    snap = json.loads(raw)
     assert snap["type"] == "snapshot"
     assert snap.get("booked") == []
     assert snap.get("held") == []

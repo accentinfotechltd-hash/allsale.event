@@ -1,31 +1,29 @@
 """Iteration 17 — Event-views tracking + Demand sparkline + Sales velocity."""
 from __future__ import annotations
 
-import asyncio
 import os
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
+import pytest_asyncio
 import requests
 from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BACKEND_DIR / ".env")
 sys.path.insert(0, str(BACKEND_DIR))
 
+from core import db  # noqa: E402
+
 API = os.environ.get("EXTERNAL_API_URL") or "http://localhost:8001"
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _cleanup_module():
+@pytest_asyncio.fixture(scope="module", autouse=True, loop_scope="session")
+async def _cleanup_module():
     yield
-    async def _clean():
-        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-        db = client[os.environ["DB_NAME"]]
+    try:
         ids = [e["event_id"] async for e in db.events.find(
             {"event_id": {"$regex": "^evt_demand_test_"}}, {"_id": 0, "event_id": 1},
         )]
@@ -33,9 +31,8 @@ def _cleanup_module():
             await db.events.delete_many({"event_id": {"$in": ids}})
             await db.bookings.delete_many({"event_id": {"$in": ids}})
             await db.event_views.delete_many({"event_id": {"$in": ids}})
-        client.close()
-    try: asyncio.run(_clean())
-    except Exception: pass
+    except Exception:
+        pass
 
 
 def _organizer_token() -> str:
@@ -47,8 +44,6 @@ def _organizer_token() -> str:
 
 
 async def _seed_event(capacity: int = 100, with_sales: int = 0) -> str:
-    client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-    db = client[os.environ["DB_NAME"]]
     org = await db.users.find_one({"email": "orgtester@allsale.events"}, {"_id": 0})
     if not org:
         org = await db.users.find_one({"role": "admin"}, {"_id": 0})
@@ -74,21 +69,20 @@ async def _seed_event(capacity: int = 100, with_sales: int = 0) -> str:
             "currency": "usd", "status": "paid",
             "paid_at": paid_at, "created_at": paid_at,
         })
-    client.close()
     return eid
 
 
 # ---------------------------------------------------------------------------
 # View tracking
 # ---------------------------------------------------------------------------
-def test_view_endpoint_works_anonymously():
-    eid = asyncio.run(_seed_event())
+async def test_view_endpoint_works_anonymously():
+    eid = await _seed_event()
     r = requests.post(f"{API}/api/events/{eid}/view", timeout=10)
     assert r.status_code == 200
 
 
-def test_view_endpoint_works_authenticated():
-    eid = asyncio.run(_seed_event())
+async def test_view_endpoint_works_authenticated():
+    eid = await _seed_event()
     token = _organizer_token()
     r = requests.post(f"{API}/api/events/{eid}/view",
                       headers={"Authorization": f"Bearer {token}"}, timeout=10)
@@ -103,8 +97,8 @@ def test_view_404_for_unknown_event():
 # ---------------------------------------------------------------------------
 # Demand sparkline
 # ---------------------------------------------------------------------------
-def test_demand_endpoint_returns_7_buckets():
-    eid = asyncio.run(_seed_event())
+async def test_demand_endpoint_returns_7_buckets():
+    eid = await _seed_event()
     # Record 3 views
     for _ in range(3):
         requests.post(f"{API}/api/events/{eid}/view", timeout=10)
@@ -120,8 +114,8 @@ def test_demand_endpoint_returns_7_buckets():
     assert total_views >= 3
 
 
-def test_demand_includes_bookings():
-    eid = asyncio.run(_seed_event(with_sales=5))
+async def test_demand_includes_bookings():
+    eid = await _seed_event(with_sales=5)
     r = requests.get(f"{API}/api/events/{eid}/demand", timeout=10)
     items = r.json()["items"]
     total_bookings = sum(b["bookings"] for b in items)
@@ -131,8 +125,8 @@ def test_demand_includes_bookings():
 # ---------------------------------------------------------------------------
 # Velocity widget
 # ---------------------------------------------------------------------------
-def test_velocity_returns_metrics():
-    eid = asyncio.run(_seed_event(capacity=50, with_sales=10))
+async def test_velocity_returns_metrics():
+    eid = await _seed_event(capacity=50, with_sales=10)
     token = _organizer_token()
     r = requests.get(f"{API}/api/organizer/events/{eid}/velocity",
                      headers={"Authorization": f"Bearer {token}"}, timeout=10)
@@ -145,8 +139,8 @@ def test_velocity_returns_metrics():
     assert "forecast_label" in body
 
 
-def test_velocity_no_sales_returns_label():
-    eid = asyncio.run(_seed_event(capacity=50, with_sales=0))
+async def test_velocity_no_sales_returns_label():
+    eid = await _seed_event(capacity=50, with_sales=0)
     token = _organizer_token()
     r = requests.get(f"{API}/api/organizer/events/{eid}/velocity",
                      headers={"Authorization": f"Bearer {token}"}, timeout=10)
@@ -156,16 +150,16 @@ def test_velocity_no_sales_returns_label():
     assert body["forecast_days"] is None
 
 
-def test_velocity_requires_organizer():
-    eid = asyncio.run(_seed_event())
+async def test_velocity_requires_organizer():
+    eid = await _seed_event()
     # Anon
     r = requests.get(f"{API}/api/organizer/events/{eid}/velocity", timeout=10)
     assert r.status_code == 401
 
 
-def test_velocity_blocks_other_organizers():
+async def test_velocity_blocks_other_organizers():
     """Organizer A's velocity for Organizer B's event → 403."""
-    eid = asyncio.run(_seed_event())
+    eid = await _seed_event()
     # Register a fresh organizer (not the seed organizer)
     suffix = uuid.uuid4().hex[:8]
     r = requests.post(f"{API}/api/auth/register", json={

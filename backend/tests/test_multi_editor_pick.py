@@ -31,6 +31,7 @@ async def test_multi_editor_pick_lifecycle():
             "password": "OrgPass1!",
             "name": "MPick Org",
             "role": "organizer",
+            "phone": "+64 21 555 4003",  # mandatory since Feb 2026
         })
         org_token = org_r.json()["token"]
         org_auth = {"Authorization": f"Bearer {org_token}"}
@@ -45,7 +46,7 @@ async def test_multi_editor_pick_lifecycle():
                 "city": "Auckland",
                 "date": "2030-01-01T20:00:00Z",
                 "image_url": "https://example.com/x.jpg",
-                "tiers": [{"name": "GA", "price": 10, "quantity": 100}],
+                "tiers": [{"name": "GA", "price": 0, "quantity": 100}],  # free to bypass Stripe-Connect gate
                 "has_seatmap": False,
             }, headers=org_auth)
             ev_id = r.json()["event_id"]

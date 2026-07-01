@@ -26,6 +26,29 @@ def admin_token():
     return r.json()["token"]
 
 
+def _reset_rate_bucket(token: str) -> None:
+    """Clear the in-memory partner-application rate-limit bucket via the
+    admin-only reset endpoint. Used by tests to start each run with a
+    fresh window."""
+    try:
+        requests.post(
+            f"{API}/api/admin/partners/rate-limit/reset",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_bucket(admin_token):
+    """Before EVERY test in this module, reset the per-IP rate-limit bucket
+    so the 5/10min limit doesn't bleed from prior tests. The dedicated
+    `test_rate_limit_per_ip` test fills the bucket itself."""
+    _reset_rate_bucket(admin_token)
+    yield
+
+
 def test_public_submit_creates_application(admin_token):
     email = _unique_email()
     r = requests.post(

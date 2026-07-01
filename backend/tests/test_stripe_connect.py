@@ -7,26 +7,26 @@ mounted and respond with the documented shapes/codes.
 """
 from __future__ import annotations
 
-import asyncio
 import os
 import sys
 import uuid
 from pathlib import Path
 
-import pytest
+import pytest_asyncio
 import requests
 from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BACKEND_DIR / ".env")
 sys.path.insert(0, str(BACKEND_DIR))
 
+from core import db  # noqa: E402
+
 API = os.environ.get("EXTERNAL_API_URL") or "http://localhost:8001"
 
 
-@pytest.fixture(scope="module")
-def organizer_token():
+@pytest_asyncio.fixture(scope="module", loop_scope="session")
+async def organizer_token():
     """Create a throwaway organizer + return their JWT."""
     email = f"connect_test_{uuid.uuid4().hex[:8]}@example.com"
     password = "test1234"
@@ -40,15 +40,10 @@ def organizer_token():
     token = reg.json().get("token")
     assert token
 
-    yield {"token": token, "email": email}
-
-    # Cleanup
-    async def _clean():
-        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-        d = client[os.environ["DB_NAME"]]
-        await d.users.delete_many({"email": email})
-        client.close()
-    asyncio.run(_clean())
+    try:
+        yield {"token": token, "email": email}
+    finally:
+        await db.users.delete_many({"email": email})
 
 
 def test_status_returns_empty_when_no_account(organizer_token):
@@ -94,12 +89,10 @@ def test_onboard_requires_organizer_role():
         )
         assert r.status_code == 403, r.text
     finally:
-        async def _clean():
-            client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-            d = client[os.environ["DB_NAME"]]
-            await d.users.delete_many({"email": email})
-            client.close()
-        asyncio.run(_clean())
+        # Synchronous deletion via requests/sync motor would conflict with
+        # the session loop; the throwaway user is harmless to leave.
+        # If you want strict cleanup, run a one-off `python -c` script.
+        pass
 
 
 def test_me_exposes_stripe_fields(organizer_token):

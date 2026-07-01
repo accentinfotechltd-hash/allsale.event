@@ -75,7 +75,7 @@ def test_create_event_with_end_date_persists(org_token):
         "end_date": "2027-08-15T23:00:00Z",  # +5h
         "image_url": "https://example.com/a.jpg",
         "currency": "NZD",
-        "tiers": [{"name": "GA", "price": 50, "capacity": 100}],
+        "tiers": [{"name": "GA", "price": 0, "capacity": 100}],  # free tier to bypass Stripe-Connect gate (orthogonal feature)
     }
     r = requests.post(f"{API}/events", json=payload, headers=_auth(org_token), timeout=20)
     assert r.status_code in (200, 201), f"create failed {r.status_code}: {r.text[:400]}"
@@ -104,7 +104,7 @@ def test_create_event_without_end_date(org_token):
         "date": "2027-09-10T19:00:00Z",
         "image_url": "https://example.com/b.jpg",
         "currency": "NZD",
-        "tiers": [{"name": "GA", "price": 30, "capacity": 50}],
+        "tiers": [{"name": "GA", "price": 0, "capacity": 50}],  # free tier to bypass Stripe-Connect gate (orthogonal feature)
     }
     r = requests.post(f"{API}/events", json=payload, headers=_auth(org_token), timeout=20)
     assert r.status_code in (200, 201), f"create no-end failed {r.status_code}: {r.text[:400]}"

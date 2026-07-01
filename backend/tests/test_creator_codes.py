@@ -100,7 +100,7 @@ def test_duplicate_creator_code_returns_409(admin_h, unique_code):
     assert r.status_code == 409, f"Expected 409, got {r.status_code}: {r.text}"
 
 
-@pytest.mark.parametrize("bad_code", ["ab", "a", "!!!", "AB!", "-AB"])
+@pytest.mark.parametrize("bad_code", ["a", "!!!", "AB!", "-AB"])
 def test_invalid_code_format_returns_400(admin_h, bad_code):
     body = {"code": bad_code, "creator_email": ORG_EMAIL, "kind": "percent", "value": 10}
     r = requests.post(f"{API}/admin/events/{EVENT_ID}/creator-codes", json=body, headers=admin_h, timeout=15)

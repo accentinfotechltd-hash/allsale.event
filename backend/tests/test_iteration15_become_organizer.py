@@ -9,34 +9,31 @@ Covers:
 """
 from __future__ import annotations
 
-import asyncio
 import os
 import sys
 import uuid
 from pathlib import Path
 
-import pytest
+import pytest_asyncio
 import requests
 from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BACKEND_DIR / ".env")
 sys.path.insert(0, str(BACKEND_DIR))
 
+from core import db  # noqa: E402
+
 API = os.environ.get("EXTERNAL_API_URL") or "http://localhost:8001"
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _cleanup_module():
+@pytest_asyncio.fixture(scope="module", autouse=True, loop_scope="session")
+async def _cleanup_module():
     yield
-    async def _clean():
-        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-        db = client[os.environ["DB_NAME"]]
+    try:
         await db.users.delete_many({"email": {"$regex": "^upgr15_[^@]+@example.com"}})
-        client.close()
-    try: asyncio.run(_clean())
-    except Exception: pass
+    except Exception:
+        pass
 
 
 def _register(role: str = "attendee") -> tuple[str, str]:
@@ -110,7 +107,7 @@ def test_attendee_cannot_create_event_before_upgrade():
     assert r.status_code == 403
 
 
-def test_attendee_can_create_event_after_upgrade():
+async def test_attendee_can_create_event_after_upgrade():
     token, _ = _register("attendee")
     requests.post(f"{API}/api/auth/become-organizer",
                   headers={"Authorization": f"Bearer {token}"}, timeout=10)
@@ -129,11 +126,6 @@ def test_attendee_can_create_event_after_upgrade():
                       headers={"Authorization": f"Bearer {token}"},
                       json=payload, timeout=10)
     assert r.status_code == 200
-    # Cleanup the event
+    # Cleanup the event via the session-loop's shared db (no asyncio.run!)
     eid = r.json()["event_id"]
-    async def _clean():
-        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-        db = client[os.environ["DB_NAME"]]
-        await db.events.delete_one({"event_id": eid})
-        client.close()
-    asyncio.run(_clean())
+    await db.events.delete_one({"event_id": eid})

@@ -10,7 +10,6 @@ iteration tests) to sidestep motor event-loop reuse issues.
 """
 from __future__ import annotations
 
-import asyncio
 import os
 import sys
 import uuid
@@ -18,62 +17,54 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
 import requests
 from dotenv import load_dotenv
-from motor.motor_asyncio import AsyncIOMotorClient
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BACKEND_DIR / ".env")
 sys.path.insert(0, str(BACKEND_DIR))
 
-from core import utc_now  # noqa: E402
+from core import db, utc_now  # noqa: E402
 from routers.events import EVENT_FINISHED_GRACE_HOURS, _is_event_past  # noqa: E402
 
 API = os.environ.get("EXTERNAL_API_URL") or "http://localhost:8001"
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _seed_and_cleanup():
-    """Seed one future + one finished event, then tear them down."""
+@pytest_asyncio.fixture(scope="module", autouse=True, loop_scope="session")
+async def _seed_and_cleanup():
+    """Seed one future + one finished event, then tear them down.
+
+    Uses the global session-scoped db (Motor) so we don't churn a new
+    asyncio event loop per fixture call — which was the source of the
+    "Event loop is closed" pollution.
+    """
     future_iso = (utc_now() + timedelta(days=30)).isoformat()
     past_iso = (utc_now() - timedelta(hours=EVENT_FINISHED_GRACE_HOURS + 5)).isoformat()
     future_id = f"evt_pasttest_future_{uuid.uuid4().hex[:8]}"
     past_id = f"evt_pasttest_past_{uuid.uuid4().hex[:8]}"
 
-    async def _seed():
-        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-        db = client[os.environ["DB_NAME"]]
-        base = {
-            "organizer_id": "org_pasttest",
-            "organizer_name": "Past Test Org",
-            "description": "x",
-            "category": "music",
-            "venue": "Venue",
-            "city": "Auckland",
-            "image_url": "https://example.com/x.jpg",
-            "tiers": [{"name": "Standard", "price": 10, "capacity": 100}],
-            "has_seatmap": False,
-            "status": "approved",
-            "currency": "NZD",
-        }
-        await db.events.insert_many([
-            {**base, "event_id": future_id, "date": future_iso, "title": "PASTTEST_FUTURE"},
-            {**base, "event_id": past_id, "date": past_iso, "title": "PASTTEST_PAST", "featured": True},
-        ])
-        client.close()
-
-    async def _clean():
-        client = AsyncIOMotorClient(os.environ["MONGO_URL"])
-        db = client[os.environ["DB_NAME"]]
-        await db.events.delete_many({"event_id": {"$in": [future_id, past_id]}})
-        client.close()
-
-    asyncio.run(_seed())
-    yield {"future_id": future_id, "past_id": past_id}
+    base = {
+        "organizer_id": "org_pasttest",
+        "organizer_name": "Past Test Org",
+        "description": "x",
+        "category": "music",
+        "venue": "Venue",
+        "city": "Auckland",
+        "image_url": "https://example.com/x.jpg",
+        "tiers": [{"name": "Standard", "price": 10, "capacity": 100}],
+        "has_seatmap": False,
+        "status": "approved",
+        "currency": "NZD",
+    }
+    await db.events.insert_many([
+        {**base, "event_id": future_id, "date": future_iso, "title": "PASTTEST_FUTURE"},
+        {**base, "event_id": past_id, "date": past_iso, "title": "PASTTEST_PAST", "featured": True},
+    ])
     try:
-        asyncio.run(_clean())
-    except Exception:
-        pass
+        yield {"future_id": future_id, "past_id": past_id}
+    finally:
+        await db.events.delete_many({"event_id": {"$in": [future_id, past_id]}})
 
 
 def test_past_helper():

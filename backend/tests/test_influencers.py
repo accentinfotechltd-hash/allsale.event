@@ -24,6 +24,7 @@ async def _signup_and_token(client: httpx.AsyncClient, role: str = "attendee") -
     email = f"inf_{uuid.uuid4().hex[:8]}@example.com"
     r = await client.post(f"{API}/auth/register", json={
         "email": email, "password": "Test1234!", "name": "Test User", "role": role,
+        "phone": "+64 21 555 0099",  # mandatory since Feb 2026
     })
     assert r.status_code == 200, r.text
     data = r.json()
@@ -43,7 +44,7 @@ async def test_full_influencer_lifecycle():
             "city": "Auckland",
             "date": "2030-01-01T20:00:00Z",
             "image_url": "https://example.com/x.jpg",
-            "tiers": [{"name": "GA", "price": 50, "quantity": 100}],
+            "tiers": [{"name": "GA", "price": 0, "quantity": 100}],
             "has_seatmap": False,
             "affiliate_program_open": True,
             "affiliate_default_commission_pct": 12.5,
@@ -165,7 +166,7 @@ async def test_join_closed_program_rejected():
             "city": "Auckland",
             "date": "2030-01-01T20:00:00Z",
             "image_url": "https://x.com/y.jpg",
-            "tiers": [{"name": "GA", "price": 1, "quantity": 1}],
+            "tiers": [{"name": "GA", "price": 0, "quantity": 1}],
             "has_seatmap": False,
             "affiliate_program_open": False,
         }, headers={"Authorization": f"Bearer {org_token}"})

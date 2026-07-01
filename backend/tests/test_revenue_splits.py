@@ -62,7 +62,7 @@ def _event_doc(*, organizer_id: str, splits=None) -> dict:
     return e
 
 
-def test_revenue_splits_end_to_end():
+async def test_revenue_splits_end_to_end():
     org_a = _organizer_doc(suffix="A")
     org_b = _organizer_doc(suffix="B")
     org_c_unverified = _organizer_doc(verified=False, suffix="C")
@@ -83,160 +83,158 @@ def test_revenue_splits_end_to_end():
     ])
     ev_http = _event_doc(organizer_id=owner["user_id"])
 
-    async def _run():
-        await db.users.insert_many([
-            org_a, org_b, org_c_unverified, org_solo,
-            owner, co_a, attendee_doc,
+    await db.users.insert_many([
+        org_a, org_b, org_c_unverified, org_solo,
+        owner, co_a, attendee_doc,
+    ])
+    await db.events.insert_many([ev_engine, ev_http])
+
+    try:
+        # ===== Recipient resolution =====
+        ev_solo = _event_doc(organizer_id=org_solo["user_id"])
+        rcpts = await _resolve_recipients(db, ev_solo, 100.0)
+        assert len(rcpts) == 1
+        assert rcpts[0]["user_id"] == org_solo["user_id"]
+        assert rcpts[0]["amount"] == 100.0
+
+        ev_two = _event_doc(organizer_id=org_a["user_id"], splits=[
+            {"user_id": org_a["user_id"], "label": "Promoter", "percent": 70},
+            {"user_id": org_b["user_id"], "label": "Venue", "percent": 30},
         ])
-        await db.events.insert_many([ev_engine, ev_http])
+        rcpts = await _resolve_recipients(db, ev_two, 100.0)
+        assert len(rcpts) == 2
+        amounts = {r["user_id"]: r["amount"] for r in rcpts}
+        assert amounts[org_a["user_id"]] == 70.0
+        assert amounts[org_b["user_id"]] == 30.0
+        labels = {r["user_id"]: r["label"] for r in rcpts}
+        assert labels[org_a["user_id"]] == "Promoter"
 
-        try:
-            # ===== Recipient resolution =====
-            ev_solo = _event_doc(organizer_id=org_solo["user_id"])
-            rcpts = await _resolve_recipients(db, ev_solo, 100.0)
-            assert len(rcpts) == 1
-            assert rcpts[0]["user_id"] == org_solo["user_id"]
-            assert rcpts[0]["amount"] == 100.0
+        # Mixed verified/unverified — unverified dropped
+        ev_mixed = _event_doc(organizer_id=org_a["user_id"], splits=[
+            {"user_id": org_a["user_id"], "percent": 50},
+            {"user_id": org_c_unverified["user_id"], "percent": 50},
+        ])
+        rcpts = await _resolve_recipients(db, ev_mixed, 200.0)
+        assert len(rcpts) == 1
+        assert rcpts[0]["user_id"] == org_a["user_id"]
+        assert rcpts[0]["amount"] == 100.0  # 50% of 200
 
-            ev_two = _event_doc(organizer_id=org_a["user_id"], splits=[
-                {"user_id": org_a["user_id"], "label": "Promoter", "percent": 70},
-                {"user_id": org_b["user_id"], "label": "Venue", "percent": 30},
-            ])
-            rcpts = await _resolve_recipients(db, ev_two, 100.0)
-            assert len(rcpts) == 2
-            amounts = {r["user_id"]: r["amount"] for r in rcpts}
-            assert amounts[org_a["user_id"]] == 70.0
-            assert amounts[org_b["user_id"]] == 30.0
-            labels = {r["user_id"]: r["label"] for r in rcpts}
-            assert labels[org_a["user_id"]] == "Promoter"
+        # Sum != 100 → fallback to organizer-only
+        ev_bad = _event_doc(organizer_id=org_solo["user_id"], splits=[
+            {"user_id": org_a["user_id"], "percent": 25},
+            {"user_id": org_b["user_id"], "percent": 25},
+        ])
+        rcpts = await _resolve_recipients(db, ev_bad, 100.0)
+        assert len(rcpts) == 1
+        assert rcpts[0]["user_id"] == org_solo["user_id"]
+        assert rcpts[0]["amount"] == 100.0
 
-            # Mixed verified/unverified — unverified dropped
-            ev_mixed = _event_doc(organizer_id=org_a["user_id"], splits=[
-                {"user_id": org_a["user_id"], "percent": 50},
-                {"user_id": org_c_unverified["user_id"], "percent": 50},
-            ])
-            rcpts = await _resolve_recipients(db, ev_mixed, 200.0)
-            assert len(rcpts) == 1
-            assert rcpts[0]["user_id"] == org_a["user_id"]
-            assert rcpts[0]["amount"] == 100.0  # 50% of 200
+        # ===== Engine short-circuit =====
+        res = await _attempt_event_payout(db, ev_engine, triggered_by="test")
+        assert res["status"] == "skipped"
+        assert res["reason"] == "no paid bookings"
+        stored = await db.events.find_one({"event_id": ev_engine["event_id"]}, {"_id": 0})
+        assert stored.get("payout_status") == "no_revenue"
 
-            # Sum != 100 → fallback to organizer-only
-            ev_bad = _event_doc(organizer_id=org_solo["user_id"], splits=[
-                {"user_id": org_a["user_id"], "percent": 25},
-                {"user_id": org_b["user_id"], "percent": 25},
-            ])
-            rcpts = await _resolve_recipients(db, ev_bad, 100.0)
-            assert len(rcpts) == 1
-            assert rcpts[0]["user_id"] == org_solo["user_id"]
-            assert rcpts[0]["amount"] == 100.0
+        # ===== HTTP endpoint validation =====
+        os.environ.setdefault("JWT_SECRET", "test-secret")
+        from httpx import AsyncClient, ASGITransport  # noqa: WPS433
+        from server import app  # noqa: WPS433
+        import jwt as _jwt  # noqa: WPS433
 
-            # ===== Engine short-circuit =====
-            res = await _attempt_event_payout(db, ev_engine, triggered_by="test")
-            assert res["status"] == "skipped"
-            assert res["reason"] == "no paid bookings"
-            stored = await db.events.find_one({"event_id": ev_engine["event_id"]}, {"_id": 0})
-            assert stored.get("payout_status") == "no_revenue"
+        token = _jwt.encode(
+            {"sub": owner["user_id"], "email": owner["email"], "role": "organizer"},
+            os.environ["JWT_SECRET"],
+            algorithm="HS256",
+        )
+        headers = {"Authorization": f"Bearer {token}"}
 
-            # ===== HTTP endpoint validation =====
-            os.environ.setdefault("JWT_SECRET", "test-secret")
-            from httpx import AsyncClient, ASGITransport  # noqa: WPS433
-            from server import app  # noqa: WPS433
-            import jwt as _jwt  # noqa: WPS433
-
-            token = _jwt.encode(
-                {"sub": owner["user_id"], "email": owner["email"], "role": "organizer"},
-                os.environ["JWT_SECRET"],
-                algorithm="HS256",
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            # Empty splits → 400
+            r = await client.put(
+                f"/api/organizer/events/{ev_http['event_id']}/revenue-splits",
+                json={"splits": []},
+                headers=headers,
             )
-            headers = {"Authorization": f"Bearer {token}"}
+            assert r.status_code == 400, r.text
 
-            async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
-                # Empty splits → 400
-                r = await client.put(
-                    f"/api/organizer/events/{ev_http['event_id']}/revenue-splits",
-                    json={"splits": []},
-                    headers=headers,
-                )
-                assert r.status_code == 400, r.text
+            # Sum != 100 → 400
+            r = await client.put(
+                f"/api/organizer/events/{ev_http['event_id']}/revenue-splits",
+                json={"splits": [
+                    {"user_id": owner["user_id"], "percent": 60},
+                    {"user_id": co_a["user_id"], "percent": 30},
+                ]},
+                headers=headers,
+            )
+            assert r.status_code == 400, r.text
+            assert "100" in r.json().get("detail", "")
 
-                # Sum != 100 → 400
-                r = await client.put(
-                    f"/api/organizer/events/{ev_http['event_id']}/revenue-splits",
-                    json={"splits": [
-                        {"user_id": owner["user_id"], "percent": 60},
-                        {"user_id": co_a["user_id"], "percent": 30},
-                    ]},
-                    headers=headers,
-                )
-                assert r.status_code == 400, r.text
-                assert "100" in r.json().get("detail", "")
+            # Attendee can't be a recipient → 400
+            r = await client.put(
+                f"/api/organizer/events/{ev_http['event_id']}/revenue-splits",
+                json={"splits": [
+                    {"user_id": owner["user_id"], "percent": 50},
+                    {"user_id": attendee_uid, "percent": 50},
+                ]},
+                headers=headers,
+            )
+            assert r.status_code == 400, r.text
+            assert "not an organizer" in r.json().get("detail", "").lower()
 
-                # Attendee can't be a recipient → 400
-                r = await client.put(
-                    f"/api/organizer/events/{ev_http['event_id']}/revenue-splits",
-                    json={"splits": [
-                        {"user_id": owner["user_id"], "percent": 50},
-                        {"user_id": attendee_uid, "percent": 50},
-                    ]},
-                    headers=headers,
-                )
-                assert r.status_code == 400, r.text
-                assert "not an organizer" in r.json().get("detail", "").lower()
+            # Valid 70/30 → 200 and persists
+            r = await client.put(
+                f"/api/organizer/events/{ev_http['event_id']}/revenue-splits",
+                json={"splits": [
+                    {"user_id": owner["user_id"], "label": "Promoter", "percent": 70},
+                    {"user_id": co_a["user_id"], "label": "Venue", "percent": 30},
+                ]},
+                headers=headers,
+            )
+            assert r.status_code == 200, r.text
+            body = r.json()
+            assert body["total_percent"] == 100.0
+            assert len(body["splits"]) == 2
 
-                # Valid 70/30 → 200 and persists
-                r = await client.put(
-                    f"/api/organizer/events/{ev_http['event_id']}/revenue-splits",
-                    json={"splits": [
-                        {"user_id": owner["user_id"], "label": "Promoter", "percent": 70},
-                        {"user_id": co_a["user_id"], "label": "Venue", "percent": 30},
-                    ]},
-                    headers=headers,
-                )
-                assert r.status_code == 200, r.text
-                body = r.json()
-                assert body["total_percent"] == 100.0
-                assert len(body["splits"]) == 2
+            # GET returns the persisted splits hydrated
+            r = await client.get(
+                f"/api/organizer/events/{ev_http['event_id']}/revenue-splits",
+                headers=headers,
+            )
+            assert r.status_code == 200
+            got = r.json()
+            assert got["configured"] is True
+            labels = sorted(s["label"] for s in got["splits"])
+            assert labels == ["Promoter", "Venue"]
 
-                # GET returns the persisted splits hydrated
-                r = await client.get(
-                    f"/api/organizer/events/{ev_http['event_id']}/revenue-splits",
-                    headers=headers,
-                )
-                assert r.status_code == 200
-                got = r.json()
-                assert got["configured"] is True
-                labels = sorted(s["label"] for s in got["splits"])
-                assert labels == ["Promoter", "Venue"]
+            # DELETE clears
+            r = await client.delete(
+                f"/api/organizer/events/{ev_http['event_id']}/revenue-splits",
+                headers=headers,
+            )
+            assert r.status_code == 200
+            assert r.json()["cleared"] is True
 
-                # DELETE clears
-                r = await client.delete(
-                    f"/api/organizer/events/{ev_http['event_id']}/revenue-splits",
-                    headers=headers,
-                )
-                assert r.status_code == 200
-                assert r.json()["cleared"] is True
+            # Lookup by email finds co_a
+            r = await client.get(
+                f"/api/organizer/users/lookup?email={co_a['email']}",
+                headers=headers,
+            )
+            assert r.status_code == 200, r.text
+            assert r.json()["user_id"] == co_a["user_id"]
 
-                # Lookup by email finds co_a
-                r = await client.get(
-                    f"/api/organizer/users/lookup?email={co_a['email']}",
-                    headers=headers,
-                )
-                assert r.status_code == 200, r.text
-                assert r.json()["user_id"] == co_a["user_id"]
+            # Lookup unknown email → 404
+            r = await client.get(
+                "/api/organizer/users/lookup?email=ghost+nope@example.com",
+                headers=headers,
+            )
+            assert r.status_code == 404
+    finally:
+        await db.users.delete_many({"user_id": {"$in": [
+            org_a["user_id"], org_b["user_id"], org_c_unverified["user_id"],
+            org_solo["user_id"], owner["user_id"], co_a["user_id"], attendee_uid,
+        ]}})
+        await db.events.delete_many({"event_id": {"$in": [
+            ev_engine["event_id"], ev_http["event_id"],
+        ]}})
 
-                # Lookup unknown email → 404
-                r = await client.get(
-                    "/api/organizer/users/lookup?email=ghost+nope@example.com",
-                    headers=headers,
-                )
-                assert r.status_code == 404
-        finally:
-            await db.users.delete_many({"user_id": {"$in": [
-                org_a["user_id"], org_b["user_id"], org_c_unverified["user_id"],
-                org_solo["user_id"], owner["user_id"], co_a["user_id"], attendee_uid,
-            ]}})
-            await db.events.delete_many({"event_id": {"$in": [
-                ev_engine["event_id"], ev_http["event_id"],
-            ]}})
-
-    asyncio.run(_run())

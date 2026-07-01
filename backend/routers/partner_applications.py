@@ -155,6 +155,17 @@ async def submit_partner_application(payload: PartnerApplicationIn, request: Req
 
 
 # ---------- Admin review ---------------------------------------------------
+@router.post("/admin/partners/rate-limit/reset")
+async def reset_rate_limit_bucket(user: dict = Depends(get_current_user)) -> dict:
+    """Admin-only: clear the in-memory rate-limit bucket. Used by the test
+    suite to start each run with a fresh window. Returns the number of
+    distinct IPs that were tracked before reset."""
+    _admin_only(user)
+    n = len(_rate_buckets)
+    _rate_buckets.clear()
+    return {"ok": True, "cleared": n}
+
+
 @router.get("/admin/partners/applications")
 async def list_partner_applications(
     status: Optional[str] = None,

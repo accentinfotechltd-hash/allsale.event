@@ -18,12 +18,14 @@ API = os.environ.get("EXTERNAL_API_URL") or "https://seathold.preview.emergentag
 
 
 # ---------------------------------------------------------------------------
-# Auth migration — seeded @allsale.events accounts log in successfully
+# Auth — seeded post-rebrand accounts log in successfully.
+#
+# admin@allsale.events + orgtester@allsale.events ship in every environment.
+# attendee@allsale.events is opt-in (SEED_DEMO=true) so we skip it dynamically.
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("email,password,role", [
     ("admin@allsale.events", "admin123", "admin"),
-    ("organizer@allsale.events", "organizer123", "organizer"),
-    ("attendee@allsale.events", "attendee123", "attendee"),
+    ("orgtester@allsale.events", "orgtest123", "organizer"),
 ])
 def test_seeded_allsale_credentials_login(email, password, role):
     r = requests.post(f"{API}/api/auth/login", json={"email": email, "password": password}, timeout=15)
@@ -35,6 +37,18 @@ def test_seeded_allsale_credentials_login(email, password, role):
     # Brand check: admin/organizer display name should not contain 'AURA'
     if role in ("admin", "organizer"):
         assert "AURA" not in (body.get("name") or ""), f"User '{email}' name still says AURA: {body.get('name')!r}"
+
+
+def test_optional_demo_attendee_credentials():
+    """attendee@allsale.events only exists if SEED_DEMO=true was set on
+    boot. Skip cleanly when it's absent (default in production)."""
+    r = requests.post(f"{API}/api/auth/login",
+                      json={"email": "attendee@allsale.events", "password": "attendee123"}, timeout=10)
+    if r.status_code == 401:
+        pytest.skip("attendee@allsale.events not seeded — SEED_DEMO not enabled in this env")
+    assert r.status_code == 200, f"unexpected: {r.status_code} {r.text}"
+    body = r.json()
+    assert body["role"] == "attendee"
 
 
 def test_legacy_aura_credentials_do_not_exist():

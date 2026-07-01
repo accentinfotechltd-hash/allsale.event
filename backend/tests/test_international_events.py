@@ -13,6 +13,7 @@ async def _organizer_token(client: httpx.AsyncClient) -> str:
         "password": "Test1234!",
         "name": "Intl Test",
         "role": "organizer",
+        "phone": "+64 21 555 4002",  # mandatory since Feb 2026
     })
     return r.json()["token"]
 
@@ -35,7 +36,7 @@ async def test_country_timezone_lifecycle():
             "date": "2030-06-01T20:00:00Z",
             "image_url": "https://example.com/x.jpg",
             "currency": "INR",
-            "tiers": [{"name": "GA", "price": 999, "quantity": 100}],
+            "tiers": [{"name": "GA", "price": 0, "quantity": 100}],
             "has_seatmap": False,
         }, headers=auth)
         assert r.status_code == 200, r.text
@@ -55,7 +56,7 @@ async def test_country_timezone_lifecycle():
             "date": "2030-06-02T20:00:00Z",
             "image_url": "https://example.com/x.jpg",
             "currency": "NZD",
-            "tiers": [{"name": "GA", "price": 50, "quantity": 100}],
+            "tiers": [{"name": "GA", "price": 0, "quantity": 100}],
             "has_seatmap": False,
         }, headers=auth)
         assert r.status_code == 200

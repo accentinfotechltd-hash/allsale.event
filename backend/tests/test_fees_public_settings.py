@@ -93,11 +93,12 @@ class TestFeeMath:
         assert 3.75 <= fees <= 3.90, fees
 
     def test_backend_compute_fees_matches(self):
-        # Hit /api/admin/platform-settings is admin; verify backend math
-        # via direct compute by replicating with same numbers
-        # Already covered above; this test asserts backend formula identity
+        # The client estimator (in fees.js) was written when there was NO
+        # platform_flat — it treats its `plat_flat` parameter as the Stripe
+        # flat. So to verify backend == client, we call compute_fees with
+        # platform_flat=0 and pass the same flat in as stripe_flat (0.30).
         from fees import compute_fees  # type: ignore
-        b = compute_fees(30.0, "NZD", platform_pct=5.0, stripe_flat=0.30)
+        b = compute_fees(30.0, "NZD", platform_pct=5.0, platform_flat=0.0, stripe_flat=0.30)
         # service_fee = platform_fee + stripe_fee == what buyer sees as fees
         assert round(b.service_fee, 2) == 2.68, b.as_dict()
 
