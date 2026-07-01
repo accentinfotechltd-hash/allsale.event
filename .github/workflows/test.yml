@@ -5,6 +5,10 @@ name: Tests
 #   1. backend-tests  — MongoDB service + FastAPI + pytest (the bulk)
 #   2. backend-lint   — ruff over backend/
 #
+# To make these REQUIRED checks (block merges on red), follow the one-time
+# setup in .github/BRANCH_PROTECTION.md — GitHub's branch-protection UI
+# lives outside version control so we can't wire it here.
+#
 # Frontend lint intentionally NOT wired here: the project has no standalone
 # ESLint config (CRA/craco provides one implicitly at build time). Add
 # .eslintrc.js + a `lint` script to frontend/package.json and re-enable a

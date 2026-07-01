@@ -31,6 +31,14 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Branch protection setup guide (Mar 1 2026, iter_50)**:
+  - **New file** `.github/BRANCH_PROTECTION.md` — step-by-step guide for making the `Backend pytest` + `Backend lint (ruff)` workflow checks REQUIRED before PRs can merge into `main`. Includes both:
+    - **Option A**: GitHub web UI walkthrough (5 clicks, ~30 seconds).
+    - **Option B**: `gh` CLI one-liner using `gh api PUT /repos/{owner}/{repo}/branches/main/protection` with `strict=true` (up-to-date branch required) + `enforce_admins=true`.
+  - Documents the trade-off between blocking the Emergent bot's direct-to-main pushes (option: Include administrators = ON — safer for teams) vs. keeping the Save-to-GitHub flow frictionless (Include administrators = OFF — pragmatic for solo projects).
+  - `.github/workflows/test.yml` header now points readers at `BRANCH_PROTECTION.md` so future contributors know why the checks aren't automatically required.
+  - Branch protection cannot be set in a repo commit — it lives in GitHub's settings UI. Doc is the deliverable.
+
 - **GitHub Actions CI workflow — pytest + ruff run on every push/PR (Mar 1 2026, iter_49)**:
   - **New file** `.github/workflows/test.yml` — two parallel jobs, concurrent-cancel enabled to save CI minutes:
     - `backend-tests` (15-min budget): boots `mongo:7` service container → installs `backend/requirements.txt` + `emergentintegrations` → writes CI `.env` with dummy Stripe/Resend/LLM keys → boots FastAPI via `uvicorn` in background → polls `/api/health` until ready (30s max) → runs `scripts/seed_ci_test_users.py` → runs `pytest`. Dumps uvicorn logs on failure for debuggability.
