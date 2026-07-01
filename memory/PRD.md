@@ -31,6 +31,23 @@ Build an Eventbrite / BookMyShow-style ticketing platform with full partner-reve
   - Read-only on purpose: admin still controls payouts
 
 ## Recently Completed (Feb 2026 — current session)
+- **Firecrawl + LLM Lead Enrichment automation (Jul 1 2026, iter_51)** — replaces the VA workflow for finding organizer contact emails:
+  - **Backend router** (`/app/backend/routers/lead_enrichment.py`, wired via `server.py` auto-loader). Two admin-only endpoints:
+    - `POST /api/admin/recruitment-leads/{lead_id}/enrich` — single lead.
+    - `POST /api/admin/recruitment-leads/enrich-batch` — bulk (up to 200 per call, 4-way concurrency to respect Firecrawl's 5 req/s cap). Body: `{lead_ids?: [], limit: 50, only_placeholder: true}`. When no lead_ids given + only_placeholder=true, targets every `status=new` lead whose email matches `^research-needed`.
+  - **Pipeline** (per lead): (1) Firecrawl-scrape the Eventfinda `source_url`, (2) find the venue's own website in the listing markdown via a "Visit website" regex + a fallback that skips social/CDN hosts, (3) probe `/contact`, `/contact-us`, `/contacts`, `/` on that site, (4) regex-sweep the combined markdown for personal (non-generic) emails — 85% confidence fast-path, (5) if only generic addresses found, Claude Sonnet 4.5 via Emergent LLM Key extracts the best booking contact + name + role + 0-100 confidence, (6) update the lead doc. Idempotent — re-runs overwrite. Fail-safe: missing FIRECRAWL_API_KEY returns 503 fast; scrape failures set `enrichment_status=firecrawl_failed_listing` rather than crashing the batch.
+  - **URL cleaner** (`_clean_url`) strips Markdown link-title suffixes (`https://x.com "Title"` → `https://x.com`) — required because Firecrawl frequently emits those and they break `urljoin` for the contact-page probe. Verified against a real Stonehenge Aotearoa scrape.
+  - **Frontend** (`AdminRecruitmentLeadsTab.jsx`): three new admin-only UI affordances:
+    - Toolbar **"Enrich N"** button (bulk-selected leads, ignores placeholder flag).
+    - Toolbar **"Enrich all placeholders"** button (up to 50 per click; safe to click repeatedly).
+    - Per-row **Enrich** icon-button (only shown when the row has a `source_url`).
+    - Per-row **EnrichmentBadge** — "AI ✓ · 85%" (success), "Generic email" (warn), "No email" / "Scrape failed" / "No source URL" (muted). Confidence % surfaces on hover.
+    - Website URL shown as a hostname link under the email when discovered.
+  - **Real Firecrawl smoke test**: Stonehenge Aotearoa (`lead_14cc266a48`) → found `nzstarlore@gmail.com` at 85% confidence in ~21s (first call, uncached). Repeat calls take ~1s due to Firecrawl caching. Regex fast-path avoided burning an LLM token.
+  - **Tests**: 16 pytest cases in `test_lead_enrichment.py` (mocked Firecrawl + LLM, hermetic) + 6 live smoke tests in `test_lead_enrichment_live.py` (testing agent) → **30/30 pass**.
+  - **Env**: `FIRECRAWL_API_KEY=fc-116715761c474adb82994a6e6c1ee845` + `EMERGENT_LLM_KEY` already loaded into `backend/.env`. `firecrawl-py==4.31.0` in requirements.txt.
+
+
 - **Branch protection setup guide (Mar 1 2026, iter_50)**:
   - **New file** `.github/BRANCH_PROTECTION.md` — step-by-step guide for making the `Backend pytest` + `Backend lint (ruff)` workflow checks REQUIRED before PRs can merge into `main`. Includes both:
     - **Option A**: GitHub web UI walkthrough (5 clicks, ~30 seconds).
