@@ -30,7 +30,7 @@ from pydantic import BaseModel
 from core import db, get_current_user, utc_now
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/admin/recruitment-leads", tags=["recruitment-leads-enrich"])
+router = APIRouter(prefix="/admin/recruitment-leads", tags=["recruitment-leads-enrich"])
 
 
 # --- Firecrawl SDK (lazy import so a missing env doesn't crash boot) --------
@@ -102,6 +102,24 @@ def _is_generic_email(email: str) -> bool:
     return local in _GENERIC_LOCAL_PARTS
 
 
+def _clean_url(raw: str) -> str:
+    """Strip Markdown link-title suffixes and trailing punctuation.
+
+    Firecrawl often outputs links as `[Label](https://example.com "Title")` —
+    the naive `\\(([^)]+)\\)` grab captures the title too, giving us
+    `https://example.com "Title"` which isn't a valid URL. Split on the
+    first space (or quote) to keep only the raw href.
+    """
+    u = raw.strip()
+    # Cut at first whitespace or opening quote — that's where the title starts.
+    for sep in (' "', " '", " ", "\t"):
+        idx = u.find(sep)
+        if idx >= 0:
+            u = u[:idx]
+            break
+    return u.strip().rstrip(").,;")
+
+
 def _extract_website_from_markdown(md: str, source_url: str) -> Optional[str]:
     """Find the venue's own website in Firecrawl markdown output.
 
@@ -111,10 +129,11 @@ def _extract_website_from_markdown(md: str, source_url: str) -> Optional[str]:
     """
     m = _WEBSITE_LINK_RE.search(md)
     if m:
-        return m.group(1).strip()
+        return _clean_url(m.group(1))
 
     source_host = urlparse(source_url).netloc.lower()
     for label, href in _ANY_LINK_RE.findall(md):
+        href = _clean_url(href)
         try:
             host = urlparse(href).netloc.lower()
         except Exception:
@@ -242,7 +261,6 @@ async def _llm_extract_contact(page_markdown: str, venue_name: str) -> Dict[str,
 async def _enrich_one_lead(lead: Dict[str, Any]) -> Dict[str, Any]:
     """Return the fields to $set on the lead doc. Includes an
     `enrichment_status` telling the caller what happened."""
-    lead_id = lead["lead_id"]
     source_url = lead.get("source_url")
     if not source_url:
         return {
@@ -386,16 +404,16 @@ async def enrich_batch(payload: EnrichBatchIn, user: dict = Depends(get_current_
 
     sem = asyncio.Semaphore(4)  # cap concurrency for Firecrawl
 
-    async def _wrap(l: Dict[str, Any]) -> Dict[str, Any]:
+    async def _wrap(lead_doc: Dict[str, Any]) -> Dict[str, Any]:
         async with sem:
-            up = await _enrich_one_lead(l)
+            up = await _enrich_one_lead(lead_doc)
             await db.recruitment_leads.update_one(
-                {"lead_id": l["lead_id"]},
+                {"lead_id": lead_doc["lead_id"]},
                 {"$set": {**up, "updated_at": utc_now().isoformat()}},
             )
-            return {"lead_id": l["lead_id"], "name": l.get("name"), **up}
+            return {"lead_id": lead_doc["lead_id"], "name": lead_doc.get("name"), **up}
 
-    results = await asyncio.gather(*[_wrap(l) for l in leads], return_exceptions=False)
+    results = await asyncio.gather(*[_wrap(lead_doc) for lead_doc in leads], return_exceptions=False)
 
     # Summary counts for the toast on the UI side.
     summary: Dict[str, int] = {}

@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo, useRef } from "react";
 import api from "@/lib/api";
 import { toast } from "sonner";
-import { Search, X, Plus, Upload, Send, Trash2, CheckCircle2, Clock, MinusCircle, Sparkles, Download, FileSpreadsheet } from "lucide-react";
+import { Search, X, Plus, Upload, Send, Trash2, CheckCircle2, Clock, MinusCircle, Sparkles, Download, FileSpreadsheet, Wand2, ExternalLink } from "lucide-react";
 
 /**
  * AdminRecruitmentLeadsTab — pipeline for inviting organizers + influencers.
@@ -30,6 +30,8 @@ export default function AdminRecruitmentLeadsTab() {
   const [showAdd, setShowAdd] = useState(false);
   const [sending, setSending] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [enriching, setEnriching] = useState(false);
+  const [enrichingRow, setEnrichingRow] = useState(null); // lead_id currently enriching (per-row spinner)
   const csvFileInputRef = useRef(null);
 
   // CSV export — VAs use this to take rows offline, fill real emails in
@@ -157,6 +159,80 @@ export default function AdminRecruitmentLeadsTab() {
     }
   };
 
+  // ---------------------------------------------------------------------
+  // Firecrawl + LLM enrichment
+  // ---------------------------------------------------------------------
+  // Turns a summary dict like {enriched_regex: 3, enriched_llm: 2, no_email_found: 1}
+  // into a compact toast body.
+  const summariseEnrichment = (summary) => {
+    if (!summary) return "";
+    const nice = {
+      enriched_regex: "email found (regex)",
+      enriched_llm: "email found (AI)",
+      enriched_generic_only: "generic only",
+      no_email_found: "no email found",
+      firecrawl_failed_listing: "Firecrawl failed",
+      no_source_url: "no source URL",
+    };
+    return Object.entries(summary)
+      .map(([k, v]) => `${v} ${nice[k] || k}`)
+      .join(" · ");
+  };
+
+  const enrichOne = async (lead) => {
+    setEnrichingRow(lead.lead_id);
+    try {
+      const { data: res } = await api.post(`/admin/recruitment-leads/${lead.lead_id}/enrich`);
+      const status = res.enrichment_status || "done";
+      if (res.email && status !== "enriched_generic_only") {
+        toast.success(`Found ${res.email} (${res.enrichment_confidence || "?"}% confidence)`);
+      } else if (res.email && status === "enriched_generic_only") {
+        toast.warning(`Only generic address found: ${res.email} — review before sending.`);
+      } else {
+        toast.error(`No email found — ${res.enrichment_notes || status}`);
+      }
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Enrichment failed");
+    } finally {
+      setEnrichingRow(null);
+    }
+  };
+
+  const enrichBatch = async (mode) => {
+    // mode: "selected" | "all_placeholder"
+    const body = { limit: 50 };
+    if (mode === "selected") {
+      if (selected.size === 0) { toast.error("Select at least one lead"); return; }
+      body.lead_ids = Array.from(selected);
+      body.only_placeholder = false;
+    } else {
+      body.only_placeholder = true;
+    }
+    const confirmMsg = mode === "selected"
+      ? `Enrich ${selected.size} selected lead${selected.size === 1 ? "" : "s"} via Firecrawl + AI?\n\n` +
+        `This scrapes each source URL, finds the venue website, and extracts the best owner/booking email. ~5-15s per lead.`
+      : `Enrich all placeholder leads (research-needed@…) via Firecrawl + AI?\n\n` +
+        `Runs up to 50 leads per click. Safe to click again to continue the queue.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setEnriching(true);
+    try {
+      const { data: res } = await api.post("/admin/recruitment-leads/enrich-batch", body);
+      if (res.processed === 0) {
+        toast.info(res.message || "No matching leads to enrich.");
+      } else {
+        toast.success(`Enriched ${res.processed} lead${res.processed === 1 ? "" : "s"} · ${summariseEnrichment(res.summary)}`);
+      }
+      setSelected(new Set());
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Batch enrichment failed");
+    } finally {
+      setEnriching(false);
+    }
+  };
+
   const summary = data.summary || {};
 
   return (
@@ -194,6 +270,26 @@ export default function AdminRecruitmentLeadsTab() {
         >
           <Send className="w-4 h-4" />
           {sending ? "Sending…" : selected.size > 0 ? `Send flyer to ${selected.size}` : "Send flyer"}
+        </button>
+        <button
+          onClick={() => enrichBatch("selected")}
+          disabled={enriching || selected.size === 0}
+          className="btn-ghost"
+          title="Scrape source URL + venue website + AI-extract owner email for selected leads"
+          data-testid="leads-enrich-selected-btn"
+        >
+          <Wand2 className="w-4 h-4" />
+          {enriching ? "Enriching…" : selected.size > 0 ? `Enrich ${selected.size}` : "Enrich selected"}
+        </button>
+        <button
+          onClick={() => enrichBatch("all_placeholder")}
+          disabled={enriching}
+          className="btn-ghost"
+          title="Enrich every lead whose email still starts with research-needed@… — up to 50 per click"
+          data-testid="leads-enrich-all-placeholder-btn"
+        >
+          <Sparkles className="w-4 h-4" />
+          {enriching ? "Enriching…" : "Enrich all placeholders"}
         </button>
         <button
           onClick={() => setShowAdd(true)}
@@ -271,6 +367,15 @@ export default function AdminRecruitmentLeadsTab() {
                   <td className="px-4 py-3">
                     <div style={{ color: "var(--text)" }}>{l.name}</div>
                     <div className="text-xs" style={{ color: "var(--text-muted)" }}>{l.email}</div>
+                    {l.website_url && (
+                      <div className="text-[11px] mt-0.5 inline-flex items-center gap-1" style={{ color: "var(--text-dim)" }}>
+                        <ExternalLink className="w-3 h-3" />
+                        <a href={l.website_url} target="_blank" rel="noopener noreferrer" className="underline hover:opacity-80" style={{ color: "var(--text-muted)" }}>
+                          {(() => { try { return new URL(l.website_url).hostname; } catch { return l.website_url.slice(0, 40); } })()}
+                        </a>
+                      </div>
+                    )}
+                    <EnrichmentBadge lead={l} />
                     {l.notes && <div className="text-[11px] mt-1" style={{ color: "var(--text-dim)" }}>{l.notes.slice(0, 80)}{l.notes.length > 80 ? "…" : ""}</div>}
                   </td>
                   <td className="px-4 py-3 text-xs" style={{ color: "var(--text-muted)" }}>{l.kind || "organizer"}</td>
@@ -287,6 +392,18 @@ export default function AdminRecruitmentLeadsTab() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="inline-flex gap-1.5 justify-end flex-wrap">
+                      {l.source_url && (
+                        <button
+                          onClick={() => enrichOne(l)}
+                          disabled={enrichingRow === l.lead_id || enriching}
+                          className="btn-ghost !py-1 !px-2 text-xs"
+                          title="Firecrawl the source URL + AI-extract owner email"
+                          data-testid={`lead-enrich-${l.lead_id}`}
+                        >
+                          <Wand2 className="w-3 h-3" />
+                          {enrichingRow === l.lead_id ? "…" : "Enrich"}
+                        </button>
+                      )}
                       {l.status === "new" && (
                         <button onClick={() => updateStatus(l.lead_id, "ignored")} className="btn-ghost !py-1 !px-2 text-xs" data-testid={`lead-ignore-${l.lead_id}`} title="Skip this lead">
                           Ignore
@@ -338,6 +455,39 @@ function StatusChip({ label, value, active, onClick, icon, accent, testid }) {
     </button>
   );
 }
+
+function EnrichmentBadge({ lead }) {
+  const status = lead.enrichment_status;
+  if (!status) return null;
+  const map = {
+    enriched_regex: { label: "AI \u2713", tone: "success", tip: "Email found via regex scrape" },
+    enriched_llm: { label: "AI \u2713", tone: "success", tip: "Email extracted by LLM from venue site" },
+    enriched_generic_only: { label: "Generic email", tone: "warn", tip: "Only info@ / hello@ found - review before sending" },
+    no_email_found: { label: "No email", tone: "muted", tip: "Firecrawl + AI couldn't find any usable email" },
+    firecrawl_failed_listing: { label: "Scrape failed", tone: "muted", tip: "Firecrawl couldn't fetch the source URL" },
+    no_source_url: { label: "No source URL", tone: "muted", tip: "Add a source URL then re-run enrich" },
+  };
+  const m = map[status] || { label: status, tone: "muted", tip: status };
+  const colors = {
+    success: { color: "var(--success)", bg: "rgba(52,211,153,0.12)" },
+    warn: { color: "var(--warn)", bg: "rgba(251,191,36,0.12)" },
+    muted: { color: "var(--text-muted)", bg: "rgba(154,154,163,0.12)" },
+  }[m.tone];
+  const conf = lead.enrichment_confidence;
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] mt-1"
+      style={{ color: colors.color, background: colors.bg }}
+      title={m.tip + (typeof conf === "number" ? ` \u00b7 ${conf}% confidence` : "")}
+      data-testid={`lead-enrich-badge-${lead.lead_id}`}
+    >
+      <Sparkles className="w-2.5 h-2.5" />
+      {m.label}
+      {typeof conf === "number" && conf > 0 && <span className="opacity-70">\u00b7 {conf}%</span>}
+    </span>
+  );
+}
+
 
 function LeadStatusBadge({ lead }) {
   const map = {
