@@ -73,6 +73,34 @@ def _ensure_stripe() -> None:
     _stripe_sdk.api_key = STRIPE_API_KEY
 
 
+def _sget(obj, key, default=None):
+    """Safely read a field off a Stripe SDK object.
+
+    Stripe's Python SDK changed how StripeObject exposes fields — in newer
+    versions the dict-style `.get()` method raises `AttributeError: get`
+    (see the July 2026 bug that caused every onboarding to 502). Attribute
+    access via `getattr` works consistently across versions AND is what
+    Stripe now documents as the supported path. Falls back to dict-style
+    `__getitem__` for the rare case where a nested value is a raw dict.
+
+    A stored `None` is treated as "missing" and returns `default` — this
+    mirrors the historical `.get() or fallback` idiom used throughout the
+    router and keeps this refactor a no-behaviour-change.
+    """
+    if obj is None:
+        return default
+    val = getattr(obj, key, _MISSING)
+    if val is _MISSING:
+        try:
+            val = obj[key]
+        except (KeyError, TypeError):
+            return default
+    return val if val is not None else default
+
+
+_MISSING = object()
+
+
 def _connect_status_payload(u: dict) -> dict:
     return {
         "stripe_account_id": u.get("stripe_account_id"),
@@ -93,12 +121,12 @@ async def _sync_account_from_stripe(account_id: str) -> Optional[dict]:
     except Exception as exc:  # noqa: BLE001
         logger.exception(f"[stripe-connect] sync failed for {account_id}: {exc}")
         return None
-    requirements = acct.get("requirements") or {}
-    currently_due = requirements.get("currently_due") or []
+    requirements = _sget(acct, "requirements") or {}
+    currently_due = _sget(requirements, "currently_due") or []
     update = {
-        "stripe_charges_enabled": bool(acct.get("charges_enabled")),
-        "stripe_payouts_enabled": bool(acct.get("payouts_enabled")),
-        "stripe_details_submitted": bool(acct.get("details_submitted")),
+        "stripe_charges_enabled": bool(_sget(acct, "charges_enabled", False)),
+        "stripe_payouts_enabled": bool(_sget(acct, "payouts_enabled", False)),
+        "stripe_details_submitted": bool(_sget(acct, "details_submitted", False)),
         "stripe_requirements_due": list(currently_due),
         "stripe_last_synced_at": utc_now().isoformat(),
     }
@@ -200,7 +228,16 @@ async def onboard(payload: OnboardIn, user: dict = Depends(get_current_user)):
             return_url=payload.return_url,
             type="account_onboarding",
         )
-        return {"url": link["url"], "expires_at": link.get("expires_at"), "stripe_account_id": account_id}
+        # Feb 2026: Stripe's newer Python SDK returns a StripeObject that
+        # does NOT expose dict `.get()` — attribute access is the supported
+        # path. Using `link.get("expires_at")` raised `AttributeError: get`
+        # and turned every onboarding into a 502 even though the API call
+        # succeeded (HTTP 200 with a valid URL). Read fields via getattr.
+        return {
+            "url": _sget(link, "url"),
+            "expires_at": _sget(link, "expires_at"),
+            "stripe_account_id": account_id,
+        }
 
     if not acct_id:
         acct_id = await _create_account()
@@ -621,18 +658,18 @@ async def organizer_stripe_health(user: dict = Depends(get_current_user)):
             "reason": _describe_stripe_error(exc),
             "stripe_account_id": acct_id,
         }
-    requirements = acct.get("requirements") or {}
+    requirements = _sget(acct, "requirements") or {}
     payload = {
         "ok": True,
         "stripe_account_id": acct_id,
-        "country": acct.get("country"),
-        "charges_enabled": bool(acct.get("charges_enabled")),
-        "payouts_enabled": bool(acct.get("payouts_enabled")),
-        "details_submitted": bool(acct.get("details_submitted")),
-        "currently_due": list(requirements.get("currently_due") or []),
-        "past_due": list(requirements.get("past_due") or []),
-        "eventually_due": list(requirements.get("eventually_due") or []),
-        "disabled_reason": requirements.get("disabled_reason"),
+        "country": _sget(acct, "country"),
+        "charges_enabled": bool(_sget(acct, "charges_enabled", False)),
+        "payouts_enabled": bool(_sget(acct, "payouts_enabled", False)),
+        "details_submitted": bool(_sget(acct, "details_submitted", False)),
+        "currently_due": list(_sget(requirements, "currently_due") or []),
+        "past_due": list(_sget(requirements, "past_due") or []),
+        "eventually_due": list(_sget(requirements, "eventually_due") or []),
+        "disabled_reason": _sget(requirements, "disabled_reason"),
         "checked_at": utc_now().isoformat(),
     }
     await db.users.update_one(
@@ -679,21 +716,21 @@ async def admin_stripe_health_check(user_id: str, user: dict = Depends(get_curre
             "reason": _describe_stripe_error(exc),
             "stripe_account_id": acct_id,
         }
-    requirements = acct.get("requirements") or {}
-    cap = acct.get("capabilities") or {}
+    requirements = _sget(acct, "requirements") or {}
+    cap = _sget(acct, "capabilities") or {}
     payload = {
         "ok": True,
         "stripe_account_id": acct_id,
-        "country": acct.get("country"),
-        "email": acct.get("email"),
-        "charges_enabled": bool(acct.get("charges_enabled")),
-        "payouts_enabled": bool(acct.get("payouts_enabled")),
-        "details_submitted": bool(acct.get("details_submitted")),
-        "currently_due": list(requirements.get("currently_due") or []),
-        "past_due": list(requirements.get("past_due") or []),
-        "eventually_due": list(requirements.get("eventually_due") or []),
-        "disabled_reason": requirements.get("disabled_reason"),
-        "capabilities": {k: cap.get(k) for k in ("card_payments", "transfers") if k in cap},
+        "country": _sget(acct, "country"),
+        "email": _sget(acct, "email"),
+        "charges_enabled": bool(_sget(acct, "charges_enabled", False)),
+        "payouts_enabled": bool(_sget(acct, "payouts_enabled", False)),
+        "details_submitted": bool(_sget(acct, "details_submitted", False)),
+        "currently_due": list(_sget(requirements, "currently_due") or []),
+        "past_due": list(_sget(requirements, "past_due") or []),
+        "eventually_due": list(_sget(requirements, "eventually_due") or []),
+        "disabled_reason": _sget(requirements, "disabled_reason"),
+        "capabilities": {k: _sget(cap, k) for k in ("card_payments", "transfers") if _sget(cap, k) is not None},
         "checked_at": utc_now().isoformat(),
     }
     # Mirror so the Users table pill stays fresh.
