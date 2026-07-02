@@ -1020,7 +1020,8 @@ export default function CreateEvent() {
               type="checkbox"
               checked={!!form.advance_payout_enabled}
               onChange={(e) => update("advance_payout_enabled", e.target.checked)}
-              className="mt-1"
+              className="mt-1 shrink-0"
+              style={{ width: "18px", height: "18px", padding: 0, borderRadius: "4px" }}
               data-testid="advance-payout-checkbox"
             />
             <div className="flex-1">
