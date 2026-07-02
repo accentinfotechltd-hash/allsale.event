@@ -166,19 +166,55 @@ function HoldRow({ booking, onChanged }) {
 }
 
 
-function ManualBookingModal({ eventId, event, onClose, onCreated }) {
+function ManualBookingModal({ eventId, event: initialEvent, onClose, onCreated }) {
+  // Fetch a FRESH event snapshot from the server inside the modal —
+  // the `event` prop passed down from OrganizerEvent can be stale (or
+  // occasionally missing tiers if the parent hydration hasn't finished).
+  // We fall back to whatever the parent had while the request is in flight.
+  const [event, setEvent] = useState(initialEvent);
+  const [loadingEvent, setLoadingEvent] = useState(!initialEvent?.tiers);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get(`/events/${eventId}`);
+        if (!cancelled) setEvent(data);
+      } catch { /* keep the initial event on failure */ }
+      finally { if (!cancelled) setLoadingEvent(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [eventId]);
+
   const isSeatmap = !!event?.has_seatmap;
+  const tiers = event?.tiers || [];
+  const currency = event?.currency || "NZD";
+
   const [buyerName, setBuyerName] = useState("");
   const [buyerEmail, setBuyerEmail] = useState("");
   const [buyerPhone, setBuyerPhone] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [mode, setMode] = useState("paid"); // paid | hold
-  const [tierName, setTierName] = useState(event?.tiers?.[0]?.name || "");
+  const [tierName, setTierName] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [seatsInput, setSeatsInput] = useState("");
   const [amountOverride, setAmountOverride] = useState("");
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+
+  // Auto-select the first tier as soon as event data arrives so the operator
+  // never has to face an empty picker. If the organizer only defined one
+  // tier this becomes zero-click. Only fires on the initial load — a later
+  // manual clear stays cleared.
+  useEffect(() => {
+    if (!tierName && tiers.length > 0) {
+      setTierName(tiers[0].name);
+    }
+  }, [tiers, tierName]);
+
+  const selectedTier = tiers.find((t) => t.name === tierName);
+  const projectedFaceValue = isSeatmap
+    ? null
+    : (selectedTier ? Number(selectedTier.price || 0) * (Number(quantity) || 1) : null);
 
   const submit = async () => {
     if (!buyerName.trim() || !buyerEmail.trim()) {
@@ -201,7 +237,11 @@ function ManualBookingModal({ eventId, event, onClose, onCreated }) {
       if (!seats.length) { toast.error("Enter at least one seat ID (e.g. A-1, A-2)"); return; }
       payload.seats = seats;
     } else {
-      if (!tierName) { toast.error("Pick a tier"); return; }
+      if (tiers.length === 0) {
+        toast.error("This event has no ticket tiers — add one on the event's Edit page first.");
+        return;
+      }
+      if (!tierName) { toast.error("Pick a ticket type"); return; }
       payload.tier_name = tierName;
       payload.quantity = Math.max(1, Number(quantity) || 1);
     }
@@ -327,20 +367,73 @@ function ManualBookingModal({ eventId, event, onClose, onCreated }) {
             />
             <div className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>Comma or space-separated. Must be available seats.</div>
           </div>
+        ) : tiers.length === 0 ? (
+          <div
+            className="mb-4 p-3 border rounded-xl text-sm"
+            style={{ borderColor: "var(--border)", color: "var(--text-muted)", background: "rgba(217,119,6,0.06)" }}
+            data-testid="manual-no-tiers-warning"
+          >
+            {loadingEvent
+              ? "Loading ticket types…"
+              : "This event has no ticket tiers set up yet. Open the event's Edit page and add at least one tier before selling tickets manually."}
+          </div>
         ) : (
-          <div className="grid grid-cols-[2fr_1fr] gap-3 mb-4">
-            <div>
-              <label className="text-xs uppercase tracking-widest mb-1 block" style={{ color: "var(--text-dim)" }}>Tier *</label>
-              <select value={tierName} onChange={(e) => setTierName(e.target.value)} data-testid="manual-tier-select">
-                {(event?.tiers || []).map((t) => (
-                  <option key={t.name} value={t.name}>
-                    {t.name} — {event.currency || "NZD"} ${Number(t.price || 0).toFixed(2)}
-                  </option>
-                ))}
-              </select>
+          <div className="mb-4">
+            <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>
+              Ticket type <span style={{ color: "var(--danger)" }}>*</span>
+            </label>
+            {/* Show the tiers the ORGANIZER created as clickable cards. One
+                click = tier selected; the current pick is highlighted with
+                the accent border/tint. Radios provide the a11y semantics. */}
+            <div
+              className="grid gap-2"
+              role="radiogroup"
+              aria-label="Ticket tier"
+              data-testid="manual-tier-list"
+            >
+              {tiers.map((t) => {
+                const active = tierName === t.name;
+                const price = Number(t.price || 0);
+                return (
+                  <button
+                    key={t.name}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setTierName(t.name)}
+                    className="w-full text-left p-3 border rounded-xl transition flex items-center justify-between gap-3"
+                    style={{
+                      borderColor: active ? "var(--accent)" : "var(--border)",
+                      background: active ? "var(--accent-soft)" : "var(--bg)",
+                    }}
+                    data-testid={`manual-tier-${t.name}`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div
+                        className="shrink-0 w-4 h-4 rounded-full border flex items-center justify-center"
+                        style={{
+                          borderColor: active ? "var(--accent)" : "var(--border)",
+                          background: active ? "var(--accent)" : "transparent",
+                        }}
+                      >
+                        {active && <Check className="w-2.5 h-2.5" style={{ color: "#fff" }} />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold truncate" style={{ color: "var(--text)" }}>{t.name}</div>
+                        {t.capacity != null && (
+                          <div className="text-[11px]" style={{ color: "var(--text-dim)" }}>Capacity {t.capacity}</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-sm font-mono whitespace-nowrap" style={{ color: active ? "var(--accent)" : "var(--text)" }}>
+                      {price === 0 ? "Free" : `${currency} $${price.toFixed(2)}`}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
-            <div>
-              <label className="text-xs uppercase tracking-widest mb-1 block" style={{ color: "var(--text-dim)" }}>Qty</label>
+            <div className="mt-3">
+              <label className="text-xs uppercase tracking-widest mb-1 block" style={{ color: "var(--text-dim)" }}>Quantity</label>
               <input
                 type="number"
                 min="1"
@@ -349,6 +442,12 @@ function ManualBookingModal({ eventId, event, onClose, onCreated }) {
                 onChange={(e) => setQuantity(Math.max(1, Number(e.target.value) || 1))}
                 data-testid="manual-quantity"
               />
+              {projectedFaceValue != null && (
+                <div className="text-xs mt-1.5" style={{ color: "var(--text-muted)" }}>
+                  Face value: <b style={{ color: "var(--text)" }}>{currency} ${projectedFaceValue.toFixed(2)}</b>
+                  {" — leave 'amount taken' blank to charge this, or override below for comps / discounts."}
+                </div>
+              )}
             </div>
           </div>
         )}
