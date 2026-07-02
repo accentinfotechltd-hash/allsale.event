@@ -2,7 +2,7 @@ import { useEffect, useState, Fragment } from "react";
 import { Link } from "react-router-dom";
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet, ScanLine, Pencil, Trash2, Package, Sparkles, Flame, Users } from "lucide-react";
+import { Plus, TrendingUp, Ticket, Calendar, Tag, Wallet, ScanLine, Pencil, Trash2, Package, Sparkles, Flame, Users, Banknote } from "lucide-react";
 import { toast } from "sonner";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { formatMoney } from "@/lib/currencies";
@@ -259,6 +259,15 @@ export default function Organizer() {
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>
+                      <Link
+                        to={`/organizer/events/${e.event_id}#manual-booking`}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium border"
+                        style={{ borderColor: "var(--accent)", color: "var(--accent)" }}
+                        data-testid={`sell-in-person-${e.event_id}`}
+                        title="Sell tickets in person — cash or card at the door"
+                      >
+                        <Banknote className="w-3.5 h-3.5" /> Sell cash/card
+                      </Link>
                       <Link
                         to={`/organizer/events/${e.event_id}/checkin`}
                         className="inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium"

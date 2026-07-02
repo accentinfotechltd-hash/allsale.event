@@ -32,12 +32,28 @@ export default function ManualBookingPanel({ eventId, event }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // When someone lands with #manual-booking (e.g. from the "Sell cash/card"
+  // shortcut on the organizer dashboard), scroll the panel into view + flash
+  // its border so the box-office feature is impossible to miss.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.location.hash !== "#manual-booking") return;
+    const el = document.getElementById("manual-booking");
+    if (!el) return;
+    const t = setTimeout(() => {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.classList.add("ring-2", "ring-offset-2");
+      setTimeout(() => el.classList.remove("ring-2", "ring-offset-2"), 2500);
+    }, 200);
+    return () => clearTimeout(t);
+  }, []);
+
   const holds = items.filter((b) => b.status === "manual_hold");
   const paidCount = summary.paid || 0;
   const holdCount = summary.manual_hold || 0;
 
   return (
-    <div className="mb-8" data-testid="manual-booking-panel">
+    <div id="manual-booking" className="mb-8" data-testid="manual-booking-panel">
       <div className="border rounded-2xl p-5" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}>
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>

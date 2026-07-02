@@ -3,10 +3,11 @@ import { Link } from "react-router-dom";
 import api, { formatApiErrorDetail } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
-import { Plus, Trash2, Tag, Copy, ArrowLeft } from "lucide-react";
+import { Plus, Trash2, Tag, Copy, ArrowLeft, Banknote } from "lucide-react";
 
 export default function DiscountCodes() {
   const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [codes, setCodes] = useState([]);
   const [events, setEvents] = useState([]);
   const [showForm, setShowForm] = useState(false);
@@ -15,15 +16,32 @@ export default function DiscountCodes() {
 
   const load = async () => {
     try {
-      const [c, e] = await Promise.all([api.get("/organizer/discount-codes"), api.get("/organizer/events")]);
+      // Admins own no organizer events themselves, so /organizer/events returns
+      // an empty list and the picker below has nothing to select — leading to
+      // the "created a code but it doesn't work" bug users kept hitting.
+      // For admins we fetch every approved/published event via /admin/events
+      // so they can scope a code to any organizer's event.
+      const eventsRequest = isAdmin
+        ? api.get("/admin/events?status=all&limit=1000")
+        : api.get("/organizer/events");
+      const [c, e] = await Promise.all([api.get("/organizer/discount-codes"), eventsRequest]);
       setCodes(c.data);
-      setEvents(e.data);
+      // /admin/events returns {items, total, ...}; /organizer/events returns a bare list.
+      setEvents(isAdmin ? (e.data?.items || e.data || []) : e.data);
     } catch { /* noop */ }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [isAdmin]);
 
   const create = async (e) => {
     e.preventDefault();
+    // Admin-created codes MUST be scoped to a specific event — the buyer-side
+    // validator resolves codes via the event's organizer_id, so an unscoped
+    // admin code has no organizer to hang off and would be invisible at
+    // checkout. Reject at the form level so the user gets a clear message.
+    if (isAdmin && !form.event_id) {
+      toast.error("Pick an event to attach this code to (admin-created codes must be event-scoped).");
+      return;
+    }
     setSubmitting(true);
     try {
       const payload = {
@@ -79,6 +97,25 @@ export default function DiscountCodes() {
         </button>
       </div>
 
+      <div
+        className="mb-8 border rounded-2xl p-4 flex items-start gap-3"
+        style={{ borderColor: "var(--border)", background: "var(--bg-card)" }}
+        data-testid="cash-sale-pointer"
+      >
+        <div
+          className="shrink-0 mt-0.5 w-9 h-9 rounded-full flex items-center justify-center"
+          style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+        >
+          <Banknote className="w-4 h-4" />
+        </div>
+        <div className="flex-1 text-sm" style={{ color: "var(--text-muted)" }}>
+          <b style={{ color: "var(--text)" }}>Selling in person?</b> Cash and card (POS) sales are handled per-event.
+          Open any event and use the <b style={{ color: "var(--text)" }}>Box Office · Manual bookings</b> panel to book buyers directly, skip Stripe, and email their ticket instantly.
+          {" "}
+          <Link to="/organizer" className="underline" style={{ color: "var(--accent)" }}>Go to your events →</Link>
+        </div>
+      </div>
+
       {showForm && (
         <form onSubmit={create} className="border rounded-2xl p-6 mb-8 space-y-4" style={{ borderColor: "var(--border)", background: "var(--bg-card)" }} data-testid="new-code-form">
           <div className="grid md:grid-cols-2 gap-4">
@@ -102,11 +139,27 @@ export default function DiscountCodes() {
               <input type="number" min="1" value={form.max_uses} onChange={(e) => setForm({ ...form, max_uses: e.target.value })} placeholder="Unlimited" data-testid="max-uses-input" />
             </div>
             <div className="md:col-span-2">
-              <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>Apply to</label>
-              <select value={form.event_id} onChange={(e) => setForm({ ...form, event_id: e.target.value })} data-testid="event-scope-select">
-                <option value="">All my events</option>
+              <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>
+                Apply to {isAdmin && <span style={{ color: "var(--danger)" }}>*</span>}
+              </label>
+              <select
+                value={form.event_id}
+                onChange={(e) => setForm({ ...form, event_id: e.target.value })}
+                required={isAdmin}
+                data-testid="event-scope-select"
+              >
+                {isAdmin ? (
+                  <option value="">— Select an event —</option>
+                ) : (
+                  <option value="">All my events</option>
+                )}
                 {events.map((e) => <option key={e.event_id} value={e.event_id}>{e.title}</option>)}
               </select>
+              {isAdmin && (
+                <div className="text-xs mt-1.5" style={{ color: "var(--text-dim)" }}>
+                  Admin-created codes must be scoped to a specific event so they show up on that event&apos;s checkout.
+                </div>
+              )}
             </div>
             <div className="md:col-span-2">
               <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>Expires at (optional)</label>
