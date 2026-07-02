@@ -1113,6 +1113,103 @@ async def _send_protection_claim_sla_digest(db) -> int:
     return sent
 
 
+async def _send_advance_payout_admin_digest(db) -> int:
+    """Daily digest to admin(s) listing events opted-in to advance-payout
+    whose 1-week-out date falls within the next 24 h. Admin then processes
+    the 50%-of-collected transfer via existing payout tools.
+
+    - Runs 09:00–10:00 UTC (same window as the SLA digest — one admin sweep).
+    - Dedupes per event via `advance_payout_notified_at` on the event doc.
+    - Amount = 50% of face_value sold so far (paid + confirmed bookings).
+      Never invents cash — if $0 collected yet, we still notify so admin
+      knows to check in with the organizer.
+
+    The scheduler doesn't move money — admin remains the final approver.
+    """
+    now = datetime.now(timezone.utc)
+    if now.hour < 9 or now.hour >= 10:
+        return 0
+
+    # Look ahead 6–8 days so a slightly-late tick still catches the event.
+    lower = (now + timedelta(days=6)).isoformat()
+    upper = (now + timedelta(days=8)).isoformat()
+
+    cur = db.events.find(
+        {
+            "advance_payout_enabled": True,
+            "status": {"$in": ["approved", "published"]},
+            "date": {"$gte": lower, "$lte": upper},
+            "advance_payout_notified_at": {"$in": [None, ""]},
+        },
+        {
+            "_id": 0, "event_id": 1, "title": 1, "date": 1, "currency": 1,
+            "organizer_id": 1, "organizer_name": 1,
+        },
+    ).sort("date", 1).limit(50)
+    due_events = [doc async for doc in cur]
+    if not due_events:
+        return 0
+
+    # Enrich each row with collected revenue so far so admin has one glance
+    # to see the payable amount without hunting through the bookings tab.
+    rows = []
+    for e in due_events:
+        try:
+            agg = await db.bookings.aggregate([
+                {"$match": {"event_id": e["event_id"], "status": {"$in": ["paid", "confirmed"]}}},
+                {"$group": {"_id": None, "total_face_value": {"$sum": "$face_value"}, "count": {"$sum": 1}}},
+            ]).to_list(1)
+            face_total = float(agg[0]["total_face_value"]) if agg else 0.0
+            bookings_count = int(agg[0]["count"]) if agg else 0
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[advance-payout] agg failed for %s: %s", e.get("event_id"), exc)
+            face_total, bookings_count = 0.0, 0
+
+        # Fetch organizer email + bank details hint for the digest row.
+        org = await db.users.find_one(
+            {"user_id": e.get("organizer_id")},
+            {"_id": 0, "email": 1, "name": 1, "stripe_payouts_enabled": 1},
+        ) or {}
+
+        rows.append({
+            "event_id": e.get("event_id") or "",
+            "event_title": e.get("title") or "(untitled)",
+            "event_date_iso": e.get("date") or "",
+            "currency": e.get("currency") or "NZD",
+            "organizer_name": e.get("organizer_name") or org.get("name") or "(unknown organizer)",
+            "organizer_email": org.get("email") or "",
+            "stripe_connected": bool(org.get("stripe_payouts_enabled")),
+            "collected_amount": round(face_total, 2),
+            "advance_amount": round(face_total / 2.0, 2),
+            "bookings_count": bookings_count,
+        })
+
+    admin_emails = [u["email"] async for u in db.users.find(
+        {"role": "admin", "email": {"$exists": True, "$ne": None}}, {"_id": 0, "email": 1}
+    )]
+    sent = 0
+    for admin_email in admin_emails:
+        try:
+            send_template_fireforget(
+                "admin_advance_payout_due_digest",
+                admin_email,
+                {"events": rows, "count": len(rows)},
+                db,
+            )
+            sent += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[advance-payout] email to %s failed: %s", admin_email, str(exc)[:200])
+
+    # Stamp every notified event so tomorrow's tick doesn't re-send.
+    stamp = now.isoformat()
+    await db.events.update_many(
+        {"event_id": {"$in": [r["event_id"] for r in rows]}},
+        {"$set": {"advance_payout_notified_at": stamp}},
+    )
+    logger.info("[advance-payout] emailed %d admins about %d due events", sent, len(rows))
+    return sent
+
+
 async def fast_loop(db: Any, interval_seconds: int = 60) -> None:
     """High-cadence loop for tasks that need minute-level precision.
 
@@ -1151,13 +1248,14 @@ async def scheduler_loop(db: Any, interval_seconds: int = 3600) -> None:
             n_statements = await _send_monthly_partner_statements(db)
             n_stale_apps = await _send_stale_partner_application_reminder(db)
             n_protection_sla = await _send_protection_claim_sla_digest(db)
+            n_advance_payouts = await _send_advance_payout_admin_digest(db)
             payout_batch = await _run_monthly_partner_payouts(db)
             webhook_alert = await _check_webhook_silent_failure(db)
             payout_summary = await run_due_event_payouts(db)
-            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or n_boost or n_recap or n_statements or n_stale_apps or n_protection_sla or payout_batch or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
+            if n_reminders or n_nps or n_digest or n_nudge or n_fdigest or n_welcome or n_boost or n_recap or n_statements or n_stale_apps or n_protection_sla or n_advance_payouts or payout_batch or webhook_alert or payout_summary.get("paid") or payout_summary.get("failed"):
                 logger.info(
-                    "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s boost_recaps=%s event_recaps=%s monthly_statements=%s partner_payout_batch=%s webhook_alert=%s protection_sla=%s payouts=%s",
-                    n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, n_boost, n_recap, n_statements, payout_batch, webhook_alert, n_protection_sla, payout_summary,
+                    "[scheduler] reminders=%s nps=%s digest=%s nudges=%s fdigest=%s welcome=%s boost_recaps=%s event_recaps=%s monthly_statements=%s partner_payout_batch=%s webhook_alert=%s protection_sla=%s advance_payouts=%s payouts=%s",
+                    n_reminders, n_nps, n_digest, n_nudge, n_fdigest, n_welcome, n_boost, n_recap, n_statements, payout_batch, webhook_alert, n_protection_sla, n_advance_payouts, payout_summary,
                 )
         except Exception as exc:  # pragma: no cover
             logger.exception("[scheduler] tick failed: %s", exc)

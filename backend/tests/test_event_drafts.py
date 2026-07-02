@@ -82,16 +82,19 @@ async def test_paid_draft_skips_stripe_gate():
         await _cleanup(result["event_id"])
 
 
-async def test_paid_event_without_draft_still_gates():
-    """Sanity: the pre-existing Stripe gate still fires on a non-draft paid event."""
+async def test_paid_event_publish_without_stripe_now_succeeds():
+    """Feb 2026 policy: Stripe Connect is OPTIONAL. A paid event should
+    publish even when the organizer hasn't connected Stripe — a soft nudge
+    email fires instead of a hard 402 gate.
+    """
     user = await _organizer_no_stripe()
     payload = _payload(is_draft=False, tiers=[{"name": "VIP", "price": 200, "capacity": 50}])
+    result = await events_router.create_event(payload, _FakeRequest(), user)
     try:
-        await events_router.create_event(payload, _FakeRequest(), user)
-        assert False, "should have raised 402"
-    except HTTPException as e:
-        assert e.status_code == 402
-        assert e.detail.get("code") == "stripe_payouts_required"
+        assert result["status"] == "pending"  # non-admin lands in moderation queue
+        assert result["organizer_id"] == user["user_id"]
+    finally:
+        await _cleanup(result["event_id"])
 
 
 async def test_free_draft_publishes_cleanly():
@@ -114,8 +117,10 @@ async def test_free_draft_publishes_cleanly():
         await _cleanup(draft["event_id"])
 
 
-async def test_paid_draft_publish_gated_by_stripe():
-    """Draft → publish on a PAID event without Stripe should still 402."""
+async def test_paid_draft_publish_no_longer_gated_by_stripe():
+    """Feb 2026 policy: Stripe is OPTIONAL. Publishing a paid draft without
+    Stripe MUST succeed (no more 402) — a soft nudge email fires instead.
+    """
     user = await _organizer_no_stripe()
     draft = await events_router.create_event(
         _payload(is_draft=True, tiers=[{"name": "VIP", "price": 200, "capacity": 50}]),
@@ -123,15 +128,8 @@ async def test_paid_draft_publish_gated_by_stripe():
         user,
     )
     try:
-        try:
-            await events_router.update_event(draft["event_id"], {"is_draft": False}, user)
-            assert False, "should have raised 402"
-        except HTTPException as e:
-            assert e.status_code == 402
-            assert e.detail.get("code") == "stripe_payouts_required"
-        # Event should STILL be a draft after the failed transition.
-        after = await db.events.find_one({"event_id": draft["event_id"]}, {"_id": 0})
-        assert after["status"] == "draft"
+        result = await events_router.update_event(draft["event_id"], {"is_draft": False}, user)
+        assert result["status"] == "pending"
     finally:
         await _cleanup(draft["event_id"])
 

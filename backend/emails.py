@@ -634,6 +634,7 @@ TEMPLATES: Dict[str, Callable[[Dict[str, Any]], tuple[str, str, str]]] = {
     "partner_application_approved": lambda ctx: _t_partner_application_approved(ctx),
     "partner_applications_stale_digest": lambda ctx: _t_partner_applications_stale_digest(ctx),
     "protection_claims_sla_digest": lambda ctx: _t_protection_claims_sla_digest(ctx),
+    "admin_advance_payout_due_digest": lambda ctx: _t_admin_advance_payout_due_digest(ctx),
     "protection_claim_denied": lambda ctx: _t_protection_claim_denied(ctx),
 }
 
@@ -768,7 +769,7 @@ def _t_protection_claim_denied(ctx: Dict[str, Any]) -> tuple[str, str, str]:
     <p style="color:{TEXT_MUTED};border-left:3px solid {BRAND_COLOR};padding-left:12px;">{reason_text}</p>
     <p style="color:{TEXT_MUTED};">If you believe this decision is in error or would like to provide additional information, please reply to this email and a member of our support team will personally review it.</p>
     """
-    subject = f"Your Ticket Protection claim — update"
+    subject = "Your Ticket Protection claim — update"
     html = _layout(subject, "Ticket Protection claim update", body, "View your bookings", APP_PUBLIC_URL + "/me/bookings")
     text = _text_fallback([
         f"Hi {ctx.get('user_name') or 'there'},",
@@ -831,6 +832,97 @@ def _t_protection_claims_sla_digest(ctx: Dict[str, Any]) -> tuple[str, str, str]
         )
     text_lines.append("")
     text_lines.append(f"Review: {APP_PUBLIC_URL}/admin?tab=ticket-protection")
+    text = _text_fallback(text_lines)
+    return subject, html, text
+
+
+def _t_admin_advance_payout_due_digest(ctx: Dict[str, Any]) -> tuple[str, str, str]:
+    """Daily admin digest listing events opted-in to advance-payout whose
+    trigger date (event date - 7 days) falls in the next 24 h.
+
+    ctx fields:
+      - events (list of dicts):
+          event_id, event_title, event_date_iso, currency,
+          organizer_name, organizer_email, stripe_connected (bool),
+          collected_amount (float), advance_amount (float),
+          bookings_count (int)
+      - count (int)
+    """
+    rows = ctx.get("events") or []
+    count = ctx.get("count") or len(rows)
+    row_chunks = []
+    for r in rows:
+        title = _h(r.get('event_title') or '(untitled)')
+        org_name = _h(r.get('organizer_name') or '(unknown organizer)')
+        org_email_raw = r.get('organizer_email') or ""
+        if org_email_raw:
+            e_esc = _h(org_email_raw)
+            org_line = (
+                f'{org_name} &middot; '
+                f'<a href="mailto:{e_esc}" style="color:{TEXT_MUTED};">{e_esc}</a>'
+            )
+        else:
+            org_line = org_name
+        stripe_line = (
+            "Stripe connected" if r.get('stripe_connected')
+            else f'<b style="color:{BRAND_COLOR};">Manual bank transfer needed</b>'
+        )
+        event_date = _h((r.get('event_date_iso') or '')[:10])
+        currency = _h(r.get('currency','NZD'))
+        advance = float(r.get('advance_amount') or 0)
+        collected = float(r.get('collected_amount') or 0)
+        bookings = int(r.get('bookings_count') or 0)
+        booking_word = "bookings" if bookings != 1 else "booking"
+        row_chunks.append(
+            f'<tr>'
+            f'<td style="padding:12px 14px;border-bottom:1px solid {BORDER};color:{TEXT};vertical-align:top;">'
+            f'<b>{title}</b>'
+            f'<br/><span style="color:{TEXT_MUTED};font-size:13px;">{org_line}</span>'
+            f'<br/><span style="color:{TEXT_MUTED};font-size:12px;">'
+            f'Event on {event_date} &middot; {stripe_line}'
+            f'</span>'
+            f'</td>'
+            f'<td style="padding:12px 14px;border-bottom:1px solid {BORDER};color:{BRAND_COLOR};text-align:right;white-space:nowrap;vertical-align:top;">'
+            f'<b>{currency} {advance:.2f}</b>'
+            f'<br/><span style="color:{TEXT_MUTED};font-size:12px;font-weight:normal;">'
+            f'50% of {currency} {collected:.2f} collected'
+            f'<br/>({bookings} {booking_word})'
+            f'</span>'
+            f'</td>'
+            f'</tr>'
+        )
+    rows_html = "".join(row_chunks)
+    body = f"""
+    <p style="color:{TEXT};">Hey admin,</p>
+    <p style="color:{TEXT_MUTED};">
+      <b style="color:{TEXT};">{count} event{'s' if count != 1 else ''}</b> opted in to advance payout
+      hit the 1-week-out mark today. Time to release 50% of their collected ticket sales.
+    </p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:14px 0;border:1px solid {BORDER};border-radius:10px;overflow:hidden;">
+      {rows_html}
+    </table>
+    <p style="color:{TEXT_MUTED};font-size:13px;">
+      Amounts shown are 50% of face-value collected so far (paid + confirmed bookings).
+      The remaining 50% pays out normally after the event. Process each transfer via
+      the organizer&apos;s payout tools in Admin.
+    </p>
+    """
+    subject = f"{count} advance payout{'s' if count != 1 else ''} due — 1 week out"
+    html = _layout(subject, "Advance payouts due", body, "Open payouts", APP_PUBLIC_URL + "/admin?tab=payouts")
+    text_lines = [
+        f"{count} advance payout{'s' if count != 1 else ''} due (1 week before event date):",
+        "",
+    ]
+    for r in rows:
+        text_lines.append(
+            f"  • {r.get('event_title','(untitled)')} — {r.get('organizer_name','(unknown)')} "
+            f"— Event {(r.get('event_date_iso') or '')[:10]} — "
+            f"{r.get('currency','NZD')} {float(r.get('advance_amount') or 0):.2f} "
+            f"(50% of {float(r.get('collected_amount') or 0):.2f}) — "
+            f"{'Stripe connected' if r.get('stripe_connected') else 'MANUAL TRANSFER'}"
+        )
+    text_lines.append("")
+    text_lines.append(f"Process at: {APP_PUBLIC_URL}/admin?tab=payouts")
     text = _text_fallback(text_lines)
     return subject, html, text
 

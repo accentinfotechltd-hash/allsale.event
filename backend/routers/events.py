@@ -499,27 +499,22 @@ async def create_event(payload: EventIn, request: Request, user: dict = Depends(
     # the checks via the PATCH endpoint.
     is_draft = bool(payload.is_draft)
 
-    # Stripe Connect gate: organizers MUST have a working payout account
-    # before they can publish a PAID event. Free events skip this check.
-    # Admins are trusted (they can create on behalf of an organizer who is
-    # still onboarding — that organizer will get their own payout reminder
-    # via the "admin_created_event_for_you" flow downstream).
-    if not is_draft and user.get("role") != "admin" and _event_is_paid(payload.tiers):
-        if not bool(user.get("stripe_payouts_enabled")):
-            origin = request.headers.get("origin") or "https://www.allsale.events"
+    # Stripe Connect: OPTIONAL. Manual bank transfers are the platform default;
+    # Stripe Connect is a nice-to-have that gives organizers automatic payouts.
+    # If the caller is publishing a paid event without Stripe connected, we
+    # still let it through — but fire a friendly "set it up later" reminder
+    # so the payout options are top-of-mind on their next login.
+    if (
+        not is_draft
+        and user.get("role") != "admin"
+        and _event_is_paid(payload.tiers)
+        and not bool(user.get("stripe_payouts_enabled"))
+    ):
+        origin = request.headers.get("origin") or "https://www.allsale.events"
+        try:
             await _send_stripe_required_reminder(user, payload.title, origin)
-            raise HTTPException(
-                status_code=402,
-                detail={
-                    "code": "stripe_payouts_required",
-                    "message": (
-                        "Connect your bank account on Stripe before publishing a "
-                        "paid event — payouts can't reach you otherwise. We've "
-                        "emailed you a 1-click onboarding link."
-                    ),
-                    "onboarding_path": "/organizer",
-                },
-            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[events] stripe nudge email failed: %s", exc)
 
     # Admin-only: create on behalf of another organizer. The event gets
     # attributed to that organizer (organizer_id + organizer_name) and lands
@@ -581,6 +576,7 @@ async def create_event(payload: EventIn, request: Request, user: dict = Depends(
         "affiliate_program_open": bool(payload.affiliate_program_open),
         "affiliate_default_commission_pct": float(payload.affiliate_default_commission_pct),
         "group_discount": payload.group_discount or None,
+        "advance_payout_enabled": bool(payload.advance_payout_enabled),
         "status": "draft" if is_draft else ("approved" if user.get("role") == "admin" else "pending"),
         "featured": False,
         "created_at": utc_now().isoformat(),
@@ -667,7 +663,7 @@ async def update_event(event_id: str, payload: dict, user: dict = Depends(get_cu
         "seatmap_backdrop_offset_x", "seatmap_backdrop_scale",
         "currency", "refund_policy", "auto_promo_disabled",
         "affiliate_program_open", "affiliate_default_commission_pct",
-        "group_discount",
+        "group_discount", "advance_payout_enabled",
     }
     update = {k: v for k, v in (payload or {}).items() if k in EDITABLE}
 
@@ -686,10 +682,10 @@ async def update_event(event_id: str, payload: dict, user: dict = Depends(get_cu
     if not update:
         raise HTTPException(status_code=400, detail="No editable fields provided")
 
-    # Stripe Connect gate. Fires when:
-    #   (a) A PATCH raises an event from free → paid tiers, OR
-    #   (b) The event is transitioning draft → published and the effective
-    #       tiers (either the incoming update or the existing doc) are paid.
+    # Stripe Connect: OPTIONAL nudge, not a gate. When a PATCH raises an
+    # event free → paid OR publishes a paid draft, fire a soft reminder
+    # email if the organizer hasn't connected Stripe yet. Never blocks the
+    # save — manual bank transfers remain the platform default.
     effective_tiers = update.get("tiers", event.get("tiers", []))
     tiers_going_paid = "tiers" in update and _event_is_paid(update["tiers"])
     draft_publish_paid = publishing_a_draft and _event_is_paid(effective_tiers)
@@ -698,23 +694,12 @@ async def update_event(event_id: str, payload: dict, user: dict = Depends(get_cu
         and user.get("role") != "admin"
         and not bool(user.get("stripe_payouts_enabled"))
     ):
-        # We don't have the Request object here; use the platform default for
-        # the onboarding link domain — good enough for the reminder email.
         cms = await db.platform_settings.find_one({"key": "cms"}, {"_id": 0}) or {}
         origin = (cms.get("public_origin") or "https://www.allsale.events").rstrip("/")
-        await _send_stripe_required_reminder(user, event.get("title", ""), origin)
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "code": "stripe_payouts_required",
-                "message": (
-                    "Connect your bank account on Stripe before publishing a "
-                    "paid event — payouts can't reach you otherwise. "
-                    "We've emailed you a 1-click onboarding link."
-                ),
-                "onboarding_path": "/organizer",
-            },
-        )
+        try:
+            await _send_stripe_required_reminder(user, event.get("title", ""), origin)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[events] stripe nudge email failed: %s", exc)
 
     update["updated_at"] = utc_now().isoformat()
     update["updated_by"] = user["user_id"]

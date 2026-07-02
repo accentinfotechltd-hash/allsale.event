@@ -109,6 +109,13 @@ class EventIn(BaseModel):
     # This is purely a per-event preference; admin-level fee % stays
     # the source of truth for the actual numbers.
     absorb_fees: bool = False
+    # Advance payout: when True, the organizer opts in to receiving 50% of
+    # their collected ticket sales ONE WEEK before the event date. The
+    # scheduler emails admin a "due this week" digest with the amount and
+    # organizer bank details; admin processes the transfer via existing
+    # payout tools. The remaining 50% pays out normally after the event.
+    # Default: False = organizer receives 100% after the event.
+    advance_payout_enabled: bool = False
     # Set True to save the event as a private draft (owner + admin only,
     # never appears on public listings). Drafts skip the Stripe Connect
     # payout gate and the admin moderation queue email — the checks fire

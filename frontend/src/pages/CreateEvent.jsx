@@ -191,6 +191,7 @@ export default function CreateEvent() {
           group_discount_min_qty: data?.group_discount?.min_qty || 0,
           group_discount_pct_off: data?.group_discount?.pct_off || 0,
           absorb_fees: !!data.absorb_fees,
+          advance_payout_enabled: !!data.advance_payout_enabled,
         });
         if (Array.isArray(data.tiers) && data.tiers.length) setTiers(data.tiers);
         setEventStatus(data.status || null);
@@ -454,38 +455,36 @@ export default function CreateEvent() {
       <form onSubmit={onSubmit} className="space-y-6" data-testid="create-event-form">
         {needsStripeForPaidEvent && (
           <div
-            className="border-2 rounded-2xl p-5 flex items-start gap-4"
-            style={{ borderColor: "#E84B3C", background: "#FFF4F2" }}
-            data-testid="stripe-required-banner"
+            className="border rounded-2xl p-4 flex items-start gap-3"
+            style={{ borderColor: "rgba(217,119,6,0.35)", background: "rgba(217,119,6,0.06)" }}
+            data-testid="stripe-optional-banner"
           >
             <div
-              className="shrink-0 mt-0.5 w-9 h-9 rounded-full flex items-center justify-center"
-              style={{ background: "#E84B3C", color: "white", fontWeight: 700 }}
+              className="shrink-0 mt-0.5 w-8 h-8 rounded-full flex items-center justify-center text-sm"
+              style={{ background: "rgba(217,119,6,0.15)", color: "#B45309" }}
               aria-hidden
             >
-              !
+              ★
             </div>
             <div className="flex-1 min-w-0">
-              <div className="font-semibold text-base" style={{ color: "#7A1410" }}>
-                Connect your bank to publish a paid event
+              <div className="font-semibold text-sm" style={{ color: "#7C2D12" }}>
+                Stripe payouts are optional — set them up later if you like
               </div>
-              <p className="text-sm mt-1" style={{ color: "#7A1410" }}>
-                You&apos;ve set at least one paid ticket — Stripe is how we send you the
-                ticket revenue. Add your bank + ID once (about 3 minutes) and your
-                event publishes the moment you save.
+              <p className="text-sm mt-1" style={{ color: "#78350F" }}>
+                You can publish your paid event right now. Ticket revenue will be
+                paid to you by manual bank transfer after the event (default).
+                Connect Stripe any time from your organizer dashboard to enable
+                automatic + faster payouts.
               </p>
               <button
                 type="button"
                 onClick={onConnectStripe}
-                className="mt-3 px-4 py-2 rounded-full text-sm font-semibold transition"
-                style={{ background: "#E84B3C", color: "white" }}
-                data-testid="stripe-required-connect-btn"
+                className="mt-2 px-3 py-1.5 rounded-full text-xs font-semibold transition"
+                style={{ background: "rgba(217,119,6,0.15)", color: "#7C2D12" }}
+                data-testid="stripe-optional-connect-btn"
               >
-                Connect Stripe now →
+                Set up Stripe now (optional) →
               </button>
-              <p className="text-xs mt-2" style={{ color: "#A53428" }}>
-                Tip: free events (all prices set to 0) don&apos;t need Stripe — skip this banner.
-              </p>
             </div>
           </div>
         )}
@@ -1003,6 +1002,42 @@ export default function CreateEvent() {
           <div className="text-xs mt-2" style={{ color: "var(--text-dim)" }}>
             Buyers automatically get the discount when their cart hits the threshold. Set both to 0 to disable.
           </div>
+        </div>
+
+        <div data-testid="payout-options-section">
+          <label className="text-xs uppercase tracking-widest mb-2 block" style={{ color: "var(--text-dim)" }}>
+            Payout options <span className="opacity-60">(optional)</span>
+          </label>
+          <label
+            className="flex items-start gap-3 p-4 border rounded-2xl cursor-pointer transition"
+            style={{
+              borderColor: form.advance_payout_enabled ? "var(--accent)" : "var(--border)",
+              background: form.advance_payout_enabled ? "var(--accent-soft)" : "var(--bg-card)",
+            }}
+            data-testid="advance-payout-option"
+          >
+            <input
+              type="checkbox"
+              checked={!!form.advance_payout_enabled}
+              onChange={(e) => update("advance_payout_enabled", e.target.checked)}
+              className="mt-1"
+              data-testid="advance-payout-checkbox"
+            />
+            <div className="flex-1">
+              <div className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                Release 50% of ticket sales one week before the event
+              </div>
+              <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                Get cashflow when you need it most — pay suppliers, artists, or your
+                venue deposit ahead of showtime. The remaining 50% pays out normally
+                after the event.
+              </div>
+              <div className="text-[11px] mt-1.5" style={{ color: "var(--text-dim)" }}>
+                Our team processes the advance transfer 7 days before your event date.
+                Works with both Stripe Connect and manual bank transfer.
+              </div>
+            </div>
+          </label>
         </div>
 
         <div className="pt-4 border-t" style={{ borderColor: "var(--border)" }}>
