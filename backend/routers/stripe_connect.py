@@ -55,6 +55,21 @@ def _ensure_stripe() -> None:
             status_code=503,
             detail="Stripe Connect is not configured — set STRIPE_API_KEY first.",
         )
+    # Feb 2026: the pod ships with STRIPE_API_KEY=sk_test_emergent which is a
+    # PROXY key handled by Emergent's checkout wrapper. Stripe Connect (Express
+    # onboarding + AccountLinks + transfers) hits api.stripe.com DIRECTLY and
+    # will 401 on the placeholder key. Fail fast with a helpful message
+    # instead of surfacing a cryptic Stripe SDK error to the organizer.
+    if STRIPE_API_KEY.strip().lower() in {"sk_test_emergent", "sk_test_placeholder", ""}:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Stripe Connect can't run on the shared Emergent test key. "
+                "Add your real Stripe test secret (sk_test_51…) to backend/.env "
+                "as STRIPE_API_KEY, then restart the backend. Grab yours from "
+                "https://dashboard.stripe.com/test/apikeys → 'Reveal test key token'."
+            ),
+        )
     _stripe_sdk.api_key = STRIPE_API_KEY
 
 

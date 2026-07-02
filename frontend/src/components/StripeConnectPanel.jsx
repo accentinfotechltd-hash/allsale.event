@@ -58,7 +58,17 @@ export default function StripeConnectPanel() {
       if (data?.url) window.location.href = data.url;
       else toast.error("Couldn't start onboarding — try again");
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Couldn't start onboarding");
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail;
+      // 503 = server-side Stripe key not configured (see stripe_connect.py::_ensure_stripe).
+      // Surface a longer-lived toast so the operator can copy the fix instructions.
+      if (status === 503) {
+        toast.error(detail || "Stripe Connect isn't configured on the backend.", {
+          duration: 15000,
+        });
+      } else {
+        toast.error(detail || "Couldn't start onboarding");
+      }
     } finally {
       setWorking(false);
     }
