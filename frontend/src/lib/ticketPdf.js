@@ -15,6 +15,38 @@ import { jsPDF } from "jspdf";
 
 const A5_LANDSCAPE_MM = { w: 210, h: 148 };
 
+// Tiny in-tab cache — the client re-generates the PDF each download but a
+// buyer downloading two tickets for the same event shouldn't refetch the flyer.
+const _imgCache = new Map(); // url -> {dataUrl, format}
+
+async function _loadImageDataUrl(url) {
+  if (!url || typeof url !== "string") return null;
+  if (_imgCache.has(url)) return _imgCache.get(url);
+  try {
+    // Fetch → blob → base64 data URL, so jsPDF can embed it inline.
+    // CORS: server-side / CDN assets need to send Access-Control-Allow-Origin
+    // for this to succeed. If it fails we silently fall back (already handled
+    // by the catch below).
+    const resp = await fetch(url, { mode: "cors" });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const blob = await resp.blob();
+    const format = /png/i.test(blob.type) ? "PNG" : /jpe?g/i.test(blob.type) ? "JPEG" : null;
+    if (!format) return null;
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(blob);
+    });
+    const entry = { dataUrl, format };
+    _imgCache.set(url, entry);
+    return entry;
+  } catch {
+    _imgCache.set(url, null);
+    return null;
+  }
+}
+
 function safeText(v, fallback = "—") {
   if (v === null || v === undefined) return fallback;
   return String(v);
@@ -60,7 +92,7 @@ function fmtTime(iso) {
  * @param {number} [booking.amount]
  * @param {string} [booking.currency]
  */
-export function downloadTicketPdf(booking) {
+export async function downloadTicketPdf(booking) {
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a5" });
   const { w, h } = A5_LANDSCAPE_MM;
   const margin = 10;
@@ -69,12 +101,36 @@ export function downloadTicketPdf(booking) {
   doc.setFillColor(255, 107, 53);
   doc.rect(0, 0, w, 4, "F");
 
-  // QR code — TOP LEFT, ~55mm square so it scans cleanly even after a phone
-  // photo. We assume `qr_code` is a base64 PNG data URL. Fall back to a
-  // labelled empty box if it's missing (avoids a crash on legacy bookings).
-  const qrSize = 55;
+  // Load the Allsale wordmark + optional event flyer in parallel BEFORE any
+  // layout that depends on them. Both are best-effort — a bad URL / CORS
+  // block / offline mode all fall back silently and the ticket still prints.
+  const publicLogoUrl = `${window.location.origin}/allsale-logo.png`;
+  const flyerUrl =
+    booking.event_image || booking.banner_url || booking.image_url || null;
+  const [logo, flyer] = await Promise.all([
+    _loadImageDataUrl(publicLogoUrl),
+    _loadImageDataUrl(flyerUrl),
+  ]);
+
+  // Header row: Allsale wordmark (left) + event flyer thumb (right corner).
+  const headerY = margin;
+  const headerH = 12;
+  if (logo) {
+    try { doc.addImage(logo.dataUrl, logo.format, margin, headerY, 18, headerH); } catch { /* ignore */ }
+  }
+  if (flyer) {
+    try {
+      const flyerSize = 20;
+      doc.addImage(flyer.dataUrl, flyer.format, w - margin - flyerSize, headerY, flyerSize, flyerSize);
+    } catch { /* ignore */ }
+  }
+
+  // QR code — top-left, BELOW the header. ~50mm square so it still scans
+  // cleanly even after a phone photo. Fall back to a labelled empty box on
+  // legacy bookings without a QR data URL.
+  const qrSize = 50;
   const qrX = margin;
-  const qrY = margin + 4;
+  const qrY = headerY + headerH + 6;
   if (booking.qr_code && booking.qr_code.startsWith("data:image")) {
     try {
       doc.addImage(booking.qr_code, "PNG", qrX, qrY, qrSize, qrSize);
@@ -95,40 +151,36 @@ export function downloadTicketPdf(booking) {
   doc.setTextColor(120);
   doc.text("Scan at the door", qrX + qrSize / 2, qrY + qrSize + 5, { align: "center" });
 
-  // RIGHT SIDE — event details
+  // RIGHT SIDE — event details. Starts BELOW the header row (the logo
+  // now covers the "ALLSALE EVENTS · E-TICKET" caption that used to live here).
   const rightX = qrX + qrSize + 12;
-
-  // "ALLSALE EVENTS" tag
-  doc.setFontSize(8);
-  doc.setTextColor(255, 107, 53);
-  doc.text("ALLSALE EVENTS  ·  E-TICKET", rightX, qrY + 4);
 
   // Title
   doc.setFontSize(20);
   doc.setTextColor(20);
   const titleLines = doc.splitTextToSize(safeText(booking.event_title, "Event"), w - rightX - margin);
-  doc.text(titleLines.slice(0, 2), rightX, qrY + 14);
+  doc.text(titleLines.slice(0, 2), rightX, qrY + 6);
 
   // Date + venue
   doc.setFontSize(10);
   doc.setTextColor(80);
   const datePart = fmtDate(booking.event_date);
   const timePart = fmtTime(booking.event_date);
-  doc.text(`${datePart}${timePart ? "  ·  " + timePart : ""}`, rightX, qrY + 28);
+  doc.text(`${datePart}${timePart ? "  ·  " + timePart : ""}`, rightX, qrY + 22);
 
   doc.setFontSize(10);
   doc.setTextColor(60);
   const venue = [booking.event_venue, booking.event_city].filter(Boolean).join(", ") || "—";
-  doc.text(venue, rightX, qrY + 34);
+  doc.text(venue, rightX, qrY + 28);
 
   // Divider
   doc.setDrawColor(220);
-  doc.line(rightX, qrY + 39, w - margin, qrY + 39);
+  doc.line(rightX, qrY + 36, w - margin, qrY + 36);
 
   // 4-cell info grid: Type / Seats or Qty / Booking ID / Total
   const colW = (w - rightX - margin) / 2;
-  const r1y = qrY + 46;
-  const r2y = qrY + 58;
+  const r1y = qrY + 42;
+  const r2y = qrY + 54;
   const drawCell = (label, value, x, y) => {
     doc.setFontSize(7);
     doc.setTextColor(150);

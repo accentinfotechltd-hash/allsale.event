@@ -191,9 +191,9 @@ export default function Profile() {
             </div>
             <div className="flex gap-2 mt-6">
               <button
-                onClick={() => {
+                onClick={async () => {
                   try {
-                    downloadTicketPdf(active);
+                    await downloadTicketPdf(active);
                     toast.success("Ticket PDF downloaded — print or save it to your phone");
                   } catch (e) {
                     toast.error("Couldn't generate the PDF — try refreshing");

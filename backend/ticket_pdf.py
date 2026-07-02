@@ -17,11 +17,59 @@ import io
 import logging
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+from urllib.request import Request, urlopen
 
 from fpdf import FPDF
 
 logger = logging.getLogger(__name__)
+
+# Static Allsale wordmark shipped with the frontend. Absolute path so this
+# works regardless of the CWD the backend was launched from.
+_ALLSALE_LOGO_PATH = Path("/app/frontend/public/allsale-logo.png")
+
+# Cheap in-memory cache so we don't hammer a CDN every time a batch of
+# tickets emails goes out. Keyed by URL; value is (pdf-safe-bytes, ext).
+_EVENT_IMG_CACHE: dict[str, tuple[Optional[bytes], str]] = {}
+
+
+def _fetch_event_image(url: Optional[str]) -> tuple[Optional[io.BytesIO], str]:
+    """Download the organizer's event image (flyer/banner) for embedding.
+
+    Returns (BytesIO or None, extension). Silently falls back to None on
+    any error — the ticket still renders without the flyer.
+    """
+    if not url or not isinstance(url, str) or not url.lower().startswith(("http://", "https://")):
+        return None, ""
+    if url in _EVENT_IMG_CACHE:
+        cached, ext = _EVENT_IMG_CACHE[url]
+        return (io.BytesIO(cached) if cached else None), ext
+    try:
+        req = Request(url, headers={"User-Agent": "Allsale-Ticket-PDF/1.0"})
+        with urlopen(req, timeout=5) as resp:  # noqa: S310
+            ctype = (resp.headers.get("Content-Type") or "").lower()
+            data = resp.read(2 * 1024 * 1024)  # cap 2 MB — flyers are usually <500 KB
+        if "png" in ctype:
+            ext = "png"
+        elif "jpeg" in ctype or "jpg" in ctype:
+            ext = "jpg"
+        else:
+            # fpdf2 only takes PNG/JPEG. Try to sniff by magic bytes.
+            if data[:8] == b"\x89PNG\r\n\x1a\n":
+                ext = "png"
+            elif data[:3] == b"\xff\xd8\xff":
+                ext = "jpg"
+            else:
+                _EVENT_IMG_CACHE[url] = (None, "")
+                return None, ""
+        _EVENT_IMG_CACHE[url] = (data, ext)
+        return io.BytesIO(data), ext
+    except Exception as exc:  # noqa: BLE001
+        logger.info(f"[ticket_pdf] event image fetch failed for {url[:80]}: {exc}")
+        _EVENT_IMG_CACHE[url] = (None, "")
+        return None, ""
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -125,10 +173,41 @@ def build_ticket_pdf(booking: Dict[str, Any]) -> Tuple[bytes, str]:
     pdf.set_fill_color(255, 107, 53)
     pdf.rect(0, 0, page_w, 4, "F")
 
-    # ---- QR code, anchored top-left ----
-    qr_size = 55
+    # ---- Header row: Allsale logo (left) + event flyer thumb (right) ----
+    header_y = margin
+    header_h = 12
+    if _ALLSALE_LOGO_PATH.exists():
+        try:
+            # Wordmark is 1254×841 → ~1.49 aspect. Draw at height 10 mm,
+            # which keeps width under ~15 mm and never crowds the QR below.
+            pdf.image(str(_ALLSALE_LOGO_PATH), x=margin, y=header_y, h=header_h)
+        except Exception as exc:  # noqa: BLE001
+            logger.info(f"[ticket_pdf] Allsale logo embed failed: {exc}")
+
+    # Event flyer / banner thumb — a small square in the top-right corner
+    # so the buyer visually recognises the ticket at a glance. Pulled from
+    # booking.event_image (falls back to banner_url / image_url).
+    flyer_url = (
+        booking.get("event_image")
+        or booking.get("banner_url")
+        or booking.get("image_url")
+    )
+    flyer_io, flyer_ext = _fetch_event_image(flyer_url)
+    if flyer_io is not None:
+        try:
+            flyer_size = 20
+            flyer_x = page_w - margin - flyer_size
+            flyer_y = header_y
+            # fpdf2 auto-detects PNG/JPEG from the BytesIO but a bad content
+            # type on the CDN can still trip it — swallow silently.
+            pdf.image(flyer_io, x=flyer_x, y=flyer_y, w=flyer_size, h=flyer_size)
+        except Exception as exc:  # noqa: BLE001
+            logger.info(f"[ticket_pdf] flyer image embed failed: {exc}")
+
+    # ---- QR code, anchored below the header on the left ----
+    qr_size = 50
     qr_x = margin
-    qr_y = margin + 4
+    qr_y = header_y + header_h + 6
     qr_io = _qr_bytes(booking.get("qr_code"))
     if qr_io is not None:
         try:
@@ -154,38 +233,36 @@ def build_ticket_pdf(booking: Dict[str, Any]) -> Tuple[bytes, str]:
     right_x = qr_x + qr_size + 12
     right_w = page_w - right_x - margin
 
-    pdf.set_xy(right_x, qr_y + 2)
-    pdf.set_font("Helvetica", "B", 8)
-    pdf.set_text_color(255, 107, 53)
-    pdf.cell(right_w, 4, "ALLSALE EVENTS  |  E-TICKET")
+    # (The "ALLSALE EVENTS | E-TICKET" caption row lived here previously —
+    # dropped in favour of the Allsale wordmark logo now shown in the header.)
 
-    pdf.set_xy(right_x, qr_y + 10)
+    pdf.set_xy(right_x, qr_y + 2)
     pdf.set_font("Helvetica", "B", 20)
     pdf.set_text_color(20, 20, 20)
     # multi_cell wraps long event titles; cap to 2 lines via manual truncation.
     safe_title = title[:120]
     pdf.multi_cell(right_w, 8, safe_title, align="L")
 
-    pdf.set_xy(right_x, qr_y + 28)
+    pdf.set_xy(right_x, qr_y + 22)
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(80, 80, 80)
     date_str = _fmt_date(event_date)
     time_str = _fmt_time(event_date)
     pdf.cell(right_w, 5, f"{date_str}{'  |  ' + time_str if time_str else ''}")
 
-    pdf.set_xy(right_x, qr_y + 34)
+    pdf.set_xy(right_x, qr_y + 28)
     pdf.set_text_color(60, 60, 60)
     venue_str = ", ".join(p for p in (venue, city) if p) or "-"
     pdf.cell(right_w, 5, venue_str)
 
     # Divider
     pdf.set_draw_color(220, 220, 220)
-    pdf.line(right_x, qr_y + 40, page_w - margin, qr_y + 40)
+    pdf.line(right_x, qr_y + 36, page_w - margin, qr_y + 36)
 
     # 2x2 info grid
     col_w = right_w / 2
-    r1y = qr_y + 46
-    r2y = qr_y + 58
+    r1y = qr_y + 42
+    r2y = qr_y + 54
 
     def _cell(label: str, value: str, x: float, y: float) -> None:
         pdf.set_xy(x, y)
