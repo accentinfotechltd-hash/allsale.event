@@ -315,7 +315,10 @@ export default function EventDetail() {
 
   const applyCode = async () => {
     if (!codeInput.trim()) return;
-    if (subtotal <= 0) { toast.error("Pick tickets/seats first"); return; }
+    if (subtotal <= 0) {
+      toast.error("This event is free — promo codes don't apply. Just pick your tickets and hit Reserve.");
+      return;
+    }
     setValidatingCode(true);
     try {
       const { data } = await api.post("/discount-codes/validate", {
@@ -658,6 +661,12 @@ export default function EventDetail() {
             )}
 
             <div className="border-t pt-4 space-y-2" style={{ borderColor: "var(--border)" }}>
+              {/* Promo + gift-card inputs only make sense on paid events —
+                  hide the whole block for free events (subtotal=0) so users
+                  don't type a code and wonder why the Apply button is dead.
+                  Any lines BELOW (subtotal display, group discount, total)
+                  remain visible so the checkout summary is complete. */}
+              {subtotal > 0 && (<>
               {/* Promo code input */}
               {appliedCode ? (
                 <div className="flex items-center justify-between p-2.5 rounded-lg" style={{ background: "var(--accent-soft)", border: "1px solid var(--accent)" }} data-testid="applied-code">
@@ -734,6 +743,7 @@ export default function EventDetail() {
                   >{giftCardChecking ? "..." : "Apply"}</button>
                 </div>
               )}
+              </>)}
 
               {groupDiscountAmount > 0 && (
                 <div

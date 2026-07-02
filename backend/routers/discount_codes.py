@@ -106,10 +106,27 @@ async def create_code(payload: DiscountCodeIn, user: dict = Depends(get_current_
             raise HTTPException(status_code=404, detail="Event not found")
         if ev["organizer_id"] != user["user_id"] and user.get("role") != "admin":
             raise HTTPException(status_code=403, detail="Not your event")
+    elif user.get("role") == "admin":
+        # Admins can't create a code with no event_id — otherwise it'd
+        # be scoped to `created_by=admin`, which no validator ever queries
+        # (validators look up the event's organizer_id).
+        raise HTTPException(status_code=400, detail="Admin-created codes must specify an event_id")
+
+    # Attribution: `created_by` MUST match the event's organizer_id so the
+    # `_find_active_code` lookup (which filters by event.organizer_id)
+    # finds it. When an ADMIN creates a code on behalf of an organizer, we
+    # attribute it to that organizer — otherwise the code would exist but
+    # be silently unfindable at checkout, which is exactly the bug users
+    # hit before Feb 2026.
+    if user.get("role") == "admin" and payload.event_id:
+        code_owner = ev["organizer_id"]
+    else:
+        code_owner = user["user_id"]
 
     # Codes are unique per organizer (so two organizers can both use "EARLY10")
-    if await db.discount_codes.find_one({"code": code, "created_by": user["user_id"]}):
-        raise HTTPException(status_code=409, detail=f"You already have a code '{code}'")
+    if await db.discount_codes.find_one({"code": code, "created_by": code_owner}):
+        who = "This organizer" if code_owner != user["user_id"] else "You"
+        raise HTTPException(status_code=409, detail=f"{who} already ha{'s' if who != 'You' else 've'} a code '{code}'")
 
     doc = {
         "code_id": f"dc_{uuid.uuid4().hex[:12]}",
@@ -122,7 +139,11 @@ async def create_code(payload: DiscountCodeIn, user: dict = Depends(get_current_
         "expires_at": payload.expires_at,
         "restricted_tiers": payload.restricted_tiers,
         "active": True,
-        "created_by": user["user_id"],
+        "created_by": code_owner,
+        # Keep a trail of who actually clicked "create" so admin actions
+        # are auditable even after attribution flips to the organizer.
+        "created_by_actor": user["user_id"],
+        "created_by_actor_role": user.get("role") or "organizer",
         "created_at": utc_now().isoformat(),
     }
     await db.discount_codes.insert_one(doc)
