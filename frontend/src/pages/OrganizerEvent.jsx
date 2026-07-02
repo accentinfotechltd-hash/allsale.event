@@ -15,6 +15,7 @@ import AffiliatesPanel from "@/components/AffiliatesPanel";
 import UtmLinkGenerator from "@/components/UtmLinkGenerator";
 import InfluencerProgramPanel from "@/components/InfluencerProgramPanel";
 import OrganizerCreatorCodesPanel from "@/components/OrganizerCreatorCodesPanel";
+import ManualBookingPanel from "@/components/ManualBookingPanel";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
@@ -177,6 +178,8 @@ export default function OrganizerEvent() {
       </div>
 
       <VelocityWidget eventId={eventId} />
+
+      <ManualBookingPanel eventId={eventId} event={event} />
 
       <TeamPanel eventId={eventId} event={event} />
 
