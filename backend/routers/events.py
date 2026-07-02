@@ -493,12 +493,18 @@ async def create_event(payload: EventIn, request: Request, user: dict = Depends(
     await require_role(user, "organizer", "admin")
     event_id = f"evt_{uuid.uuid4().hex[:12]}"
 
+    # Drafts skip every publish-time gate below (Stripe Connect + moderation
+    # queue + admin notifications). The organizer picks them up later in
+    # /organizer/events, edits at leisure, then hits Publish which re-runs
+    # the checks via the PATCH endpoint.
+    is_draft = bool(payload.is_draft)
+
     # Stripe Connect gate: organizers MUST have a working payout account
     # before they can publish a PAID event. Free events skip this check.
     # Admins are trusted (they can create on behalf of an organizer who is
     # still onboarding — that organizer will get their own payout reminder
     # via the "admin_created_event_for_you" flow downstream).
-    if user.get("role") != "admin" and _event_is_paid(payload.tiers):
+    if not is_draft and user.get("role") != "admin" and _event_is_paid(payload.tiers):
         if not bool(user.get("stripe_payouts_enabled")):
             origin = request.headers.get("origin") or "https://www.allsale.events"
             await _send_stripe_required_reminder(user, payload.title, origin)
@@ -575,7 +581,7 @@ async def create_event(payload: EventIn, request: Request, user: dict = Depends(
         "affiliate_program_open": bool(payload.affiliate_program_open),
         "affiliate_default_commission_pct": float(payload.affiliate_default_commission_pct),
         "group_discount": payload.group_discount or None,
-        "status": "approved" if user.get("role") == "admin" else "pending",
+        "status": "draft" if is_draft else ("approved" if user.get("role") == "admin" else "pending"),
         "featured": False,
         "created_at": utc_now().isoformat(),
     }
@@ -664,18 +670,34 @@ async def update_event(event_id: str, payload: dict, user: dict = Depends(get_cu
         "group_discount",
     }
     update = {k: v for k, v in (payload or {}).items() if k in EDITABLE}
+
+    # Draft → publish transition: the frontend Publish button sends
+    # is_draft=false on an event currently in status "draft". Non-draft
+    # events ignore the flag (you can't un-publish an approved event via
+    # a checkbox — an admin has to explicitly unpublish it elsewhere).
+    publishing_a_draft = (
+        event.get("status") == "draft"
+        and payload is not None
+        and payload.get("is_draft") is False
+    )
+    if publishing_a_draft:
+        update["status"] = "approved" if user.get("role") == "admin" else "pending"
+
     if not update:
         raise HTTPException(status_code=400, detail="No editable fields provided")
 
-    # Stripe Connect gate (mirror of the create-event check). If this PATCH
-    # raises an event from free → paid, the organizer needs working payouts.
+    # Stripe Connect gate. Fires when:
+    #   (a) A PATCH raises an event from free → paid tiers, OR
+    #   (b) The event is transitioning draft → published and the effective
+    #       tiers (either the incoming update or the existing doc) are paid.
+    effective_tiers = update.get("tiers", event.get("tiers", []))
+    tiers_going_paid = "tiers" in update and _event_is_paid(update["tiers"])
+    draft_publish_paid = publishing_a_draft and _event_is_paid(effective_tiers)
     if (
-        "tiers" in update
+        (tiers_going_paid or draft_publish_paid)
         and user.get("role") != "admin"
-        and _event_is_paid(update["tiers"])
         and not bool(user.get("stripe_payouts_enabled"))
     ):
-        from fastapi import Request as _Req  # local import for type only
         # We don't have the Request object here; use the platform default for
         # the onboarding link domain — good enough for the reminder email.
         cms = await db.platform_settings.find_one({"key": "cms"}, {"_id": 0}) or {}
@@ -686,8 +708,8 @@ async def update_event(event_id: str, payload: dict, user: dict = Depends(get_cu
             detail={
                 "code": "stripe_payouts_required",
                 "message": (
-                    "Connect your bank account on Stripe before turning this "
-                    "into a paid event — payouts can't reach you otherwise. "
+                    "Connect your bank account on Stripe before publishing a "
+                    "paid event — payouts can't reach you otherwise. "
                     "We've emailed you a 1-click onboarding link."
                 ),
                 "onboarding_path": "/organizer",
@@ -699,6 +721,36 @@ async def update_event(event_id: str, payload: dict, user: dict = Depends(get_cu
 
     await db.events.update_one({"event_id": event_id}, {"$set": update})
     refreshed = await db.events.find_one({"event_id": event_id}, {"_id": 0})
+
+    # Draft → pending transition: notify all admins so the event surfaces
+    # in the moderation queue right away. Skipped for admin authors (their
+    # events land as "approved" and don't need moderation).
+    if publishing_a_draft and refreshed.get("status") == "pending":
+        try:
+            from emails import send_template_fireforget
+            cms = await db.platform_settings.find_one({"key": "cms"}, {"_id": 0}) or {}
+            origin = (cms.get("public_origin") or "https://www.allsale.events").rstrip("/")
+            admin_url = f"{origin}/admin"
+            async for admin in db.users.find(
+                {"role": "admin"}, {"_id": 0, "email": 1, "name": 1}
+            ):
+                send_template_fireforget(
+                    "admin_new_event_submitted",
+                    admin.get("email"),
+                    {
+                        "admin_name": admin.get("name") or "Admin",
+                        "event_title": refreshed.get("title", ""),
+                        "organizer_name": refreshed.get("organizer_name") or "Organizer",
+                        "venue": f"{refreshed.get('venue','')}, {refreshed.get('city','')}",
+                        "event_date_iso": refreshed.get("date", ""),
+                        "admin_url": admin_url,
+                    },
+                    db,
+                )
+        except Exception as exc:  # pragma: no cover
+            from core import logger as _log
+            _log.warning(f"[events] draft-publish admin notify failed: {exc}")
+
     return event_to_public(refreshed)
 
 

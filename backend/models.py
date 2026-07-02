@@ -109,6 +109,12 @@ class EventIn(BaseModel):
     # This is purely a per-event preference; admin-level fee % stays
     # the source of truth for the actual numbers.
     absorb_fees: bool = False
+    # Set True to save the event as a private draft (owner + admin only,
+    # never appears on public listings). Drafts skip the Stripe Connect
+    # payout gate and the admin moderation queue email — the checks fire
+    # on the transition draft → publish instead. Default: False = the
+    # normal "submit for approval" path.
+    is_draft: bool = False
 
 
 class HoldIn(BaseModel):

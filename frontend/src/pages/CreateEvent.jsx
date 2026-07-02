@@ -73,8 +73,11 @@ export default function CreateEvent() {
     absorb_fees: false,
   });
   const [tiers, setTiers] = useState([{ name: "General", price: 50.0, capacity: 200 }]);
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting, setSubmitting] = useState(null); // null | "draft" | "publish"
   const [loading, setLoading] = useState(isEdit);
+  // Populated in edit mode from GET /events/{id} — governs which buttons show.
+  // "draft" → both Save-as-Draft + Publish. Anything else → single Save-changes.
+  const [eventStatus, setEventStatus] = useState(null);
 
   // Stripe Connect status — organizer MUST have payouts enabled before
   // they can publish a PAID event (free events skip this check). Admins
@@ -190,6 +193,7 @@ export default function CreateEvent() {
           absorb_fees: !!data.absorb_fees,
         });
         if (Array.isArray(data.tiers) && data.tiers.length) setTiers(data.tiers);
+        setEventStatus(data.status || null);
       } catch {
         toast.error("Could not load event");
       } finally {
@@ -287,14 +291,33 @@ export default function CreateEvent() {
 
   const update = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  const onSubmit = async (e) => {
+  const onSubmit = async (e, mode = "publish") => {
+    // mode: "publish" (default) — creates status=pending and enforces full
+    //   validation (cover photo + date + tier prices) + Stripe gate.
+    // mode: "draft" — creates status=draft with LOOSER validation: title is
+    //   the only mandatory field so the organizer can save a rough sketch
+    //   and finish later. Stripe gate + admin notify are both skipped on
+    //   the backend for drafts.
     e.preventDefault();
-    if (!form.image_url) { toast.error("Please upload a cover photo"); return; }
-    if (!form.date) { toast.error("Please pick an event date and time"); return; }
-    const parsedDate = new Date(form.date);
-    if (Number.isNaN(parsedDate.getTime())) {
-      toast.error("That date doesn't look right — please pick it again");
+    const isDraft = mode === "draft";
+
+    // Drafts still need SOMETHING to identify them by — enforce a title.
+    if (isDraft && !form.title.trim()) {
+      toast.error("Give your draft a title first — everything else can wait");
       return;
+    }
+
+    if (!isDraft) {
+      if (!form.image_url) { toast.error("Please upload a cover photo"); return; }
+      if (!form.date) { toast.error("Please pick an event date and time"); return; }
+    }
+    let parsedDate = null;
+    if (form.date) {
+      parsedDate = new Date(form.date);
+      if (Number.isNaN(parsedDate.getTime())) {
+        toast.error("That date doesn't look right — please pick it again");
+        return;
+      }
     }
     // Optional end_date — if provided, must be after the start.
     let parsedEnd = null;
@@ -304,43 +327,49 @@ export default function CreateEvent() {
         toast.error("That end date doesn't look right — please pick it again");
         return;
       }
-      if (parsedEnd.getTime() <= parsedDate.getTime()) {
+      if (parsedDate && parsedEnd.getTime() <= parsedDate.getTime()) {
         toast.error("End time must be after the start time");
         return;
       }
     }
 
-    // Pricing sanity — block saves where the buyer would see "Free" or
-    // "TBA" on the event card because the organizer forgot to set prices.
-    // Allow $0 ONLY when EVERY price is explicitly 0 (intentional free event).
-    if (form.has_seatmap) {
-      const sp = Number(form.seat_price);
-      if (!Number.isFinite(sp) || sp < 0) {
-        toast.error("Seat price is required — set a number (use 0 for a free event)");
-        return;
-      }
-    } else {
-      if (!tiers.length) {
-        toast.error("Add at least one ticket tier before saving");
-        return;
-      }
-      const invalid = tiers.find((t) => !Number.isFinite(Number(t.price)) || Number(t.price) < 0);
-      if (invalid) {
-        toast.error(`Tier "${invalid.name || "(unnamed)"}" has no price — type a number (use 0 for a free tier)`);
-        return;
+    // Pricing sanity — block PUBLISH-mode saves where the buyer would see
+    // "Free" or "TBA" because the organizer forgot to set prices. Drafts
+    // skip this check so the organizer can save mid-flow.
+    if (!isDraft) {
+      if (form.has_seatmap) {
+        const sp = Number(form.seat_price);
+        if (!Number.isFinite(sp) || sp < 0) {
+          toast.error("Seat price is required — set a number (use 0 for a free event)");
+          return;
+        }
+      } else {
+        if (!tiers.length) {
+          toast.error("Add at least one ticket tier before saving");
+          return;
+        }
+        const invalid = tiers.find((t) => !Number.isFinite(Number(t.price)) || Number(t.price) < 0);
+        if (invalid) {
+          toast.error(`Tier "${invalid.name || "(unnamed)"}" has no price — type a number (use 0 for a free tier)`);
+          return;
+        }
       }
     }
 
-    setSubmitting(true);
+    setSubmitting(mode);
     try {
       const payload = {
         ...form,
-        date: parsedDate.toISOString(),
+        date: parsedDate ? parsedDate.toISOString() : (form.date || null),
         end_date: parsedEnd ? parsedEnd.toISOString() : null,
         tiers: form.has_seatmap ? [] : tiers,
         group_discount: (Number(form.group_discount_min_qty) > 0 && Number(form.group_discount_pct_off) > 0)
           ? { min_qty: Number(form.group_discount_min_qty), pct_off: Number(form.group_discount_pct_off) }
           : null,
+        // The backend uses `is_draft` on POST /events for initial save, AND
+        // on PATCH /events/{id} to transition draft→publish (is_draft=false
+        // triggers the status flip). Always send the flag so both flows work.
+        is_draft: isDraft,
       };
       delete payload.group_discount_min_qty;
       delete payload.group_discount_pct_off;
@@ -356,12 +385,30 @@ export default function CreateEvent() {
       }
       if (isEdit) {
         const { data } = await api.patch(`/events/${eventId}`, payload);
-        toast.success("Event updated");
-        nav(`/organizer/events/${data.event_id}`);
+        if (isDraft) {
+          toast.success("Draft saved");
+          setEventStatus(data.status || "draft");
+          // Stay on the edit page — the organizer is likely still working.
+        } else {
+          // Publishing an existing draft OR editing a live event.
+          if (eventStatus === "draft") {
+            toast.success(isAdmin ? "Event published!" : "Event submitted for approval");
+            nav(`/events/${data.event_id}`);
+          } else {
+            toast.success("Event updated");
+            nav(`/organizer/events/${data.event_id}`);
+          }
+        }
       } else {
         const { data } = await api.post("/events", payload);
-        toast.success("Event submitted! Pending approval.");
-        nav(`/events/${data.event_id}`);
+        if (isDraft) {
+          toast.success("Draft saved — finish it any time from your organizer dashboard");
+          // Move to edit mode on the saved draft so the organizer can keep going.
+          nav(`/organizer/events/${data.event_id}/edit`);
+        } else {
+          toast.success(isAdmin ? "Event published!" : "Event submitted! Pending approval.");
+          nav(`/events/${data.event_id}`);
+        }
       }
     } catch (err) {
       // Surface the real reason instead of a generic "something went wrong".
@@ -392,7 +439,7 @@ export default function CreateEvent() {
       } else {
         toast.error(formatApiErrorDetail(detail) || `Failed (HTTP ${status || "?"})`);
       }
-    } finally { setSubmitting(false); }
+    } finally { setSubmitting(null); }
   };
 
   return (
@@ -958,9 +1005,57 @@ export default function CreateEvent() {
           </div>
         </div>
 
-        <button type="submit" disabled={submitting} className="btn-primary" data-testid="submit-event-btn">
-          {submitting ? (isEdit ? "Saving..." : "Submitting...") : (isEdit ? "Save changes" : "Submit for approval")}
-        </button>
+        <div className="pt-4 border-t" style={{ borderColor: "var(--border)" }}>
+          {isEdit && eventStatus === "draft" && (
+            <div
+              className="mb-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
+              style={{ background: "rgba(154,154,163,0.12)", color: "var(--text-muted)" }}
+              data-testid="event-draft-status-badge"
+            >
+              <Bookmark className="w-3 h-3" />
+              This event is a private draft — not visible to attendees yet.
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Save as Draft — shown when creating (before first save) OR
+                editing a draft. Hidden for already-published events since
+                "unpublishing" isn't a supported action. */}
+            {(!isEdit || eventStatus === "draft") && (
+              <button
+                type="button"
+                onClick={(ev) => onSubmit(ev, "draft")}
+                disabled={submitting !== null}
+                className="btn-ghost"
+                data-testid="save-draft-btn"
+                title="Save your progress without publishing. Skips the Stripe payout check."
+              >
+                <Bookmark className="w-4 h-4" />
+                {submitting === "draft"
+                  ? "Saving…"
+                  : (isEdit ? "Save draft" : "Save as draft")}
+              </button>
+            )}
+            {/* Publish / Submit / Save-changes — the primary action.
+                Label changes based on where we are in the lifecycle:
+                  • Creating fresh, non-admin → "Submit for approval"
+                  • Creating fresh, admin     → "Publish"
+                  • Editing a draft, non-admin → "Submit for approval"
+                  • Editing a draft, admin     → "Publish"
+                  • Editing an approved event  → "Save changes" */}
+            <button
+              type="submit"
+              disabled={submitting !== null}
+              className="btn-primary"
+              data-testid="submit-event-btn"
+            >
+              {submitting === "publish"
+                ? (isEdit && eventStatus !== "draft" ? "Saving…" : "Publishing…")
+                : (isEdit && eventStatus !== "draft"
+                    ? "Save changes"
+                    : (isAdmin ? "Publish" : "Submit for approval"))}
+            </button>
+          </div>
+        </div>
       </form>
       )}
     </div>
